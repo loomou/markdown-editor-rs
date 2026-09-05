@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="256" height="256">
+  <!-- Soft charcoal + off-white, not pure #000 / #fff. -->
+  <rect width="32" height="32" rx="7" fill="#24282f"/>
+  <path fill="#e4e7ec" d="M7.1 23.7V8.3h3.95l4.95 11.15L20.95 8.3H24.9v15.4h-3.05v-9.85L17.2 23.7h-2.4L10.15 13.85v9.85H7.1z"/>
+</svg>

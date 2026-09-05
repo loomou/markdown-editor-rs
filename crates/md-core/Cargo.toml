@@ -1,0 +1,13 @@
+[package]
+name = "md-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+pulldown-cmark = { workspace = true }
+unicode-segmentation = { workspace = true }
+
+[lints]
+workspace = true

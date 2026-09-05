@@ -1,0 +1,49 @@
+[package]
+name = "md-content"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+md-i18n = { workspace = true }
+md-core = { workspace = true }
+md-layout = { workspace = true }
+md-theme = { workspace = true }
+
+gpui = { workspace = true }
+image = { workspace = true }
+reqwest = { workspace = true }
+tokio = { workspace = true }
+base64 = { workspace = true }
+percent-encoding = { workspace = true }
+futures = { workspace = true }
+smallvec = { workspace = true }
+usvg = { workspace = true }
+
+tree-sitter-highlight = { workspace = true }
+tree-sitter-rust = { workspace = true }
+tree-sitter-python = { workspace = true }
+tree-sitter-javascript = { workspace = true }
+tree-sitter-typescript = { workspace = true }
+tree-sitter-json = { workspace = true }
+tree-sitter-toml-ng = { workspace = true }
+tree-sitter-bash = { workspace = true }
+tree-sitter-go = { workspace = true }
+tree-sitter-c = { workspace = true }
+tree-sitter-cpp = { workspace = true }
+tree-sitter-html = { workspace = true }
+tree-sitter-css = { workspace = true }
+tree-sitter-yaml = { workspace = true }
+
+merman = { workspace = true }
+merman-core = { workspace = true }
+merman-render = { workspace = true }
+merman-export = { workspace = true }
+ratex-parser = { workspace = true }
+ratex-layout = { workspace = true }
+ratex-render = { workspace = true }
+ratex-types = { workspace = true }
+
+[lints]
+workspace = true

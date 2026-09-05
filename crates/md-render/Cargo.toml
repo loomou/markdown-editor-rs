@@ -1,0 +1,20 @@
+[package]
+name = "md-render"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+md-core = { workspace = true }
+md-layout = { workspace = true }
+md-theme = { workspace = true }
+md-content = { workspace = true }
+
+gpui = { workspace = true }
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+
+[lints]
+workspace = true

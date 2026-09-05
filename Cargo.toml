@@ -1,6 +1,109 @@
-[package]
-name = "markdown-editor-rs"
+[workspace]
+resolver = "3"
+default-members = ["crates/md-editor"]
+members = [
+    "crates/md-i18n",
+    "crates/md-core",
+    "crates/md-layout",
+    "crates/md-theme",
+    "crates/md-content",
+    "crates/md-render",
+    "crates/md-editor-ui",
+    "crates/md-editor",
+]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.88"
+publish = false
 
-[dependencies]
+[workspace.lints.rust]
+rust_2018_idioms = { level = "warn" }
+
+[workspace.lints.clippy]
+all = { level = "warn" }
+uninlined_format_args = { level = "warn" }
+redundant_clone = { level = "warn" }
+inefficient_to_string = { level = "warn" }
+manual_let_else = { level = "warn" }
+undocumented_unsafe_blocks = { level = "warn" }
+
+[workspace.dependencies]
+md-i18n = { path = "crates/md-i18n" }
+md-core = { path = "crates/md-core" }
+md-layout = { path = "crates/md-layout" }
+md-theme = { path = "crates/md-theme" }
+md-content = { path = "crates/md-content" }
+md-render = { path = "crates/md-render" }
+md-editor-ui = { path = "crates/md-editor-ui" }
+md-editor = { path = "crates/md-editor" }
+
+gpui = "=0.2.2"
+pulldown-cmark = "0.13"
+merman = { version = "=0.8.0-alpha.5", default-features = false, features = [
+    "svg",
+    "png",
+    "layout-cytoscape",
+    "layout-elk",
+] }
+merman-core = { version = "=0.8.0-alpha.5", default-features = false }
+merman-render = { version = "=0.8.0-alpha.5", default-features = false }
+merman-export = { version = "=0.8.0-alpha.5", default-features = false }
+image = { version = "0.25", default-features = false, features = [
+    "png",
+    "jpeg",
+    "gif",
+    "webp",
+    "bmp",
+    "tiff",
+] }
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls",
+] }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "net"] }
+base64 = "0.22"
+percent-encoding = "2.3"
+futures = "0.3"
+smallvec = "1"
+usvg = { version = "0.45", default-features = false }
+tree-sitter-highlight = "0.25"
+tree-sitter-rust = "0.24"
+tree-sitter-python = "0.25"
+tree-sitter-javascript = "0.25"
+tree-sitter-typescript = "0.23"
+tree-sitter-json = "0.24"
+tree-sitter-toml-ng = { version = "0.7", package = "tree-sitter-toml-ng" }
+tree-sitter-bash = "0.25"
+tree-sitter-go = "0.25"
+tree-sitter-c = "0.24"
+tree-sitter-cpp = "0.23"
+tree-sitter-html = "0.23"
+tree-sitter-css = "0.23"
+tree-sitter-yaml = "0.7"
+ratex-parser = "=0.1.14"
+ratex-layout = "=0.1.14"
+ratex-render = { version = "=0.1.14", features = ["embed-fonts"] }
+ratex-types = "=0.1.14"
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Threading",
+    "Win32_UI_Controls_Dialogs",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
+objc = "0.2"
+raw-window-handle = "0.6"
+serde_json = { version = "1", features = ["preserve_order"] }
+sys-locale = "0.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+unicode-segmentation = "1.12"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+debug = "line-tables-only"

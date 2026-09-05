@@ -1,0 +1,333 @@
+macro_rules! i18n_keys {
+    ($( $variant:ident $zh:literal $en:literal )*) => {
+
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+        pub enum Key { $($variant,)* }
+
+        impl Key {
+            pub const ALL: &'static [Key] = &[$(Self::$variant,)*];
+
+            pub const COUNT: usize = Self::ALL.len();
+
+            pub(crate) fn zh_cn(self) -> &'static str {
+                match self { $(Self::$variant => $zh,)* }
+            }
+
+            pub(crate) fn en(self) -> &'static str {
+                match self { $(Self::$variant => $en,)* }
+            }
+
+
+            pub fn debug_name(self) -> &'static str {
+                match self { $(Self::$variant => stringify!($variant),)* }
+            }
+        }
+    };
+}
+
+i18n_keys! {
+
+    MenuBarFile             "文件"              "File"
+    MenuBarEdit             "编辑"              "Edit"
+    MenuBarView             "视图"              "View"
+    MenuBarGo               "跳转"              "Go"
+    MenuBarHelp             "帮助"              "Help"
+
+
+
+
+
+
+    Save                    "保存"              "Save"
+    Theme                   "主题"              "Theme"
+
+
+    MenuNew                 "新建"              "New"
+    MenuOpen                "打开…"             "Open…"
+    MenuSaveAs              "另存为…"           "Save As…"
+    MenuExit                "退出"              "Exit"
+
+
+    MenuUndo                "撤销"              "Undo"
+    MenuRedo                "重做"              "Redo"
+    MenuCut                 "剪切"              "Cut"
+    MenuCopy                "复制"              "Copy"
+    MenuPaste               "粘贴"              "Paste"
+    MenuSelectAll           "全选"              "Select All"
+    MenuFind                "查找"              "Find"
+
+
+    CmdFindNext             "查找下一个"        "Find Next"
+    CmdFindPrev             "查找上一个"        "Find Previous"
+
+
+    MenuOutline             "大纲"              "Outline"
+    MenuGoToLine            "跳到行…"           "Go to Line…"
+    MenuShortcuts           "键盘快捷键"        "Keyboard Shortcuts"
+    MenuAbout               "关于 md-test"      "About md-test"
+
+
+    MenuTable               "表格"              "Table"
+    MenuInsertTable         "插入表格…"         "Insert Table…"
+    TableInsertRowAbove     "在上方插入行"      "Insert Row Above"
+    TableInsertRowBelow     "在下方插入行"      "Insert Row Below"
+    TableMoveRowUp          "上移行"            "Move Row Up"
+    TableMoveRowDown        "下移行"            "Move Row Down"
+    TableInsertColLeft      "在左侧插入列"      "Insert Column Left"
+    TableInsertColRight     "在右侧插入列"      "Insert Column Right"
+    TableMoveColLeft        "左移列"            "Move Column Left"
+    TableMoveColRight       "右移列"            "Move Column Right"
+    TableDeleteRow          "删除行"            "Delete Row"
+    TableDeleteCol          "删除列"            "Delete Column"
+    TableDeleteTable        "删除表格"          "Delete Table"
+
+
+    NavAppearance           "外观"              "Appearance"
+    NavEditing              "编辑"              "Editing"
+    NavFiles                "文件"              "Files"
+    NavShortcuts            "快捷键"            "Shortcuts"
+    NavAbout                "关于"              "About"
+
+
+
+
+
+    SetLanguage             "语言"              "Language"
+    SetLanguageHint         "换语言要重启"      "Takes effect after a restart"
+    SetLanguageSystem       "跟随系统"          "Follow the system"
+    SetLanguageZh           "中文"              "中文"
+    SetLanguageEn           "English"           "English"
+    SetThemeHint            "界面与正文配色"    "Colors for the app and the document"
+    SetThemeDark            "深色"              "Dark"
+    SetThemeLight           "浅色"              "Light"
+    SetBodyFont             "正文字体"          "Body font"
+    SetBodyFontHint         "Markdown 正文使用的字族，代码仍是等宽"
+                            "Family for Markdown body text; code stays monospace"
+    SetFontSerif            "衬线"              "Serif"
+    SetFontSans             "无衬线"            "Sans"
+    SetBodySize             "正文字号"          "Body size"
+    SetDensity              "版面密度"          "Density"
+    SetDensityHint          "页边、段距与缩进的整体松紧"
+                            "Overall tightness of margins, spacing, and indents"
+    SetDensityCompact       "紧凑"              "Compact"
+    SetDensityNormal        "标准"              "Normal"
+    SetDensityRelaxed       "宽松"              "Relaxed"
+    SetColors               "配色"              "Colors"
+    SetColorsEdit           "编辑 settings.json" "Edit settings.json"
+    SetColorsNoHome         "定不出状态目录，改不了"
+                            "No state directory found, so there is nothing to edit"
+    SetColorsResetAll       "全部恢复默认"      "Reset all"
+
+
+
+
+
+    SetShortcutsHint        "点一行，然后按下新的组合"
+                            "Click a row, then press the new combination"
+    ShortcutUnset           "未设置"            "Not set"
+    ShortcutRecording       "按下新组合，退格清除"
+                            "Press a combination; Backspace clears"
+
+
+    ShortcutsResetAll       "键位全部恢复默认"  "Reset all shortcuts"
+    ShortcutNeedsModifier   "这个组合会打出字来，得带上 Ctrl 或 Alt"
+                            "That would type a character; add Ctrl or Alt"
+
+
+    SetAutosave             "自动保存"          "Autosave"
+    SetAutosaveHint         "停止输入 2 秒后写入磁盘"
+                            "Writes to disk 2 seconds after you stop typing"
+    SetRemoteImages         "远程图片"          "Remote Images"
+    SetRemoteImagesHint     "允许文档从公网加载图片"
+                            "Allow documents to load images from the public internet"
+    SetStartup              "启动时"            "On startup"
+    SetStartupHint          "不带参数启动的行为"
+                            "What happens when launched with no file"
+    SetStartupNew           "新建文档"          "New document"
+    SetStartupLast          "打开上次"          "Reopen last"
+    SetSectionEmpty         "该分区的设置项将在后续版本提供。"
+                            "Settings for this section are coming in a later version."
+    SetAboutTagline         "GPUI Markdown 编辑器 · "
+                            "A Markdown editor built on GPUI · "
+
+
+    DlgClose                "关闭"              "Close"
+    DlgCancel               "取消"              "Cancel"
+    DlgDontSave             "不保存"            "Don't Save"
+    DlgUnsavedDetail        "未保存的编辑只在内存里，不写入磁盘就会丢失。"
+                            "Unsaved edits live only in memory and are lost if not written to disk."
+    DlgFileChanged          "文件已在磁盘上更改" "File changed on disk"
+    DlgFileChangedDetail    "继续保存会覆盖外部更改。"
+                            "Saving now will overwrite the external changes."
+    DlgOverwriteAnyway      "仍然覆盖"          "Overwrite Anyway"
+
+    DlgOpenMarkdown         "打开 Markdown"     "Open Markdown"
+    DlgExternalFile         "打开外部文件？"      "Open external file?"
+    DlgOpenAnyway           "仍然打开"           "Open Anyway"
+    DlgSaveMarkdown         "保存 Markdown"     "Save Markdown"
+
+    DlgMarkdownFilter       "Markdown 文件"     "Markdown files"
+    DlgInsertTable          "插入表格"          "Insert Table"
+    DlgTableRows            "行数"              "Rows"
+    DlgTableCols            "列数"              "Columns"
+    DlgCreate               "创建"              "Create"
+
+
+    OutlineTitle            "大纲"              "OUTLINE"
+
+
+
+
+    FindNoMatch             "无匹配"            "No match"
+    FindTooMany             "过多"              "Too many"
+
+
+    PickerReset             "恢复默认"          "Reset"
+
+
+
+
+    ClrGroupText            "文字"              "Text"
+    ClrGroupSurface         "底色与线"          "Backgrounds and lines"
+    ClrGroupCursor          "光标与标记"        "Cursor and markers"
+    ClrGroupAlert           "提示块"            "Alert blocks"
+    ClrGroupSyntax          "代码高亮"          "Code highlighting"
+    ClrGroupAppSurface      "界面底色与线"      "App backgrounds and lines"
+
+
+
+
+
+
+
+
+    ClrBody                 "正文"              "Body"
+    ClrHeading1             "一级标题"          "Heading 1"
+    ClrHeading2             "二级标题"          "Heading 2"
+    ClrHeading3             "三级标题"          "Heading 3"
+    ClrHeading4             "四级标题"          "Heading 4"
+    ClrHeading5             "五级标题"          "Heading 5"
+    ClrHeading6             "六级标题"          "Heading 6"
+    ClrQuote                "引用"              "Quote"
+    ClrLink                 "链接"              "Link"
+    ClrInlineCode           "行内代码"          "Inline code"
+    ClrCodeText             "代码块正文"        "Code block text"
+    ClrWellLang             "代码块语言名"      "Code block language"
+    ClrTableCell            "表格单元"          "Table cell"
+    ClrTableHead            "表头"              "Table header"
+    ClrImageAlt             "图片占位文字"      "Image alt text"
+    ClrFootnote             "脚注"              "Footnote"
+    ClrTaskDone             "已完成任务"        "Completed task"
+    ClrStrikethrough        "删除线"            "Strikethrough"
+    ClrSyntaxMarker         "语法标记"          "Syntax marker"
+
+
+    ClrCanvas               "画布"              "Canvas"
+    ClrCodeFill             "代码块底"          "Code block background"
+    ClrCodeBorder           "代码块边框"        "Code block border"
+    ClrInlineCodeFill       "行内代码底"        "Inline code background"
+    ClrQuoteBar             "引用竖条"          "Quote bar"
+    ClrListMarker           "列表符号"          "List marker"
+    ClrTableGrid            "表格网格"          "Table grid"
+    ClrTableBorder          "表格外框"          "Table border"
+    ClrTableHeadFill        "表头底"            "Table header fill"
+    ClrRule                 "分隔线"            "Horizontal rule"
+    ClrImageFill            "图片底"            "Image background"
+    ClrImageBorder          "图片边框"          "Image border"
+
+
+    ClrCaret                "光标"              "Caret"
+    ClrSelection            "选区"              "Selection"
+    ClrIme                  "输入法预编辑"      "IME preedit"
+    ClrSearchMatch          "查找命中"          "Search match"
+    ClrSearchActive         "当前命中"          "Current match"
+    ClrTaskBorder           "任务框"            "Task box"
+    ClrTaskChecked          "任务勾选底"        "Checked task fill"
+    ClrTaskCheck            "任务勾"            "Task checkmark"
+    ClrGlyphFault           "缺字底"            "Missing glyph fill"
+
+
+
+
+
+    ClrAlertNote            "NOTE"              "NOTE"
+    ClrAlertTip             "TIP"               "TIP"
+    ClrAlertImportant       "IMPORTANT"         "IMPORTANT"
+    ClrAlertWarning         "WARNING"           "WARNING"
+    ClrAlertCaution         "CAUTION"           "CAUTION"
+
+
+    ClrSynDefault           "默认"              "Default"
+    ClrSynComment           "注释"              "Comment"
+    ClrSynKeyword           "关键字"            "Keyword"
+    ClrSynString            "字符串"            "String"
+    ClrSynCharacter         "字符"              "Character"
+    ClrSynSpecial           "转义"              "Escape"
+    ClrSynSymbol            "符号"              "Symbol"
+    ClrSynNumber            "数字"              "Number"
+    ClrSynFunction          "函数"              "Function"
+    ClrSynMacro             "宏"                "Macro"
+    ClrSynType              "类型"              "Type"
+    ClrSynProperty          "属性"              "Property"
+    ClrSynOperator          "运算符"            "Operator"
+    ClrSynParameter         "参数"              "Parameter"
+    ClrSynBuiltin           "内建"              "Builtin"
+    ClrSynPunctuation       "标点"              "Punctuation"
+    ClrSynLabel             "标签"              "Label"
+
+
+    ClrAppEditorBg          "编辑区底"          "Editor background"
+    ClrAppPanelBg           "面板底"            "Panel background"
+    ClrAppBarBg             "标题栏底"          "Title bar background"
+    ClrAppHover             "悬停底"            "Hover background"
+    ClrAppActive            "按下底"            "Pressed background"
+    ClrAppBorder            "边框"              "Border"
+    ClrAppBorderVar         "弱分隔"            "Faint divider"
+    ClrAppSelectedBg        "选中底"            "Selected background"
+    ClrAppOverlay           "模态遮罩"          "Modal scrim"
+    ClrAppCloseHover        "关闭钮悬停"        "Close button hover"
+    ClrAppScrollTrack       "滚动条槽"          "Scrollbar track"
+    ClrAppScrollThumb       "滚动条滑块"        "Scrollbar thumb"
+
+
+    ClrAppText              "界面文字"          "App text"
+    ClrAppTextMuted         "次要文字"          "Secondary text"
+    ClrAppTextDisabled      "禁用文字"          "Disabled text"
+    ClrAppAccent            "强调色"            "Accent"
+    ClrAppOnAccent          "强调底上的字"      "Text on accent"
+    ClrAppCyan              "界面青"            "App cyan"
+    ClrAppRed               "界面红"            "App red"
+    ClrAppOk                "成功"              "Success"
+    ClrAppWarn              "警告"              "Warning"
+
+
+    TablePickerHint         "拖动 · 点击应用"   "Drag · click to apply"
+
+
+
+
+
+    ImageEmpty              "空图片"            "Empty image"
+    ImageTooLarge           "文件过大"          "File too large"
+    ImageRemoteDisabled     "远程图片已禁用"    "Remote images are disabled"
+    ImageOverBudget         "超出缓存预算"      "Over the cache budget"
+    ImageBadPath            "无法解析路径"      "Cannot resolve the path"
+    ImageNoPixels           "无法读取像素"      "Cannot read the pixels"
+    ImageBadPixels          "无法解码像素"      "Cannot decode the pixels"
+    ImageRasterFailed       "无法栅格化"        "Cannot rasterize"
+    DiagramEmpty            "图表为空"          "Empty diagram"
+    DiagramEmptyPng         "PNG 为空"          "Empty PNG"
+    DiagramBadPng           "无法解码 PNG"      "Cannot decode the PNG"
+    FormulaParseFailed      "无法解析公式"      "Cannot parse the formula"
+    FormulaRenderFailed     "无法渲染公式"      "Cannot render the formula"
+
+
+
+
+    ErrCannotRead           "无法读取"          "Cannot read"
+    ErrCannotSave           "无法保存"          "Cannot save"
+
+
+    ErrUtf8Only             "只认 UTF-8"        "UTF-8 files only"
+    ErrNotMarkdown          "不是 Markdown 文件" "Not a Markdown file"
+}

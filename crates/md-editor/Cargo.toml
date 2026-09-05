@@ -1,0 +1,49 @@
+[package]
+name = "md-editor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+hot_path = ["md-layout/hot_path"]
+
+[[bin]]
+name = "md-editor"
+path = "src/main.rs"
+test = false
+
+[dependencies]
+md-i18n = { workspace = true }
+md-core = { workspace = true }
+md-layout = { workspace = true }
+md-theme = { workspace = true }
+md-content = { workspace = true }
+md-render = { workspace = true }
+md-editor-ui = { workspace = true }
+
+gpui = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true }
+
+[build-dependencies]
+embed-resource = "3.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc = { workspace = true }
+raw-window-handle = { workspace = true }
+
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
+x11rb = "0.13"
+
+[lints]
+workspace = true
