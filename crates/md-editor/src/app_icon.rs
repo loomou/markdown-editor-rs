@@ -110,7 +110,6 @@ mod linux {
 
 #[cfg(test)]
 mod tests {
-
     #[test]
     fn the_x11_icon_blob_is_well_formed() {
         let bytes = include_bytes!("../resources/linux/net-wm-icon.bin");

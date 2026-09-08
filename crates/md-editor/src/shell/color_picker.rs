@@ -20,19 +20,14 @@ const GAP: f32 = 8.0;
 const FIELD_H: f32 = 148.0;
 const HUE_H: f32 = 14.0;
 const HEAD_H: f32 = 18.0;
-
 const FOOT_H: f32 = 24.0;
-
 const HEX_W: f32 = 46.0;
-
 pub(super) const PICKER_H: f32 = PAD * 2.0 + 2.0 + HEAD_H + FIELD_H + HUE_H + FOOT_H + GAP * 3.0;
-
 const BAND: f32 = 2.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Drag {
     Field,
-
     Hue,
 }
 
@@ -65,7 +60,6 @@ fn hex_digits(color: ThemeColor) -> String {
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Anchor {
     row: Bounds<Pixels>,
-
     clip: Bounds<Pixels>,
     viewport: Size<Pixels>,
 }
@@ -103,7 +97,6 @@ fn place(a: Anchor) -> Option<Point<Pixels>> {
         below
     };
     let x = f32::from(a.row.right()) - PICKER_W;
-
     Some(point(
         px(x.clamp(0.0, (vw - PICKER_W - VIEW_MARGIN).max(0.0))),
         px(y.clamp(0.0, (vh - PICKER_H - VIEW_MARGIN).max(0.0))),
@@ -117,7 +110,6 @@ pub(super) struct Placed {
 
 impl Element for Placed {
     type RequestLayoutState = ();
-
     type PrepaintState = bool;
 
     fn id(&self) -> Option<gpui::ElementId> {
@@ -155,7 +147,6 @@ impl Element for Placed {
         let Some(origin) = place(self.anchor.get()) else {
             return false;
         };
-
         let delta = origin - bounds.origin;
         let delta = point(delta.x.round(), delta.y.round());
         window.with_element_offset(delta, |window| self.child.prepaint(window, cx));
@@ -198,7 +189,6 @@ fn paint_field(window: &mut Window, bounds: Bounds<Pixels>, hue: f32) {
         let s = (i as f32 + 0.5) / bands;
         let mid = ThemeColor::new(hue, s, 0.5, 1.0).hsla();
         let x = x0 + i as f32 * bw;
-
         window.paint_quad(fill(
             rect(x, y0, bw + 1.0, half),
             linear_gradient(
@@ -268,13 +258,10 @@ fn drag_end(shell: &mut Shell, which: Drag) -> bool {
 
 pub(super) struct ColorPicker {
     slot: ColorSlot,
-
     anchor: Rc<Cell<Anchor>>,
     drag: Option<Drag>,
-
     field: Rc<Cell<Option<Bounds<Pixels>>>>,
     hue: Rc<Cell<Option<Bounds<Pixels>>>>,
-
     pub(super) hex: TextInput,
 }
 
@@ -518,10 +505,8 @@ impl ColorPicker {
                             line_height: px(14.),
                             text: t.text,
                             placeholder_color: t.text_disabled,
-
                             placeholder: "".into(),
                             selection: t.selected_bg,
-
                             ime: t.selected_bg,
                             caret: t.accent,
                             caret_width: 1.5,
@@ -634,7 +619,6 @@ mod tests {
         assert_eq!(sl_at(point(px(100.), px(200.)), field), (0.0, 1.0));
         assert_eq!(sl_at(point(px(300.), px(300.)), field), (1.0, 0.0));
         assert_eq!(sl_at(point(px(200.), px(250.)), field), (0.5, 0.5));
-
         assert_eq!(sl_at(point(px(-999.), px(999.)), field), (0.0, 0.0));
         assert_eq!(sl_at(point(px(999.), px(-999.)), field), (1.0, 1.0));
 
@@ -657,10 +641,8 @@ mod tests {
         assert_eq!(at(100.0).y, below(100.0));
         let last_fit = 680.0 - PICKER_H - ANCHOR_GAP - VIEW_MARGIN - 34.0;
         assert_eq!(at(last_fit).y, below(last_fit));
-
         assert_eq!(at(390.0).y, px(390.0 - ANCHOR_GAP - PICKER_H));
         assert_eq!(at(600.0).y, px(600.0 - ANCHOR_GAP - PICKER_H));
-
         assert_eq!(at(100.0).x, px(900.0 - PICKER_W - VIEW_MARGIN));
     }
 
@@ -671,16 +653,9 @@ mod tests {
             clip: rect(0.0, 0.0, 900.0, 120.0),
             viewport: size(px(900.), px(120.)),
         };
-        assert_eq!(
-            place(squished).expect("must be visible"),
-            point(px(660.), px(0.))
-        );
-
+        assert_eq!(place(squished).expect("visible"), point(px(660.), px(0.)));
         let top = anchor(2.0);
-        assert_eq!(
-            place(top).expect("must be visible").y,
-            px(2.0 + 34.0 + ANCHOR_GAP)
-        );
+        assert_eq!(place(top).expect("visible").y, px(2.0 + 34.0 + ANCHOR_GAP));
     }
 
     #[test]
@@ -698,16 +673,16 @@ mod tests {
         assert!(seen(80.0), "a half-revealed row still counts as visible");
         assert!(
             !seen(66.0),
-            "just scrolled past the top of the clip: it must not paint"
+            "scrolled just above the clip box: it should not paint anymore"
         );
-        assert!(!seen(-40.0), "scrolled far past, even less so");
+        assert!(!seen(-40.0), "scrolled far away, even less so");
         assert!(
             seen(595.0),
-            "a sliver of the bottom edge still counts as visible"
+            "a row showing a sliver at the bottom edge still counts as visible"
         );
         assert!(
             !seen(600.0),
-            "scrolled past the bottom of the clip: it must not paint"
+            "scrolled below the clip box: it should not paint anymore"
         );
     }
 }

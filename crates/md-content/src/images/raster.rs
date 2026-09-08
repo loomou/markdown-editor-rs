@@ -27,7 +27,6 @@ pub fn raster_display(
     if px_w == iw && px_h == ih {
         return Ok(ReadyImage {
             image: Arc::clone(source),
-
             bytes: 0,
             dpr,
             px_w,
@@ -42,7 +41,6 @@ pub fn raster_display(
     let img = RgbaImage::from_raw(iw, ih, raw)
         .ok_or_else(|| crate::Error::Image(md_i18n::Key::ImageBadPixels.into()))?;
     let out = imageops::resize(&img, px_w, px_h, FilterType::Triangle);
-
     from_bgra(out, dpr).ok_or_else(|| crate::Error::Image(md_i18n::Key::ImageRasterFailed.into()))
 }
 

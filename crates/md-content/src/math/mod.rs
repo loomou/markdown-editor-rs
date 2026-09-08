@@ -6,7 +6,6 @@ pub(crate) const MATH_PAD: f32 = 1.0;
 const MAX_IN_FLIGHT: usize = 4;
 const MAX_ENTRIES: usize = 256;
 const MAX_BYTES: usize = 32 * 1024 * 1024;
-
 const WARM_EXTRA_ENTRIES: usize = 192;
 
 const MAX_METRIC_ENTRIES: usize = 4096;
@@ -102,15 +101,11 @@ enum Slot {
 pub struct MathCache {
     map: HashMap<MathKey, Slot>,
     lru: VecDeque<MathKey>,
-
     hot: HashSet<MathKey>,
-
     warm: HashSet<MathKey>,
     bytes: usize,
     inflight: usize,
-
     metrics: Rc<MathMetrics>,
-
     metrics_order: VecDeque<MetricId>,
     metrics_gen: u64,
     ready: Rc<HashMap<MathKey, ReadyImage>>,

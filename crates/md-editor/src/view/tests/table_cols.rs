@@ -201,7 +201,6 @@ fn undo_of_cell_typing_keeps_the_col_tracks(cx: &mut TestAppContext) {
                 .insert(table, vec![240.0, 180.0, 180.0]);
         });
     });
-
     cx.simulate_input("x");
     cx.update(|_, app| {
         let view = editor.read(app);

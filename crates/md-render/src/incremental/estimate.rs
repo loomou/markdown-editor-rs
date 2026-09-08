@@ -60,7 +60,6 @@ impl Estimator {
     pub fn estimate(&self, tree: &BoxTree, id: LayoutBoxId, avail_width: Px) -> Px {
         let node = tree.get(id);
         let style = tree.style_of(node);
-
         if node.kind() == BlockKind::Mermaid && !node.edit_source() {
             return self.mermaid_max_height
                 + style.top_border_padding()
@@ -86,7 +85,6 @@ impl Estimator {
         }
         let inner = (avail_width - style.inline_border_padding()).max(1.0);
         let text_width = self.estimated_text_width(tree.text_of(node));
-
         let est_rows = if node.edit_source() {
             (tree.text_of(node).lines().count() as Px).max(1.0)
         } else if text_width == 0.0 {

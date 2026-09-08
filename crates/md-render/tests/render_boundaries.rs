@@ -339,7 +339,6 @@ fn a_frame_can_find_its_own_text_again(cx: &mut TestAppContext) {
             .first()
             .expect("the fixture paragraph must yield a text piece")
             .clone();
-
         let (x, y) = text.content_origin_device;
         let probe = (x + 2.0, y + text.view_height / 2.0);
         let hit =
@@ -359,7 +358,6 @@ fn a_frame_can_find_its_own_text_again(cx: &mut TestAppContext) {
         hit.block, block,
         "the round trip must land on the same block: what was painted is what the click comes back to"
     );
-
     assert_eq!(
         frame_revs,
         (revs.document, revs.layout, revs.viewport),
@@ -477,7 +475,6 @@ fn block_edit_consumers_use_one_coordinate_space(cx: &mut TestAppContext) {
             frame.search_device[0].1, source.content_origin_device.1,
             "search offsets map to the editable source artifact"
         );
-
         let needle_at = "![needle](https://example.com/a-long-image-name.png)"
             .find("needle")
             .expect("needle in source");
@@ -625,7 +622,7 @@ fn wrapped_aligned_cell_selection_starts_at_each_rows_ink(cx: &mut TestAppContex
 fn caret_selection_and_search_agree_on_one_word(cx: &mut TestAppContext) {
     let start = FIXTURE
         .find(NEEDLE)
-        .expect("the fixture must contain the word");
+        .expect("the fixture should contain that word");
     let end = start + NEEDLE.len();
 
     let cx = cx.add_empty_window();
@@ -668,33 +665,30 @@ fn caret_selection_and_search_agree_on_one_word(cx: &mut TestAppContext) {
     assert_eq!(
         selection.len(),
         1,
-        "a selection within one line must be a single band"
+        "a selection within one row should be a single band"
     );
     assert_eq!(
         search.len(),
         1,
-        "the word must appear exactly once in the fixture"
+        "the fixture contains that word exactly once"
     );
-
     assert_eq!(
         caret.0, selection[0].0,
-        "the caret must stand on the selection's left edge"
+        "the caret should stand on the selection's left edge"
     );
     assert_eq!(
         caret.0, search[0].0,
-        "the caret must stand on the match's left edge"
+        "the caret should stand on the match's left edge"
     );
-
     assert_eq!(
         selection[0].2, search[0].2,
-        "the selection and the match must be the same width"
+        "the selection and the match should be equally wide"
     );
-
     assert!(
         selection[0].2 > 0.0 && selection[0].3 > 0.0,
-        "the selection must have real area, not a stack of zeros"
+        "the selection must really have area, not a stack of zeros"
     );
-    assert!(caret.3 > 0.0, "the caret must have real height");
+    assert!(caret.3 > 0.0, "the caret should really have height");
 }
 
 #[gpui::test]
@@ -741,7 +735,7 @@ fn alert_label_owns_a_band_above_the_first_content_line(cx: &mut TestAppContext)
         let label_row = f64::from(label.gutter_label_size) * 1.75;
         assert!(
             text.content_origin_device.1 >= ly + label_row,
-            "the label band ({ly}..{}) must lie wholly above the body text ({})",
+            "the label row ({ly}..{}) must sit entirely above the body text ({})",
             ly + label_row,
             text.content_origin_device.1
         );
@@ -782,7 +776,6 @@ fn a_dropped_cell_is_booked_as_absent_visible(cx: &mut TestAppContext) {
 
         let tree = md_layout::compose::compose(&doc.document, &theme.layout_theme());
         let mut assembly = assemble_tree(tree, env, &shaper, &FallbackSolver);
-
         let island = assembly
             .geometries
             .values_mut()

@@ -1,8 +1,10 @@
+use md_content::shaper::GpuiShaper;
 use md_core::Px;
 use md_core::block::BlockKind;
 use md_layout::assembly::Assembly;
-use md_layout::box_tree::{BoxChildren, BoxTree, LayoutBoxId};
+use md_layout::box_tree::{BoxChildren, BoxRole, BoxTree, LayoutBoxId};
 use md_layout::spine::FlowItemKind;
+use md_layout::style::BoxLayoutEnvironment;
 use md_theme::DocumentTheme;
 
 pub(super) fn first_text_box(tree: &BoxTree, id: LayoutBoxId) -> Option<LayoutBoxId> {
@@ -62,6 +64,40 @@ pub(super) fn first_line_height(
         })
         .unwrap_or(theme.type_scale.body);
     role.size_px as Px * role.line_height_em as Px
+}
+
+pub(super) fn first_line_ink(
+    assembly: &Assembly,
+    item: LayoutBoxId,
+    shaper: &GpuiShaper,
+    env: BoxLayoutEnvironment,
+) -> Option<(Px, Px)> {
+    let leaf = first_text_box(&assembly.tree, item)?;
+    let node = assembly.tree.get(leaf);
+    let inner = text_inner_width(assembly, leaf, env.viewport_width)?;
+    let art = shaper.artifact(
+        assembly.tree.text_of(node),
+        assembly.tree.runs_of(node),
+        inner,
+        node.kind(),
+        node.shape_ident(),
+    );
+    let (dy, h) = shaper.caret_ink(node.shape_kind(), node.type_slot(), &art, 0);
+    Some((dy, h))
+}
+
+fn text_inner_width(assembly: &Assembly, leaf: LayoutBoxId, viewport_width: Px) -> Option<Px> {
+    let node = assembly.tree.get(leaf);
+    let style = assembly.tree.style_of(node);
+    let width = if leaf.role == BoxRole::Cell {
+        let row = node.parent()?;
+        let g = assembly.geometries.get(&row)?;
+        let cg = g.cells.iter().find(|c| c.cell_box == leaf)?;
+        cg.width
+    } else {
+        assembly.tree.avail_width(leaf, viewport_width)
+    };
+    Some((width - style.inline_border_padding()).max(0.0))
 }
 
 pub(super) fn list_nest_depth(tree: &BoxTree, item: LayoutBoxId) -> u8 {

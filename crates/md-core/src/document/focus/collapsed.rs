@@ -53,6 +53,7 @@ impl Document {
             leaf.source_str(&self.source),
             leaf.snapshot.display.as_str(),
             kind,
+            &self.reference_definitions,
         )
         .1
     }

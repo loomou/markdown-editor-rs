@@ -1,7 +1,9 @@
 use super::Document;
 use super::arena::{DocumentArena, NodeId};
 use super::change::{ChangeSet, DocChange};
+use crate::block::{BlockKind, TextEditStrategy};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 struct LaterView {
     first_seen_from_tail: HashMap<NodeId, usize>,
@@ -51,9 +53,7 @@ impl<'a> Keep<'a> {
 
 trait SpliceHost {
     fn arena(&mut self) -> &mut DocumentArena;
-
     fn on_resurrect(&mut self, _id: NodeId) {}
-
     fn on_spliced(&mut self, _parent: NodeId) {}
 }
 
@@ -86,7 +86,6 @@ impl Document {
             return false;
         }
         let focused = self.focus.take().map(|focus| focus.node);
-
         self.block_edit = None;
         let before = self.revision;
         let view = LaterView::new(&cs.changes);
@@ -133,7 +132,12 @@ impl Document {
                         n.extra = new_extra;
                     }
                     if kind_changed && new_kind.is_text_leaf() {
-                        self.reproject_current(node);
+                        let _ = self.reproject_current(node);
+                    } else if !kind_changed
+                        && new_kind == BlockKind::TableCell
+                        && old_extra.table_header() != new_extra.table_header()
+                    {
+                        self.retable_header_cell(node, new_extra.table_header(), &mut out);
                     }
                     let _ = self.stamp_past_max(node);
                     out.push(DocChange::attrs(
@@ -157,6 +161,39 @@ impl Document {
                         removed,
                         inserted,
                     });
+                }
+                DocChange::ReferenceDefsChanged { old, new } => {
+                    self.reference_definitions = Arc::clone(&new);
+                    let revealed = self.focus.take().filter(|f| {
+                        self.arena.get(f.node).is_some_and(|n| {
+                            n.kind.text_edit_strategy() == TextEditStrategy::Phrasing
+                        })
+                    });
+                    let mut reprojections = Vec::new();
+                    self.reproject_leaves_with_reference_syntax(&[], &mut reprojections);
+                    out.extend(reprojections);
+                    if let Some(f) = revealed {
+                        let src = if f.s2d.last().copied() == Some(f.display.len()) {
+                            super::bind::display_to_source_inner(&f.s2d, f.span.start)
+                        } else {
+                            f.span.start.min(self.leaf_source(f.node).len())
+                        };
+                        let caret =
+                            super::bind::source_to_display(&self.collapsed_s2d(f.node), src);
+                        let _ = self.apply_inline_focus(
+                            f.node,
+                            caret,
+                            Some(src),
+                            super::FocusBias::Neutral,
+                            false,
+                        );
+                    }
+                    out.push(DocChange::ReferenceDefsChanged { old, new });
+                }
+                DocChange::TableAlignOverflow { table, old, new } => {
+                    self.table_alignment_overflow
+                        .insert(table, Arc::clone(&new));
+                    out.push(DocChange::TableAlignOverflow { table, old, new });
                 }
             }
         }
@@ -310,18 +347,7 @@ fn resurrect_tree<C: SpliceHost>(ctx: &mut C, id: NodeId) {
                 if !arena.resurrect(id) {
                     continue;
                 }
-                let children: Vec<NodeId> = arena
-                    .get(id)
-                    .map(|node| {
-                        let mut out = Vec::new();
-                        let mut cur = node.first_child;
-                        while let Some(child) = cur {
-                            out.push(child);
-                            cur = arena.node_any(child).and_then(|n| n.next_sibling);
-                        }
-                        out
-                    })
-                    .unwrap_or_default();
+                let children = collect_children(arena, id);
                 if let Some(node) = arena.get_mut(id) {
                     node.first_child = None;
                     node.last_child = None;
@@ -341,6 +367,56 @@ fn resurrect_tree<C: SpliceHost>(ctx: &mut C, id: NodeId) {
             }
         }
     }
+}
+
+fn collect_children(arena: &DocumentArena, id: NodeId) -> Vec<NodeId> {
+    let Some(node) = arena.get(id) else {
+        return Vec::new();
+    };
+    let mut fwd: Vec<NodeId> = Vec::new();
+    let mut cur = node.first_child;
+    while let Some(child) = cur {
+        if fwd.contains(&child) {
+            break;
+        }
+        if !child_belongs(arena, id, child) {
+            break;
+        }
+        fwd.push(child);
+        cur = if arena.get(child).is_none() {
+            arena
+                .frozen_node(child)
+                .and_then(|frozen| frozen.next_sibling)
+        } else {
+            arena.node_any(child).and_then(|n| n.next_sibling)
+        };
+    }
+    let mut bwd: Vec<NodeId> = Vec::new();
+    let mut cur = node.last_child;
+    while let Some(child) = cur {
+        if fwd.contains(&child) || bwd.contains(&child) {
+            break;
+        }
+        if !child_belongs(arena, id, child) {
+            break;
+        }
+        bwd.push(child);
+        cur = arena
+            .frozen_node(child)
+            .and_then(|frozen| frozen.prev_sibling);
+    }
+    bwd.reverse();
+    fwd.extend(bwd);
+    fwd
+}
+
+fn child_belongs(arena: &DocumentArena, id: NodeId, child: NodeId) -> bool {
+    if arena.get(child).is_some() {
+        return true;
+    }
+    arena
+        .frozen_node(child)
+        .is_some_and(|frozen| frozen.parent == Some(id))
 }
 
 fn tombstone_tree(arena: &mut DocumentArena, id: NodeId, keep: &Keep<'_>) {
@@ -504,7 +580,6 @@ mod tests {
                     });
                 }
             }
-
             let mut later: HashSet<NodeId> = HashSet::new();
             let mut rehomed_at: Vec<HashSet<NodeId>> = vec![HashSet::new(); changes.len()];
             for (index, change) in changes.iter().enumerate().rev() {

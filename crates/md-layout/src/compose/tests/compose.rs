@@ -313,7 +313,6 @@ fn equal_final_styles_share_one_interned_entry() {
 #[test]
 fn derived_list_styles_do_not_mutate_other_lists() {
     let layout = layout();
-
     let tree = compose(
         &load_markdown("- plain\n\nbetween\n\n- [ ] task\n", editor_options()),
         &layout,

@@ -3,19 +3,12 @@ use std::borrow::Cow;
 use gpui::{AssetSource, Result, SharedString};
 
 pub const MOON: &str = "icons/moon.svg";
-
 pub const SLIDERS: &str = "icons/sliders.svg";
-
 pub const OUTLINE: &str = "icons/outline.svg";
-
 pub const OUTLINE_MINI: &str = "icons/outline-mini.svg";
-
 pub const SEARCH: &str = "icons/search.svg";
-
 pub const CHEV_UP: &str = "icons/chev-up.svg";
-
 pub const CHEV_DOWN: &str = "icons/chev-down.svg";
-
 pub const FIND_CLOSE: &str = "icons/find-close.svg";
 pub const WIN_MIN: &str = "icons/win-min.svg";
 pub const WIN_MAX: &str = "icons/win-max.svg";

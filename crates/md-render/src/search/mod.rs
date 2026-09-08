@@ -1,7 +1,7 @@
 mod matcher;
 
 pub(crate) use matcher::find_in_display;
-use matcher::find_in_display_limited;
+use matcher::{Needle, find_with};
 
 use md_core::block::BlockId;
 use md_core::doc::Doc;
@@ -26,11 +26,12 @@ pub fn scan_document(doc: &Doc, query: &str) -> SearchScan {
     if query.is_empty() {
         return SearchScan::Empty;
     }
+    let needle = Needle::new(query);
     let mut out = Vec::new();
     let mut capped = false;
     doc.for_each_collapsed_text_leaf(|id, text| {
         let room = SEARCH_MATCH_CAP + 1 - out.len();
-        for r in find_in_display_limited(text, query, room) {
+        for r in find_with(text, &needle, room) {
             out.push(SearchMatch {
                 block: id,
                 start: r.start,

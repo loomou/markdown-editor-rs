@@ -13,8 +13,14 @@ pub(super) struct Frame {
     pub(super) kind: FrameKind,
     pub(super) html: String,
     pub(super) source_ranges: Vec<Range<usize>>,
-
     pub(super) constructs: Vec<RawConstruct>,
+    pub(super) host_indent: Option<HostIndent>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) enum HostIndent {
+    ContentColumn(u16),
+    Relative(u16),
 }
 
 pub(super) fn new_frame(id: NodeId, kind: FrameKind) -> Frame {
@@ -24,6 +30,7 @@ pub(super) fn new_frame(id: NodeId, kind: FrameKind) -> Frame {
         html: String::new(),
         source_ranges: Vec::new(),
         constructs: Vec::new(),
+        host_indent: None,
     }
 }
 
@@ -48,7 +55,6 @@ pub(super) struct Builder {
     pub(super) stack: Vec<Frame>,
     pub(super) implicit_para: bool,
     pub(super) inline: Vec<InlineState>,
-
     pub(super) recorder: ConstructRecorder,
     pub(super) links: Vec<Link>,
     pub(super) langs: Vec<String>,
@@ -61,10 +67,10 @@ pub(super) struct Builder {
     pub(super) header_row: bool,
     pub(super) pending_image_dest: Option<u32>,
     pub(super) image_display_at: usize,
-
     pub(super) list_item_pending: bool,
-
     pub(super) math_continuation: bool,
+    pub(super) math_extract_at: Option<usize>,
+    pub(super) cover_floor: Option<usize>,
 }
 
 impl Builder {
@@ -94,6 +100,8 @@ impl Builder {
             list_item_pending: false,
             header_row: false,
             math_continuation: false,
+            math_extract_at: None,
+            cover_floor: None,
         }
     }
 

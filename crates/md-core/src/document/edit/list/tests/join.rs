@@ -1,5 +1,6 @@
 use super::support::{assert_changeset_parents_live, caret, first_list, items, lead};
 use crate::block::BlockKind;
+use crate::doc::Doc;
 use crate::document::change::DocChange;
 use crate::document::edit::{Command, Sel, apply};
 use crate::document::{editor_options, load_markdown};
@@ -68,7 +69,7 @@ fn first_item_backspace_does_not_join_preceding_para() {
     assert_eq!(doc.display(leaf_id), "abc");
     assert_eq!(doc.arena.get(leaf_id).and_then(|n| n.parent), host);
     assert_eq!(
-        doc.arena.get(list).and_then(|n| n.next_sibling),
+        doc.arena.get(list).and_then(|n| n.prev_sibling),
         Some(leaf_id)
     );
 }
@@ -127,13 +128,23 @@ fn nested_first_item_backspace_lifts_one_rank() {
         Sel::collapsed(caret(b_leaf.index, 0)),
         Command::DeleteBackward,
     );
-    assert_eq!(items(&doc, inner).len(), 1);
-    assert_eq!(doc.display(lead(&doc, items(&doc, inner)[0])), "c");
     let outer_items = items(&doc, outer);
     assert_eq!(outer_items.len(), 2);
     assert_eq!(outer_items[1], b_item);
     assert_eq!(out.block, b_leaf.index);
     assert_eq!(doc.display(b_leaf), "b");
+    let b_kids: Vec<_> = doc.arena.children(b_item).collect();
+    let b_sublist = b_kids
+        .into_iter()
+        .find(|&id| doc.arena.get(id).is_some_and(|n| n.kind == BlockKind::List))
+        .expect("b carries its tail as a sublist");
+    assert_eq!(
+        doc.display(lead(&doc, items(&doc, b_sublist)[0])),
+        "c",
+        "reading order must stay a, b, c: {:?}",
+        doc.to_markdown()
+    );
+    assert_eq!(doc.to_markdown(), "- a\n- b\n  - c\n");
 }
 
 #[test]
@@ -187,4 +198,63 @@ fn joining_sibling_image_preserves_its_url() {
     assert_eq!(doc.link_dest(link), Some("image.png"));
     let markdown = doc.to_markdown();
     assert!(markdown.contains("a![alt](image.png)"), "{markdown:?}");
+}
+
+#[test]
+fn outdenting_a_middle_nested_item_keeps_tail_order() {
+    use crate::doc::Doc;
+    let mut d = Doc::new(load_markdown(
+        "- parent\n  - a\n  - b\n  - c\n- tail\n",
+        editor_options(),
+    ));
+    let before = d.document.to_markdown();
+    let block = d.text_leaves()[2];
+    let _ = d.apply(Sel::collapsed(caret(block, 0)), Command::Outdent);
+    let after = d.document.to_markdown();
+    assert_eq!(after, "- parent\n  - a\n- b\n  - c\n- tail\n", "{after:?}");
+    let order: Vec<&str> = d
+        .document
+        .text_leaves()
+        .iter()
+        .map(|&id| d.collapsed_text(id).unwrap_or(""))
+        .collect();
+    assert_eq!(order, ["parent", "a", "b", "c", "tail"], "{after:?}");
+    assert!(d.undo().is_some());
+    assert_eq!(d.document.to_markdown(), before, "undo must restore");
+    assert!(d.redo().is_some());
+    assert_eq!(d.document.to_markdown(), after, "redo must replay");
+}
+
+#[test]
+fn joining_items_redo_keeps_the_migrated_children() {
+    for (source, at_leaf, joined) in [
+        ("- a\n- b\n  - c\n- d\n", 1usize, "- ab\n  \n  - c\n\n- d\n"),
+        (
+            "- parent\n  - a\n  - b\n  - c\n- tail\n",
+            4,
+            "- parent\n  \n  - a\n  - b\n  - c\n  \n  tail\n",
+        ),
+        ("- a\n- b\n  - c\n  - d\n", 1, "- ab\n  \n  - c\n  - d\n"),
+    ] {
+        let mut d = Doc::new(load_markdown(source, editor_options()));
+        let before = d.document.to_markdown();
+        let block = d.text_leaves()[at_leaf];
+        let _ = d.apply(Sel::collapsed(caret(block, 0)), Command::DeleteBackward);
+        let after = d.document.to_markdown();
+        assert_eq!(after, joined, "source={source:?}");
+        assert!(d.undo().is_some(), "source={source:?}");
+        assert_eq!(
+            d.document.to_markdown(),
+            before,
+            "undo must restore: {source:?}"
+        );
+        assert!(d.redo().is_some(), "source={source:?}");
+        assert_eq!(
+            d.document.to_markdown(),
+            after,
+            "redo must replay the migrated children: {source:?}"
+        );
+        assert!(d.undo().is_some(), "source={source:?}");
+        assert_eq!(d.document.to_markdown(), before, "second undo: {source:?}");
+    }
 }

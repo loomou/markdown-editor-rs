@@ -23,15 +23,15 @@ pub(super) fn break_block(doc: &mut Document, sel: Sel) -> Caret {
     ) {
         return at;
     }
-    if let Some(path) = path::Path::at(doc, at)
-        && path.simple_empty_item(doc)
-    {
-        return list::lift_item(doc, &path);
-    }
     if is_fence_leaf(doc.kind(at.block))
         && let Some(id) = doc.live_id(at.block)
     {
         return doc.break_literal_leaf(id, at.offset);
+    }
+    if let Some(path) = path::Path::at(doc, at)
+        && path.simple_empty_item(doc)
+    {
+        return list::lift_item(doc, &path);
     }
     if let Some(id) = doc.live_id(at.block)
         && let Some(caret) = doc.try_commit_open_fence(id)
@@ -61,7 +61,6 @@ pub(super) fn break_block(doc: &mut Document, sel: Sel) -> Caret {
     {
         return caret;
     }
-
     if !doc.kind(at.block).is_some_and(|k| k.is_text_leaf()) {
         return at;
     }
@@ -95,7 +94,6 @@ pub(super) fn soft_break(doc: &mut Document, sel: Sel) -> Caret {
     {
         return caret;
     }
-
     if !doc.kind(at.block).is_some_and(|k| k.is_text_leaf()) {
         return at;
     }
@@ -111,16 +109,17 @@ pub(super) fn indent(doc: &mut Document, sel: Sel) -> Caret {
     if doc.kind(at.block) == Some(BlockKind::TableCell) {
         return at;
     }
-
+    if sel.anchor.block != sel.head.block {
+        if let Some((list, items)) = path::item_span(doc, sel) {
+            return list::sink_items(doc, list, &items, at);
+        }
+        return at;
+    }
     if is_fence_leaf(doc.kind(at.block)) {
         return indent_in_leaf(doc, sel);
     }
     if let Some((list, items)) = path::item_span(doc, sel) {
         return list::sink_items(doc, list, &items, at);
-    }
-
-    if sel.anchor.block != sel.head.block {
-        return at;
     }
     if doc.kind(at.block).is_some_and(|k| k.is_text_leaf()) {
         return indent_in_leaf(doc, sel);
@@ -133,14 +132,17 @@ pub(super) fn outdent(doc: &mut Document, sel: Sel) -> Caret {
     if doc.kind(at.block) == Some(BlockKind::TableCell) {
         return at;
     }
+    if sel.anchor.block != sel.head.block {
+        if let Some((list, items)) = path::item_span(doc, sel) {
+            return list::lift_items(doc, list, &items, at);
+        }
+        return at;
+    }
     if is_fence_leaf(doc.kind(at.block)) {
         return outdent_in_leaf(doc, sel);
     }
     if let Some((list, items)) = path::item_span(doc, sel) {
         return list::lift_items(doc, list, &items, at);
-    }
-    if sel.anchor.block != sel.head.block {
-        return at;
     }
     if doc.kind(at.block).is_some_and(|k| k.is_text_leaf()) {
         return outdent_in_leaf(doc, sel);
@@ -183,25 +185,70 @@ fn line_starts_overlapping(text: &str, lo: usize, hi: usize) -> Vec<usize> {
     out
 }
 
-fn indent_lines(doc: &mut Document, block: u32, lo: usize, hi: usize, head: usize) -> Caret {
-    let text = doc
+enum LineDomain {
+    Same,
+    Phrasing,
+}
+
+fn line_domain(doc: &Document, block: u32) -> LineDomain {
+    let phrasing = doc
         .live_id(block)
-        .map(|id| doc.caret_text(id))
-        .unwrap_or("")
-        .to_string();
+        .and_then(|id| doc.arena.get(id))
+        .map(|n| n.kind)
+        .is_some_and(|kind| kind.text_edit_strategy() == crate::block::TextEditStrategy::Phrasing);
+    if phrasing {
+        LineDomain::Phrasing
+    } else {
+        LineDomain::Same
+    }
+}
+
+fn source_line_start(doc: &Document, id: crate::document::NodeId, display_start: usize) -> usize {
+    use crate::document::bind;
+    let source = doc.leaf_source(id);
+    let s2d = doc.visual_s2d(id);
+    let at = bind::display_to_source_first(&s2d, display_start);
+    let at = crate::document::floor_char_boundary(source, at.min(source.len()));
+    line_range(source, at).0
+}
+
+fn head_to_source(doc: &Document, id: crate::document::NodeId, block: u32, head: usize) -> usize {
+    match line_domain(doc, block) {
+        LineDomain::Same => head,
+        LineDomain::Phrasing => {
+            let s2d = doc.visual_s2d(id);
+            let at = crate::document::bind::display_to_source_first(&s2d, head);
+            let source = doc.leaf_source(id);
+            crate::document::floor_char_boundary(source, at.min(source.len()))
+        }
+    }
+}
+
+fn indent_lines(doc: &mut Document, block: u32, lo: usize, hi: usize, head: usize) -> Caret {
+    let Some(id) = doc.live_id(block) else {
+        return Caret {
+            block,
+            offset: head,
+        };
+    };
+    let text = doc.caret_text(id).to_string();
     let starts = line_starts_overlapping(&text, lo, hi);
-    let mut rewritten = String::with_capacity(text.len() + starts.len());
-    let mut at = 0;
-    for &start in &starts {
-        rewritten.push_str(text.get(at..start).unwrap_or(""));
-        rewritten.push('\t');
-        at = start;
+    let mut src_starts = Vec::with_capacity(starts.len());
+    match line_domain(doc, block) {
+        LineDomain::Same => src_starts.extend(starts.iter().copied()),
+        LineDomain::Phrasing => {
+            for &start in &starts {
+                src_starts.push(source_line_start(doc, id, start));
+            }
+        }
     }
-    rewritten.push_str(text.get(at..).unwrap_or(""));
-    if rewritten != text {
-        let _ = doc.replace_text(block, 0..text.len(), &rewritten);
+    let head_src = head_to_source(doc, id, block, head);
+    src_starts.sort_unstable();
+    src_starts.dedup();
+    for &start in src_starts.iter().rev() {
+        let _ = doc.replace_text_at_source(block, start..start, "\t");
     }
-    let added = starts.iter().filter(|&&s| s < head).count();
+    let added = src_starts.iter().filter(|&&s| s < head_src).count();
     Caret {
         block,
         offset: head + added,
@@ -216,26 +263,41 @@ fn leading_indent(line: &str) -> usize {
 }
 
 fn outdent_lines(doc: &mut Document, block: u32, lo: usize, hi: usize, head: usize) -> Caret {
-    let text = doc
-        .live_id(block)
-        .map(|id| doc.caret_text(id))
-        .unwrap_or("")
-        .to_string();
+    let Some(id) = doc.live_id(block) else {
+        return Caret {
+            block,
+            offset: head,
+        };
+    };
+    let text = doc.caret_text(id).to_string();
     let starts = line_starts_overlapping(&text, lo, hi);
-    let mut removed_before = 0;
-    let mut rewritten = String::with_capacity(text.len());
-    let mut at = 0;
-    for &start in &starts {
-        let n = leading_indent(text.get(start..).unwrap_or(""));
-        if start < head {
-            removed_before += n.min(head - start);
+    let mut removed_before = 0usize;
+    let mut src_starts = Vec::with_capacity(starts.len());
+    match line_domain(doc, block) {
+        LineDomain::Same => src_starts.extend(starts.iter().copied()),
+        LineDomain::Phrasing => {
+            for &start in &starts {
+                src_starts.push(source_line_start(doc, id, start));
+            }
         }
-        rewritten.push_str(text.get(at..start).unwrap_or(""));
-        at = start.saturating_add(n);
     }
-    rewritten.push_str(text.get(at..).unwrap_or(""));
-    if rewritten != text {
-        let _ = doc.replace_text(block, 0..text.len(), &rewritten);
+    src_starts.sort_unstable();
+    src_starts.dedup();
+    let head_src = head_to_source(doc, id, block, head);
+    let mut applied = 0usize;
+    for &orig in &src_starts {
+        let start = orig.saturating_sub(applied);
+        let source = doc.leaf_source(id);
+        let line_start = line_range(source, start).0;
+        let n = leading_indent(source.get(line_start..).unwrap_or(""));
+        if n == 0 {
+            continue;
+        }
+        if orig < head_src {
+            removed_before += n.min(head_src - orig);
+        }
+        let _ = doc.replace_text_at_source(block, line_start..line_start + n, "");
+        applied += n;
     }
     Caret {
         block,
@@ -273,7 +335,6 @@ pub(super) fn wrap_list(doc: &mut Document, sel: Sel, ordered: bool, task: Optio
 
 pub(super) fn paste(doc: &mut Document, sel: Sel, text: &str, intent: PasteIntent) -> Caret {
     let at = clear_same_block_span(doc, sel);
-
     let host_list = path::Path::at(doc, at).and_then(|p| p.list);
     let (_, block, offset) = doc.paste(at.block, at.offset..at.offset, text, intent);
     let caret = Caret { block, offset };

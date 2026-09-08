@@ -19,7 +19,11 @@ impl Document {
         if !kind.is_some_and(|kind| kind.text_edit_strategy() == TextEditStrategy::BlockSource) {
             return;
         }
-        let frag = super::load_markdown(self.leaf_source(id), super::editor_options());
+        let defs = std::sync::Arc::clone(&self.reference_definitions);
+        let frag = super::load_markdown(
+            &super::bind::with_definitions(self.leaf_source(id), &defs),
+            super::editor_options(),
+        );
         if super::bind::matching_leaf(&frag, crate::block::BlockKind::Image).is_some() {
             return;
         }

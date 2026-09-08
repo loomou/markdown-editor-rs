@@ -5,9 +5,12 @@ use md_layout::island::{IslandGeometry, IslandSolver, IslandStats, TableColumnCo
 use md_layout::shaper::TextMeasure;
 use std::collections::BTreeMap;
 
-fn geometry_fresh(g: &IslandGeometry, n: &BoxNode) -> bool {
+fn geometry_fresh(g: &IslandGeometry, n: &BoxNode, avail: Px) -> bool {
     if g.content_generation != n.content_generation() || g.content_revision != n.content_revision()
     {
+        return false;
+    }
+    if g.avail_width != avail {
         return false;
     }
     match n.children() {
@@ -35,7 +38,6 @@ pub(super) struct SolveRequest<'a> {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum EvictionPolicy {
     Unbounded,
-
     Windowed { keep_screens: f64 },
 }
 
@@ -82,14 +84,15 @@ impl MaterializedStore {
         self.exact.contains_key(&id)
     }
 
-    pub(crate) fn is_fresh(&self, tree: &BoxTree, id: LayoutBoxId) -> bool {
+    pub(crate) fn is_fresh(&self, tree: &BoxTree, id: LayoutBoxId, viewport_width: Px) -> bool {
         let Some(g) = self.exact.get(&id) else {
             return false;
         };
         let Some(n) = tree.nodes().get(&id) else {
             return false;
         };
-        self.exact_epochs.get(&id) == Some(&self.viewport_epoch) && geometry_fresh(g, n)
+        let avail = tree.avail_width(id, viewport_width);
+        self.exact_epochs.get(&id) == Some(&self.viewport_epoch) && geometry_fresh(g, n, avail)
     }
 
     pub fn get(&self, id: LayoutBoxId) -> Option<&IslandGeometry> {
@@ -144,7 +147,9 @@ impl MaterializedStore {
         } = req;
         if let Some(g) = self.exact.get(&id) {
             let n = tree.get(id);
-            if self.exact_epochs.get(&id) == Some(&self.viewport_epoch) && geometry_fresh(g, n) {
+            if self.exact_epochs.get(&id) == Some(&self.viewport_epoch)
+                && geometry_fresh(g, n, avail)
+            {
                 return;
             }
             let h = g.border_box_height;
@@ -154,7 +159,6 @@ impl MaterializedStore {
         }
         let g = solver.solve(tree, id, avail, measure, cons, stats);
         self.solve_calls += 1;
-
         self.last_exact.remove(&id);
         self.clock += 1;
         self.last_used.insert(id, self.clock);

@@ -41,9 +41,10 @@ impl GpuiShaper {
             if *flow.x > 0.0 {
                 flow.flush();
             }
-            for (line, s, e) in
-                self.wrap_slice(text, runs, start..end, flow.avail, flow.role, font_size)
-            {
+            let wrapped = self.wrap_slice(text, runs, start..end, flow.avail, flow.role, font_size);
+            let last = wrapped.len().saturating_sub(1);
+            for (i, (line, s, e)) in wrapped.into_iter().enumerate() {
+                let frag_w = f32::from(line.width());
                 flow.pending.push(Pending::Text {
                     line: Box::new(line),
                     x: 0.0,
@@ -51,6 +52,10 @@ impl GpuiShaper {
                     end: e,
                     dy,
                 });
+                if i == last {
+                    *flow.x = frag_w;
+                    break;
+                }
                 flow.flush();
             }
             return;
@@ -73,7 +78,6 @@ impl GpuiShaper {
         font_size: f32,
     ) -> ShapeArtifact {
         let dpr = crate::pixels::dpr_from_q(crate::pixels::dpr_q(self.scale));
-
         let metrics = crate::math::metric(&self.math_metrics, latex, true)
             .flatten()
             .unwrap_or_else(|| MathEm::estimate(latex));

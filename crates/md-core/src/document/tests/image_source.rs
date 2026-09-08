@@ -102,7 +102,6 @@ fn half_typed_source_keeps_the_kind_and_drops_the_dest() {
     assert_eq!(source_of(&doc, img), "![a]");
     assert_eq!(alt_of(&doc, img), "");
     assert_eq!(dest_of(&doc, img), None);
-
     assert_eq!(doc.to_markdown().trim_end(), "![a]");
 }
 
@@ -114,7 +113,6 @@ fn source_survives_a_full_round_trip_through_a_broken_state() {
     assert_eq!(source_of(&doc, img), "![a](u) hello");
     let md = doc.to_markdown();
     assert!(md.contains("![a](u) hello"), "md={md:?}");
-
     let reloaded = load_markdown(&md, editor_options());
     assert_eq!(super::support::kind_count(&reloaded, BlockKind::Image), 0);
 }
@@ -131,9 +129,9 @@ fn backspace_uses_source_coordinates() {
 
 #[test]
 fn delete_forward_uses_source_coordinates() {
-    let mut doc = load_markdown("![a](café.png)\n", editor_options());
+    let mut doc = load_markdown("![a](€path.png)\n", editor_options());
     let img = image_block(&doc);
-    let path = source_of(&doc, img).find("café").expect("path");
+    let path = source_of(&doc, img).find("€path").expect("path");
     let _ = crate::document::edit::apply(
         &mut doc,
         Sel::collapsed(Caret {
@@ -143,8 +141,8 @@ fn delete_forward_uses_source_coordinates() {
         Command::DeleteForward,
     );
 
-    assert_eq!(source_of(&doc, img), "![a](afé.png)");
-    assert_eq!(dest_of(&doc, img), Some("afé.png"));
+    assert_eq!(source_of(&doc, img), "![a](path.png)");
+    assert_eq!(dest_of(&doc, img), Some("path.png"));
     assert_eq!(doc.kind(img), Some(BlockKind::Image));
 }
 
@@ -202,7 +200,6 @@ fn leaving_a_broken_image_falls_back_to_a_paragraph() {
         offset: 0,
     });
     doc.replace_text(img, 0..7, "hello");
-
     assert_eq!(doc.kind(img), Some(BlockKind::Image));
 
     leave(&mut doc, img);
@@ -228,7 +225,6 @@ fn leaving_an_intact_image_changes_nothing() {
     leave(&mut doc, img);
     assert_eq!(doc.kind(img), Some(BlockKind::Image));
     assert_eq!(dest_of(&doc, img), Some("u"));
-
     assert!(doc.take_changes().changes.is_empty());
 }
 
@@ -307,7 +303,31 @@ fn settling_does_not_leave_a_focus_behind() {
     doc.replace_text(img, 0..7, "*em*");
     leave(&mut doc, img);
     assert_eq!(doc.kind(img), Some(BlockKind::Paragraph));
-
     assert_eq!(alt_of(&doc, img), "em");
     assert_eq!(source_of(&doc, img), "*em*");
+}
+
+#[test]
+fn undo_after_leaving_broken_image_restores_image_kind() {
+    let mut doc = Doc::new(load_markdown("![alt](url)\n\nafter\n", editor_options()));
+    let leaves = doc.text_leaves();
+    let caret = doc.retarget_focus(Caret {
+        block: leaves[0],
+        offset: 0,
+    });
+    let _ = doc.apply(Sel::collapsed(caret), Command::DeleteForward);
+    doc.retarget_focus(Caret {
+        block: leaves[1],
+        offset: 0,
+    });
+    assert_eq!(doc.kind(leaves[0]), Some(BlockKind::Paragraph));
+    doc.undo().unwrap();
+    assert_eq!(doc.document.to_markdown(), "![alt](url)\n\nafter\n");
+    assert_eq!(
+        doc.kind(leaves[0]),
+        Some(BlockKind::Image),
+        "kind not restored: {:?}",
+        doc.document.to_markdown()
+    );
+    assert_eq!(dest_of(&doc.document, leaves[0]), Some("url"));
 }

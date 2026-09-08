@@ -20,6 +20,8 @@ percent-encoding = { workspace = true }
 futures = { workspace = true }
 smallvec = { workspace = true }
 usvg = { workspace = true }
+flate2 = { workspace = true }
+resvg = { workspace = true }
 
 tree-sitter-highlight = { workspace = true }
 tree-sitter-rust = { workspace = true }
@@ -44,6 +46,9 @@ ratex-parser = { workspace = true }
 ratex-layout = { workspace = true }
 ratex-render = { workspace = true }
 ratex-types = { workspace = true }
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true

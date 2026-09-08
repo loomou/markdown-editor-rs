@@ -9,6 +9,15 @@ fn pixels_to_px(p: gpui::Pixels) -> Px {
     f32::from(p) as Px
 }
 
+fn band_byte_starts_with(band: &super::artifact::ShapeBand, offset: usize) -> bool {
+    let start = |part: &ShapePart| match part {
+        ShapePart::Text { byte_start, .. }
+        | ShapePart::Math { byte_start, .. }
+        | ShapePart::Image { byte_start, .. } => *byte_start,
+    };
+    band.parts.iter().any(|part| start(part) == offset)
+}
+
 pub(crate) fn align_shift(align: InlineAlign, align_width: Px, row_width: Px) -> Px {
     match align {
         InlineAlign::Start => 0.0,
@@ -244,6 +253,12 @@ impl GpuiShaper {
         inner: Px,
     ) -> (Px, u32) {
         if !art.bands.is_empty() {
+            let starts_later = |from: usize| {
+                art.bands
+                    .iter()
+                    .skip(from)
+                    .any(|band| band_byte_starts_with(band, offset))
+            };
             for (i, band) in art.bands.iter().enumerate() {
                 let band_dx = band_align_shift(art, i as u32, align, inner);
                 for part in &band.parts {
@@ -255,7 +270,8 @@ impl GpuiShaper {
                             byte_end,
                             ..
                         } => {
-                            if offset <= *byte_end {
+                            if offset <= *byte_end && !(offset == *byte_end && starts_later(i + 1))
+                            {
                                 let dx = band_dx + line_align_shift(line, align, 0);
                                 if offset <= *byte_start {
                                     return (*x + dx, i as u32);
@@ -293,7 +309,8 @@ impl GpuiShaper {
                             if *byte_start == *byte_end {
                                 continue;
                             }
-                            if offset <= *byte_end {
+                            if offset <= *byte_end && !(offset == *byte_end && starts_later(i + 1))
+                            {
                                 if offset <= *byte_start {
                                     let dx = band_dx
                                         + fallback

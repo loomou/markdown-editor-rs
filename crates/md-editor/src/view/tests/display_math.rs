@@ -8,7 +8,6 @@ use md_core::block::BlockKind;
 #[gpui::test]
 fn display_math_is_centered_with_equal_air_above_and_below(cx: &mut TestAppContext) {
     let (editor, cx) = editor_with_doc("one\n\ntwo\n\n$$\n\\frac{a+b}{c}\n$$\n\nthree\n", cx);
-
     cx.run_until_parked();
     let (_, prepaint) = cx.draw(
         point(px(0.0), px(0.0)),
@@ -21,7 +20,7 @@ fn display_math_is_centered_with_equal_air_above_and_below(cx: &mut TestAppConte
     assert_eq!(
         texts.len(),
         5,
-        "the four body blocks plus the trailing empty paragraph must all be in the published window"
+        "the four body blocks plus the trailing empty paragraph should all be in the publish window"
     );
     let span = |i: usize| {
         let p = &texts[i];
@@ -34,7 +33,7 @@ fn display_math_is_centered_with_equal_air_above_and_below(cx: &mut TestAppConte
     assert_eq!(
         math.kind,
         BlockKind::Math,
-        "the third block must be the math block"
+        "the third block should be a math block"
     );
 
     let body_gap = span(1).0 - span(0).1;
@@ -46,7 +45,7 @@ fn display_math_is_centered_with_equal_air_above_and_below(cx: &mut TestAppConte
     );
     assert!(
         above > body_gap,
-        "the margin {above} is not wider than the paragraph gap {body_gap}"
+        "the whitespace {above} is not wider than the paragraph gap {body_gap}"
     );
 
     let part = math
@@ -62,7 +61,7 @@ fn display_math_is_centered_with_equal_air_above_and_below(cx: &mut TestAppConte
     let (x, w) = part;
     assert!(
         w > 0.0 && w < math.content_width,
-        "the math width {w} must not fill the whole column"
+        "the formula's width {w} must not fill the whole column"
     );
     let slack = math.content_width - w;
     assert!(
@@ -77,8 +76,12 @@ fn lone_math_slot(art: &md_content::shaper::ShapeArtifact) -> (f64, f64, f64, f6
         .bands
         .iter()
         .find(|b| b.parts.iter().any(|p| matches!(p, ShapePart::Math { .. })))
-        .expect("the band that holds the math");
-    assert_eq!(band.parts.len(), 1, "the math must own its band");
+        .expect("the band holding the formula");
+    assert_eq!(
+        band.parts.len(),
+        1,
+        "the formula should own a band of its own"
+    );
     let ShapePart::Math {
         x,
         width,
@@ -128,7 +131,7 @@ fn display_math_glued_to_a_text_line_still_centers(cx: &mut TestAppContext) {
         .expect("$$ glued to text must also be a math block");
     assert_eq!(
         t.content_width, col,
-        "the two documents must have equal column widths for x to be comparable"
+        "the two documents must share a column width for x to be comparable"
     );
 
     let (_band_h, x, _w, above, _slot_h) = lone_math_slot(&t.art);

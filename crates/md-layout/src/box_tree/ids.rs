@@ -21,7 +21,6 @@ pub enum BoxRole {
 pub struct LayoutBoxId {
     pub owner: BoxOwner,
     pub role: BoxRole,
-
     pub local_key: u32,
 }
 

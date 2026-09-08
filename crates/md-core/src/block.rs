@@ -190,7 +190,6 @@ pub enum NodeExtra {
         marker: CodeFenceMarker,
         len: u16,
     },
-
     MathFence,
     IndentedCode,
     FootnoteLabel {

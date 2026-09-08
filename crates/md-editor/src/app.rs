@@ -26,7 +26,6 @@ pub fn run(doc: Doc, config: RunConfig) {
                 "cold gpui run-callback after {:.1}ms",
                 md_render::cold_trace::gpui_ms()
             ));
-
             cx.bind_keys([KeyBinding::new("escape", CloseFind, None)]);
 
             let theme = DocumentTheme::one_dark();

@@ -31,7 +31,6 @@ impl TextMeasure for GpuiShaper {
             };
         }
         let a = self.artifact(text, runs, avail_width, block_kind, ident);
-
         let width = if block_kind == BlockKind::Mermaid && !ident.edit_source {
             mermaid_fit(
                 avail_width,

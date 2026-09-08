@@ -42,67 +42,36 @@ actions!(md_editor, [CloseFind]);
 
 pub struct Shell {
     settings: Settings,
-
     settings_store: Option<SettingsStore>,
-
     settings_mtime: Option<std::time::SystemTime>,
-
     _activation: Option<gpui::Subscription>,
-
     outline_open: bool,
-
     outline_width: f32,
-
     outline_resize: Option<(Pixels, f32)>,
-
     outline_scroll: UniformListScrollHandle,
-
     outline_sb_drag: Option<(bool, Pixels)>,
-
     open_menu: Option<(MenuId, Point<Pixels>)>,
-
     table_submenu_open: bool,
-
     menu_closed_at: Option<std::time::Instant>,
-
     find: Entity<FindBar>,
-
     show_settings: bool,
-
     settings_nav: usize,
-
     font_slider_drag: bool,
-
     font_track: Rc<Cell<Option<gpui::Bounds<Pixels>>>>,
-
     settings_scroll: ScrollHandle,
-
     color_groups_open: [bool; ColorGroup::COUNT],
-
     color_picker: Option<ColorPicker>,
-
     hex_focus: FocusHandle,
-
     recording: Option<Cmd>,
-
     record_note: Option<(Cmd, String)>,
-
     open_last_on_start: bool,
-
     focus: FocusHandle,
-
     editor: Entity<EditorView>,
-
     editor_focus: FocusHandle,
-
     status_cache: StatusCache,
-
     outline_cache: OutlineCache,
-
     outline_current: Option<u32>,
-
     editor_chrome: Option<EditorChromeKey>,
-
     caption_should_move: bool,
 }
 
@@ -111,7 +80,6 @@ struct EditorChromeKey {
     identity: u64,
     revision: u64,
     cursor: Cursor,
-
     scroll: Px,
     theme: DocumentTheme,
     unsaved: bool,
@@ -213,7 +181,6 @@ impl Shell {
         cx: &mut Context<'_, Self>,
     ) {
         self.load_settings(cx);
-
         self._activation = Some(cx.observe_window_activation(window, |shell, window, cx| {
             if window.is_window_active() {
                 shell.reload_settings_if_changed(cx);
@@ -274,13 +241,14 @@ impl Render for Shell {
                     .get(&editor.state.doc, editor.state.cursor),
             )
         };
-        if show_outline && self.outline_cache.get(window, &editor.state.doc) {
-            self.outline_current = None;
-            let handle = self.outline_scroll.0.borrow().base_handle.clone();
-            let cur = handle.offset();
-            handle.set_offset(point(cur.x, px(0.)));
+        if show_outline {
+            if self.outline_cache.get(window, &editor.state.doc) {
+                self.outline_current = None;
+                let handle = self.outline_scroll.0.borrow().base_handle.clone();
+                let cur = handle.offset();
+                handle.set_offset(point(cur.x, px(0.)));
+            }
         }
-
         let picker_hidden = self.color_picker.as_ref().is_some_and(|p| !p.showing());
         if picker_hidden
             && self
@@ -290,7 +258,6 @@ impl Render for Shell {
         {
             self.save_settings();
         }
-
         if let Some(slot) = self.color_picker.as_ref().map(ColorPicker::slot) {
             let color = self.slot_color(slot, &self.settings.appearance.document_theme());
             let focused = self.hex_focused(window);
@@ -329,7 +296,6 @@ impl Render for Shell {
                 if this.cancel_recording(window, cx) {
                     return;
                 }
-
                 if this.hex_escape(window, cx) {
                     return;
                 }

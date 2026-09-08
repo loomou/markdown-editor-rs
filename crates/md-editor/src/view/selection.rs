@@ -67,7 +67,6 @@ impl EditorView {
 
     pub(crate) fn undo(&mut self) {
         let composing = self.state.marked.is_some() || self.state.doc.is_composing();
-
         let start = self.state.doc.document.pending_changes().changes.len();
         if let Some(sel) = self.state.doc.undo() {
             self.restore_sel(sel);

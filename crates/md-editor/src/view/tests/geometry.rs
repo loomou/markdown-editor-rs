@@ -189,7 +189,6 @@ fn inline_code_in_a_table_cell_gets_a_plate(cx: &mut TestAppContext) {
         .find(|c| frame.assembly.tree.text(c.cell_box).contains('t'))
         .expect("the cell holding the code span");
     let (cx0, cy0, cw, ch) = cell.rect_device;
-
     assert!(
         plate_x > cx0 && plate_x + plate_w < cx0 + cw,
         "plate x {plate_x}+{plate_w} should stay inside the cell {cx0}+{cw}"

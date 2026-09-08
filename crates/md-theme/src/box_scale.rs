@@ -108,7 +108,6 @@ impl BoxScale {
             rule: leaf(top(24.0), Edges::vh(8.0, 0.0)),
             image: leaf(top(20.0), Edges::ZERO),
             mermaid: leaf(top(32.0), Edges::vh(22.0, 16.0)),
-
             math: leaf(
                 Edges {
                     top: 24.0,

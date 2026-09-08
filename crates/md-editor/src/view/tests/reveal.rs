@@ -77,12 +77,12 @@ fn revealed_inline_image_leaves_the_line_and_moves_to_a_popover(cx: &mut TestApp
     let text = joined_text(art);
     assert!(
         text.contains(&src),
-        "editable source text should remain:{text:?}"
+        "the editable source must survive: {text:?}"
     );
     assert_eq!(
         text.matches("![](").count(),
         1,
-        "source text should not appear twice:{text:?}"
+        "the source text must not appear twice: {text:?}"
     );
     assert_eq!(
         image_part_count(art),
@@ -93,13 +93,13 @@ fn revealed_inline_image_leaves_the_line_and_moves_to_a_popover(cx: &mut TestApp
     let popover = st
         .popover
         .as_ref()
-        .expect("revealing an inline image should spawn a popover");
+        .expect("revealing an inline image should create a popover");
     let plan = popover
         .plan
         .as_ref()
-        .expect("a loadable image should measure a size");
+        .expect("once the image loads its size should be measurable");
     let (_, _, w, h) = plan.plate;
-    assert!(w > 0.0 && h > 0.0, "the plate should have a size:{w}x{h}");
+    assert!(w > 0.0 && h > 0.0, "the plate must have a size: {w}x{h}");
 }
 
 #[gpui::test]
@@ -115,17 +115,17 @@ fn revealed_inline_image_popover_stays_empty_when_loading_fails(cx: &mut TestApp
     let popover = st
         .popover
         .as_ref()
-        .expect("the popover must stay so its dest can queue");
+        .expect("the popover must stay; the dest is still queued");
     assert!(
         popover.plan.is_none(),
-        "a failed load can measure no size, so it should have no geometry"
+        "on load failure no size can be measured, so there should be no geometry"
     );
 
     cx.run_until_parked();
     let failed = cx.update(|_, app| editor.read(app).images.failed_sources());
     assert!(
         failed.contains(popover.dest.as_str()),
-        "the failed source should land in failed_sources:{:?}",
+        "a source that failed to load should enter failed_sources: {:?}",
         popover.dest
     );
 }
@@ -148,7 +148,7 @@ fn popover_flips_below_the_anchor_when_it_cannot_fit_above() {
         row_bottom: 30.0,
     };
     let (_, top) = place(high, (100.0, 80.0), 6.0, (800.0, 600.0))
-        .expect("the anchor row should be inside the viewport");
+        .expect("the anchor row is inside the viewport");
     assert_eq!(top, 30.0 + 6.0);
 
     let tight = Anchor {
@@ -157,8 +157,8 @@ fn popover_flips_below_the_anchor_when_it_cannot_fit_above() {
         row_bottom: 30.0,
     };
     let (_, top) = place(tight, (100.0, 80.0), 6.0, (800.0, 100.0))
-        .expect("the anchor row should be inside the viewport");
-    assert_eq!(top, 0.0, "should clamp to the viewport top");
+        .expect("the anchor row is inside the viewport");
+    assert_eq!(top, 0.0, "clamped to the viewport top");
 }
 
 #[test]
@@ -191,12 +191,8 @@ fn popover_disappears_once_the_anchor_row_scrolls_off_screen() {
         row_top: -10.0,
         row_bottom: 10.0,
     };
-    let (_, top) = place(half, plate, 6.0, viewport).expect("the row is still half visible");
-    assert_eq!(
-        top,
-        10.0 + 6.0,
-        "should flip below the row when it cannot fit above"
-    );
+    let (_, top) = place(half, plate, 6.0, viewport).expect("the row still shows half of itself");
+    assert_eq!(top, 10.0 + 6.0, "no room above, so it flips below the row");
 
     let flush = Anchor {
         x: 40.0,
@@ -205,7 +201,7 @@ fn popover_disappears_once_the_anchor_row_scrolls_off_screen() {
     };
     assert!(
         place(flush, plate, 6.0, viewport).is_none(),
-        "flush against the edge should not count as visible"
+        "flush with the edge does not count as visible"
     );
 }
 
@@ -217,35 +213,35 @@ fn revealed_inline_math_leaves_the_line_and_moves_to_a_popover(cx: &mut TestAppC
     let text = joined_text(art);
     assert!(
         text.contains("$a^2$"),
-        "editable source text should remain:{text:?}"
+        "the editable source text should remain: {text:?}"
     );
     assert_eq!(
         text.matches("$a^2$").count(),
         1,
-        "source text should not appear twice:{text:?}"
+        "the source text must not appear twice: {text:?}"
     );
     assert!(
         math_parts(art).is_empty(),
-        "no math slot should remain in the revealed line:{:?}",
+        "no math slot should remain in the revealed line: {:?}",
         math_parts(art)
     );
 
     let popover = st
         .math_popover
         .as_ref()
-        .expect("revealing inline math should spawn a popover");
+        .expect("revealing inline math should create a popover");
     let plan = popover
         .plan
         .as_ref()
-        .expect("math size derives from the font size, so the first frame should have it");
+        .expect("the formula size comes from the font size, so the first frame should have it");
     let (_, _, w, h) = plan.plate;
-    assert!(w > 0.0 && h > 0.0, "the plate should have a size:{w}x{h}");
+    assert!(w > 0.0 && h > 0.0, "the plate must have a size: {w}x{h}");
 
     cx.run_until_parked();
     let ready = cx.update(|_, app| editor.read(app).math.ready_snapshot());
     assert!(
         ready.contains_key(&plan.key),
-        "the popover key should hit the already-rasterized inline image"
+        "the popover key should hit the inline copy of the rasterized image"
     );
 }
 
@@ -255,11 +251,11 @@ fn revealed_inline_math_popover_is_suppressed_when_latex_fails(cx: &mut TestAppC
     let art = &st.frame.snapshot.texts[0].art;
     assert!(
         math_parts(art).is_empty(),
-        "no math slot should remain in the revealed line"
+        "the revealed row should hold no math slot"
     );
     assert!(
         st.math_popover.is_none(),
-        "a formula that fails to parse should have no popover:{:?}",
+        "a formula that failed to parse should have no popover: {:?}",
         st.math_popover
     );
 }
@@ -274,7 +270,86 @@ fn revealed_display_math_stays_in_flow_like_mermaid(cx: &mut TestAppContext) {
             .text_leaves()
             .into_iter()
             .find(|&b| view.state.doc.kind(b) == Some(BlockKind::Math))
-            .expect("math block")
+            .expect("the math block")
+    });
+    let leaf = cx.update(|_, app| {
+        let view = editor.read(app);
+        view.state
+            .doc
+            .text_leaves()
+            .into_iter()
+            .position(|b| b == math)
+            .expect("leaf")
+    });
+    place_caret(&editor, cx, leaf, 0);
+    let st = draw_state(&editor, cx);
+    assert!(
+        st.math_popover.is_none(),
+        "a display math preview should not go through a popover: {:?}",
+        st.math_popover
+    );
+    let pieces: Vec<_> = st
+        .frame
+        .snapshot
+        .texts
+        .iter()
+        .filter(|t| t.block == math)
+        .collect();
+    assert_eq!(
+        pieces.len(),
+        2,
+        "both the source and preview boxes should be published:kinds={:?}",
+        pieces
+            .iter()
+            .map(|t| (t.kind, t.edit_source))
+            .collect::<Vec<_>>()
+    );
+    let source = pieces
+        .iter()
+        .find(|t| t.edit_source)
+        .expect("the source well");
+    let preview = pieces
+        .iter()
+        .find(|t| !t.edit_source)
+        .expect("the preview box");
+    assert_eq!(
+        source.kind,
+        BlockKind::CodeBlock,
+        "the source is laid out as a code block"
+    );
+    assert_eq!(preview.kind, BlockKind::Math, "the preview is still math");
+    let text = joined_text(&source.art);
+    assert_eq!(
+        text, "\\frac{a}{b}",
+        "the editable source should not carry the blank line after the opening $$"
+    );
+    assert!(
+        !text.contains("line1") && !text.contains("line2"),
+        "those two lines above must not enter the source well: {text:?}"
+    );
+    assert!(
+        preview.content_origin_device.1 > source.content_origin_device.1,
+        "the preview should sit below the source: source y={} preview y={}",
+        source.content_origin_device.1,
+        preview.content_origin_device.1
+    );
+    assert!(
+        !math_parts(&preview.art).is_empty(),
+        "the preview box should lay out a math slot, not an empty box waiting for the popover to paint"
+    );
+}
+
+#[gpui::test]
+fn math_block_source_edit_preview_is_in_flow_not_a_popover(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc("before\n\n$$\n\\frac{a}{b}\n$$\n\nafter\n", cx);
+    let math = cx.update(|_, app| {
+        let view = editor.read(app);
+        view.state
+            .doc
+            .text_leaves()
+            .into_iter()
+            .find(|&b| view.state.doc.kind(b) == Some(BlockKind::Math))
+            .expect("the math block")
     });
     let leaf = cx.update(|_, app| {
         let view = editor.read(app);
@@ -308,42 +383,44 @@ fn revealed_display_math_stays_in_flow_like_mermaid(cx: &mut TestAppContext) {
             .map(|t| (t.kind, t.edit_source))
             .collect::<Vec<_>>()
     );
-    let source = pieces.iter().find(|t| t.edit_source).expect("source box");
-    let preview = pieces.iter().find(|t| !t.edit_source).expect("preview box");
+    let source = pieces
+        .iter()
+        .find(|t| t.edit_source)
+        .expect("the source well");
+    let preview = pieces
+        .iter()
+        .find(|t| !t.edit_source)
+        .expect("the preview box");
     assert_eq!(
         source.kind,
         BlockKind::CodeBlock,
-        "the source should lay out as a code block"
+        "the source is laid out as a code block"
     );
     assert_eq!(
         preview.kind,
         BlockKind::Math,
-        "the preview should still be math"
+        "the preview is still a math block"
     );
-    let text = joined_text(&source.art);
     assert_eq!(
-        text, "\\frac{a}{b}",
-        "the editable source should not include the blank line after the opening $$"
-    );
-    assert!(
-        !text.contains("line1") && !text.contains("line2"),
-        "the lines above should not end up in the source well:{text:?}"
+        joined_text(&source.art),
+        "\\frac{a}{b}",
+        "the source well should not carry the blank line after the opening $$"
     );
     assert!(
         preview.content_origin_device.1 > source.content_origin_device.1,
-        "preview should sit below the source: source y={} preview y={}",
+        "the preview should sit below the source: source y={} preview y={}",
         source.content_origin_device.1,
         preview.content_origin_device.1
     );
     assert!(
         !math_parts(&preview.art).is_empty(),
-        "the preview box should lay out math slots instead of an empty box waiting for the popover to draw"
+        "the preview box should lay out a math slot, not an empty box waiting for the popover to paint"
     );
 }
 
 #[gpui::test]
-fn math_block_source_edit_preview_is_in_flow_not_a_popover(cx: &mut TestAppContext) {
-    let (editor, cx) = editor_with_doc("before\n\n$$\n\\frac{a}{b}\n$$\n\nafter\n", cx);
+fn revealed_display_math_keeps_preview_box_when_latex_fails(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc("line1\nline2\n$$\na^\n$$\n", cx);
     let math = cx.update(|_, app| {
         let view = editor.read(app);
         view.state
@@ -351,7 +428,7 @@ fn math_block_source_edit_preview_is_in_flow_not_a_popover(cx: &mut TestAppConte
             .text_leaves()
             .into_iter()
             .find(|&b| view.state.doc.kind(b) == Some(BlockKind::Math))
-            .expect("math block")
+            .expect("the math block")
     });
     let leaf = cx.update(|_, app| {
         let view = editor.read(app);
@@ -363,6 +440,7 @@ fn math_block_source_edit_preview_is_in_flow_not_a_popover(cx: &mut TestAppConte
             .expect("leaf")
     });
     place_caret(&editor, cx, leaf, 0);
+    cx.run_until_parked();
     let st = draw_state(&editor, cx);
     assert!(
         st.math_popover.is_none(),
@@ -385,89 +463,18 @@ fn math_block_source_edit_preview_is_in_flow_not_a_popover(cx: &mut TestAppConte
             .map(|t| (t.kind, t.edit_source))
             .collect::<Vec<_>>()
     );
-    let source = pieces.iter().find(|t| t.edit_source).expect("source box");
-    let preview = pieces.iter().find(|t| !t.edit_source).expect("preview box");
-    assert_eq!(
-        source.kind,
-        BlockKind::CodeBlock,
-        "the source should lay out as a code block"
-    );
-    assert_eq!(
-        preview.kind,
-        BlockKind::Math,
-        "the preview should still be a math block"
-    );
-    assert_eq!(
-        joined_text(&source.art),
-        "\\frac{a}{b}",
-        "the source well should not include the blank line after the opening $$"
-    );
-    assert!(
-        preview.content_origin_device.1 > source.content_origin_device.1,
-        "preview should sit below the source: source y={} preview y={}",
-        source.content_origin_device.1,
-        preview.content_origin_device.1
-    );
-    assert!(
-        !math_parts(&preview.art).is_empty(),
-        "the preview box should lay out math slots instead of an empty box waiting for the popover to draw"
-    );
-}
-
-#[gpui::test]
-fn revealed_display_math_keeps_preview_box_when_latex_fails(cx: &mut TestAppContext) {
-    let (editor, cx) = editor_with_doc("line1\nline2\n$$\na^\n$$\n", cx);
-    let math = cx.update(|_, app| {
-        let view = editor.read(app);
-        view.state
-            .doc
-            .text_leaves()
-            .into_iter()
-            .find(|&b| view.state.doc.kind(b) == Some(BlockKind::Math))
-            .expect("math block")
-    });
-    let leaf = cx.update(|_, app| {
-        let view = editor.read(app);
-        view.state
-            .doc
-            .text_leaves()
-            .into_iter()
-            .position(|b| b == math)
-            .expect("leaf")
-    });
-    place_caret(&editor, cx, leaf, 0);
-    cx.run_until_parked();
-    let st = draw_state(&editor, cx);
-    assert!(
-        st.math_popover.is_none(),
-        "a parse failure should not have a popover:{:?}",
-        st.math_popover
-    );
-    let pieces: Vec<_> = st
-        .frame
-        .snapshot
-        .texts
+    let source = pieces
         .iter()
-        .filter(|t| t.block == math)
-        .collect();
-    assert_eq!(
-        pieces.len(),
-        2,
-        "a parse failure should still keep the preview box:kinds={:?}",
-        pieces
-            .iter()
-            .map(|t| (t.kind, t.edit_source))
-            .collect::<Vec<_>>()
-    );
-    let source = pieces.iter().find(|t| t.edit_source).expect("source box");
+        .find(|t| t.edit_source)
+        .expect("the source well");
     let text = joined_text(&source.art);
     assert!(
         text.contains("a^"),
-        "the failed LaTeX should remain in the source text:{text:?}"
+        "the failed LaTeX is still in the source text: {text:?}"
     );
     assert!(
         !text.contains("line1") && !text.contains("line2"),
-        "the lines above should not end up in the source well:{text:?}"
+        "those two lines above must not enter the source well: {text:?}"
     );
 }
 
@@ -635,11 +642,11 @@ fn popover_pushes_left_when_it_would_overflow_the_right_edge() {
         row_top: 300.0,
         row_bottom: 320.0,
     };
-    let (left, _) = place(anchor, (100.0, 80.0), 6.0, (800.0, 600.0))
-        .expect("the anchor row should be visible");
+    let (left, _) =
+        place(anchor, (100.0, 80.0), 6.0, (800.0, 600.0)).expect("the anchor row is visible");
     assert_eq!(
         left, 700.0,
-        "overflowing the right edge should push the popover left until flush"
+        "when it overflows on the right it should be pushed left to the edge"
     );
 
     let (left, _) = place(anchor, (900.0, 80.0), 6.0, (800.0, 600.0))

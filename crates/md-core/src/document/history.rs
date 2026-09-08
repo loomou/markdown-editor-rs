@@ -145,6 +145,28 @@ impl History {
         self.last = stroke.map(|stroke| LastEdit { stroke, caret });
     }
 
+    pub(crate) fn absorb_side_effect(&mut self, doc: &Document, sel: Sel, delta: ChangeSet) {
+        let inv = delta.invert();
+        if !inv.records_edit() {
+            return;
+        }
+        self.redo.clear();
+        let sel = collapsed_sel(doc, sel);
+        if let Some(compose) = self.compose.as_mut() {
+            compose.delta.prepend(inv);
+            return;
+        }
+        if let Some(last) = self.undo.back_mut() {
+            last.delta.prepend(inv);
+        } else {
+            self.push_undo(Entry {
+                sel_before: sel,
+                sel_after: sel,
+                delta: inv,
+            });
+        }
+    }
+
     pub(crate) fn undo(&mut self, doc: &mut Document) -> Option<Sel> {
         let entry = self.undo.pop_back()?;
         if !doc.apply_changes(entry.delta.clone()) {

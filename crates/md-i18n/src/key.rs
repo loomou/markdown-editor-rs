@@ -1,6 +1,5 @@
 macro_rules! i18n_keys {
     ($( $variant:ident $zh:literal $en:literal )*) => {
-
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
         pub enum Key { $($variant,)* }
 
@@ -17,7 +16,6 @@ macro_rules! i18n_keys {
                 match self { $(Self::$variant => $en,)* }
             }
 
-
             pub fn debug_name(self) -> &'static str {
                 match self { $(Self::$variant => stringify!($variant),)* }
             }
@@ -26,27 +24,19 @@ macro_rules! i18n_keys {
 }
 
 i18n_keys! {
-
     MenuBarFile             "文件"              "File"
     MenuBarEdit             "编辑"              "Edit"
     MenuBarView             "视图"              "View"
     MenuBarGo               "跳转"              "Go"
     MenuBarHelp             "帮助"              "Help"
 
-
-
-
-
-
     Save                    "保存"              "Save"
     Theme                   "主题"              "Theme"
-
 
     MenuNew                 "新建"              "New"
     MenuOpen                "打开…"             "Open…"
     MenuSaveAs              "另存为…"           "Save As…"
     MenuExit                "退出"              "Exit"
-
 
     MenuUndo                "撤销"              "Undo"
     MenuRedo                "重做"              "Redo"
@@ -55,17 +45,13 @@ i18n_keys! {
     MenuPaste               "粘贴"              "Paste"
     MenuSelectAll           "全选"              "Select All"
     MenuFind                "查找"              "Find"
-
-
     CmdFindNext             "查找下一个"        "Find Next"
     CmdFindPrev             "查找上一个"        "Find Previous"
-
 
     MenuOutline             "大纲"              "Outline"
     MenuGoToLine            "跳到行…"           "Go to Line…"
     MenuShortcuts           "键盘快捷键"        "Keyboard Shortcuts"
     MenuAbout               "关于 md-test"      "About md-test"
-
 
     MenuTable               "表格"              "Table"
     MenuInsertTable         "插入表格…"         "Insert Table…"
@@ -81,16 +67,11 @@ i18n_keys! {
     TableDeleteCol          "删除列"            "Delete Column"
     TableDeleteTable        "删除表格"          "Delete Table"
 
-
     NavAppearance           "外观"              "Appearance"
     NavEditing              "编辑"              "Editing"
     NavFiles                "文件"              "Files"
     NavShortcuts            "快捷键"            "Shortcuts"
     NavAbout                "关于"              "About"
-
-
-
-
 
     SetLanguage             "语言"              "Language"
     SetLanguageHint         "换语言要重启"      "Takes effect after a restart"
@@ -118,21 +99,14 @@ i18n_keys! {
                             "No state directory found, so there is nothing to edit"
     SetColorsResetAll       "全部恢复默认"      "Reset all"
 
-
-
-
-
     SetShortcutsHint        "点一行，然后按下新的组合"
                             "Click a row, then press the new combination"
     ShortcutUnset           "未设置"            "Not set"
     ShortcutRecording       "按下新组合，退格清除"
                             "Press a combination; Backspace clears"
-
-
     ShortcutsResetAll       "键位全部恢复默认"  "Reset all shortcuts"
     ShortcutNeedsModifier   "这个组合会打出字来，得带上 Ctrl 或 Alt"
                             "That would type a character; add Ctrl or Alt"
-
 
     SetAutosave             "自动保存"          "Autosave"
     SetAutosaveHint         "停止输入 2 秒后写入磁盘"
@@ -150,7 +124,6 @@ i18n_keys! {
     SetAboutTagline         "GPUI Markdown 编辑器 · "
                             "A Markdown editor built on GPUI · "
 
-
     DlgClose                "关闭"              "Close"
     DlgCancel               "取消"              "Cancel"
     DlgDontSave             "不保存"            "Don't Save"
@@ -160,32 +133,22 @@ i18n_keys! {
     DlgFileChangedDetail    "继续保存会覆盖外部更改。"
                             "Saving now will overwrite the external changes."
     DlgOverwriteAnyway      "仍然覆盖"          "Overwrite Anyway"
-
     DlgOpenMarkdown         "打开 Markdown"     "Open Markdown"
     DlgExternalFile         "打开外部文件？"      "Open external file?"
     DlgOpenAnyway           "仍然打开"           "Open Anyway"
     DlgSaveMarkdown         "保存 Markdown"     "Save Markdown"
-
     DlgMarkdownFilter       "Markdown 文件"     "Markdown files"
     DlgInsertTable          "插入表格"          "Insert Table"
     DlgTableRows            "行数"              "Rows"
     DlgTableCols            "列数"              "Columns"
     DlgCreate               "创建"              "Create"
 
-
     OutlineTitle            "大纲"              "OUTLINE"
-
-
-
 
     FindNoMatch             "无匹配"            "No match"
     FindTooMany             "过多"              "Too many"
 
-
     PickerReset             "恢复默认"          "Reset"
-
-
-
 
     ClrGroupText            "文字"              "Text"
     ClrGroupSurface         "底色与线"          "Backgrounds and lines"
@@ -193,13 +156,6 @@ i18n_keys! {
     ClrGroupAlert           "提示块"            "Alert blocks"
     ClrGroupSyntax          "代码高亮"          "Code highlighting"
     ClrGroupAppSurface      "界面底色与线"      "App backgrounds and lines"
-
-
-
-
-
-
-
 
     ClrBody                 "正文"              "Body"
     ClrHeading1             "一级标题"          "Heading 1"
@@ -221,7 +177,6 @@ i18n_keys! {
     ClrStrikethrough        "删除线"            "Strikethrough"
     ClrSyntaxMarker         "语法标记"          "Syntax marker"
 
-
     ClrCanvas               "画布"              "Canvas"
     ClrCodeFill             "代码块底"          "Code block background"
     ClrCodeBorder           "代码块边框"        "Code block border"
@@ -235,7 +190,6 @@ i18n_keys! {
     ClrImageFill            "图片底"            "Image background"
     ClrImageBorder          "图片边框"          "Image border"
 
-
     ClrCaret                "光标"              "Caret"
     ClrSelection            "选区"              "Selection"
     ClrIme                  "输入法预编辑"      "IME preedit"
@@ -246,16 +200,11 @@ i18n_keys! {
     ClrTaskCheck            "任务勾"            "Task checkmark"
     ClrGlyphFault           "缺字底"            "Missing glyph fill"
 
-
-
-
-
     ClrAlertNote            "NOTE"              "NOTE"
     ClrAlertTip             "TIP"               "TIP"
     ClrAlertImportant       "IMPORTANT"         "IMPORTANT"
     ClrAlertWarning         "WARNING"           "WARNING"
     ClrAlertCaution         "CAUTION"           "CAUTION"
-
 
     ClrSynDefault           "默认"              "Default"
     ClrSynComment           "注释"              "Comment"
@@ -275,7 +224,6 @@ i18n_keys! {
     ClrSynPunctuation       "标点"              "Punctuation"
     ClrSynLabel             "标签"              "Label"
 
-
     ClrAppEditorBg          "编辑区底"          "Editor background"
     ClrAppPanelBg           "面板底"            "Panel background"
     ClrAppBarBg             "标题栏底"          "Title bar background"
@@ -289,7 +237,6 @@ i18n_keys! {
     ClrAppScrollTrack       "滚动条槽"          "Scrollbar track"
     ClrAppScrollThumb       "滚动条滑块"        "Scrollbar thumb"
 
-
     ClrAppText              "界面文字"          "App text"
     ClrAppTextMuted         "次要文字"          "Secondary text"
     ClrAppTextDisabled      "禁用文字"          "Disabled text"
@@ -300,12 +247,7 @@ i18n_keys! {
     ClrAppOk                "成功"              "Success"
     ClrAppWarn              "警告"              "Warning"
 
-
     TablePickerHint         "拖动 · 点击应用"   "Drag · click to apply"
-
-
-
-
 
     ImageEmpty              "空图片"            "Empty image"
     ImageTooLarge           "文件过大"          "File too large"
@@ -321,13 +263,8 @@ i18n_keys! {
     FormulaParseFailed      "无法解析公式"      "Cannot parse the formula"
     FormulaRenderFailed     "无法渲染公式"      "Cannot render the formula"
 
-
-
-
     ErrCannotRead           "无法读取"          "Cannot read"
     ErrCannotSave           "无法保存"          "Cannot save"
-
-
     ErrUtf8Only             "只认 UTF-8"        "UTF-8 files only"
     ErrNotMarkdown          "不是 Markdown 文件" "Not a Markdown file"
 }

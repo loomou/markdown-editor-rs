@@ -373,7 +373,6 @@ fn table_reorder_targets_the_dragged_row_not_the_stale_selection(cx: &mut TestAp
     focus_editor(&editor, cx);
     place_table_caret(&editor, cx, "a", 0);
     draw_editor(&editor, cx);
-
     cx.update(|_, app| {
         editor.update(app, |view, _| {
             let head = view.state.cursor.block;
@@ -386,7 +385,7 @@ fn table_reorder_targets_the_dragged_row_not_the_stale_selection(cx: &mut TestAp
             );
             assert!(
                 view.state.selection.is_some(),
-                "precondition: a selection is in place"
+                "precondition: a selection is attached"
             );
         });
     });
@@ -420,7 +419,7 @@ fn table_reorder_targets_the_dragged_row_not_the_stale_selection(cx: &mut TestAp
         );
         assert!(
             view.state.selection.is_none(),
-            "the drag should leave only the caret, with the selection cleared"
+            "after the drag only a caret should remain; the selection is cleared"
         );
     });
 }

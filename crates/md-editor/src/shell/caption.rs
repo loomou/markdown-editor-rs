@@ -20,9 +20,6 @@ fn raise_gpui_window() {
     if target.is_null() {
         return;
     }
-
-    // SAFETY: target is a gpui window visible to this process; AttachThreadInput is
-    // switched on and off as a pair.
     unsafe {
         let mut target_pid = 0u32;
         let target_tid = GetWindowThreadProcessId(target, &mut target_pid);
@@ -74,8 +71,6 @@ fn set_gpui_topmost(topmost: bool) {
     } else {
         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
     };
-
-    // SAFETY: target is a gpui window visible to this process.
     unsafe {
         SetWindowPos(target, insert_after, 0, 0, 0, 0, flags);
     }
@@ -88,8 +83,6 @@ fn restore_zorder_after_caption_drag() {
     let _ = std::thread::spawn(|| {
         for _ in 0..600 {
             std::thread::sleep(std::time::Duration::from_millis(16));
-
-            // SAFETY: reads only the current left-button state.
             let down = unsafe { GetAsyncKeyState(VK_LBUTTON as i32) as u16 } & 0x8000 != 0;
             if !down {
                 break;
@@ -114,8 +107,6 @@ fn start_caption_drag(window: &Window) {
         set_gpui_topmost(false);
         return;
     }
-
-    // SAFETY: target is a gpui window visible to this process.
     unsafe {
         ReleaseCapture();
         PostMessageW(
@@ -177,14 +168,11 @@ pub(super) fn toggle_zoom(window: &Window) {
         if hwnd.is_null() {
             return;
         }
-
         let cmd = if window.is_maximized() {
             SW_NORMAL
         } else {
             SW_MAXIMIZE
         };
-
-        // SAFETY: hwnd is a gpui window visible to this process.
         unsafe {
             ShowWindowAsync(hwnd, cmd);
         }

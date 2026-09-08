@@ -99,7 +99,6 @@ fn list_item_starting_with_table_takes_line_top_from_the_row() {
         "- | a | b |\n  | --- | --- |\n  | 1 | 2 |\n\n- text\n",
         md_core::document::editor_options(),
     );
-
     let layout = md_layout::compose::LayoutTheme::from_resolver(|kind| {
         let padding = if kind == BlockKind::ListItem {
             8.0
@@ -131,7 +130,6 @@ fn list_item_starting_with_table_takes_line_top_from_the_row() {
         .expect("list item")
         .id();
     let spine = FlowSpine::flatten(&tree, 800.0, &heights);
-
     let mut spine = spine;
     let _ = spine.expand_visible(&tree, -100.0, 10000.0, &heights);
     let window = spine.window(&tree, -100.0, 10000.0, &[]);
@@ -155,6 +153,5 @@ fn list_item_starting_with_table_takes_line_top_from_the_row() {
         line_top > item_top,
         "the line island has border+padding, so the first text line's top must sit below the item top: {line_top} vs {item_top}"
     );
-
     assert_eq!(first_line_top(&assembly, item_id, item_top), line_top);
 }

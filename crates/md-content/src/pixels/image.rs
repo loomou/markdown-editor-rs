@@ -7,11 +7,9 @@ use std::sync::Arc;
 pub struct ReadyImage {
     pub image: Arc<RenderImage>,
     pub bytes: usize,
-
     pub dpr: f32,
     pub px_w: u32,
     pub px_h: u32,
-
     pub shared_with_source: bool,
 }
 
@@ -72,7 +70,7 @@ mod tests {
         let ready = decode_png(&red_png(2, 2), 1.0).expect("decode");
         assert_eq!((ready.px_w, ready.px_h), (2, 2));
         let bytes = ready.image.as_bytes(0).expect("pixels");
-        assert_eq!(&bytes[..4], &[0, 0, 255, 255], "expected pure red in BGRA");
+        assert_eq!(&bytes[..4], &[0, 0, 255, 255], "pure red under BGRA");
     }
 
     #[test]

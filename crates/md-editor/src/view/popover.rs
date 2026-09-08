@@ -21,11 +21,8 @@ pub(super) struct PopoverInput<'a> {
     pub scroll: Px,
     pub viewport: (Px, Px),
     pub dpr: f64,
-
     pub sizes: &'a HashMap<images::SourceKey, (u32, u32)>,
-
     pub link_dests: &'a HashMap<u32, String>,
-
     pub math_metrics: &'a math::MathMetrics,
 }
 
@@ -53,7 +50,6 @@ pub(super) fn plan_math(doc: &Doc, frame: &Frame, input: &PopoverInput<'_>) -> O
     if matches!(recorded, Some(None)) {
         return None;
     }
-
     let em = recorded
         .flatten()
         .unwrap_or_else(|| math::MathEm::estimate(m.latex));
@@ -220,7 +216,6 @@ pub(super) fn paint_popover(popover: &ImagePopover, p: PopoverPaint<'_>, window:
     if p.failed_sources.contains(popover.dest.as_str()) {
         return;
     }
-
     let Some(plan) = popover.plan.as_ref() else {
         return;
     };

@@ -103,7 +103,6 @@ pub fn covering_runs(text_len: u32, runs: &[InlineRun]) -> Vec<InlineRun> {
                 marks: InlineMarks::NONE,
                 link: None,
             });
-
             at = start;
         }
         if end > start {
@@ -203,7 +202,6 @@ mod tests {
             assert!(pair[0].display_range.start < pair[0].display_range.end);
         }
     }
-
     #[test]
     fn covering_runs_steps_over_a_zero_width_run() {
         let got = covering_runs(

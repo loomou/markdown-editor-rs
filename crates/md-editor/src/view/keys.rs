@@ -247,9 +247,7 @@ impl EditorView {
                 self.select_all();
                 cx.notify();
             }
-
             Cmd::Find => return false,
-
             Cmd::FindNext | Cmd::FindPrev => {
                 if !self.search_open {
                     return false;
@@ -258,7 +256,6 @@ impl EditorView {
                 cx.notify();
             }
             Cmd::InsertTable => self.open_insert_table(window, cx),
-
             Cmd::TableRowBelow => {
                 if !self.caret_in_table() {
                     return false;
@@ -267,7 +264,6 @@ impl EditorView {
                 self.note_edit(cx);
                 cx.notify();
             }
-
             Cmd::ToggleOutline | Cmd::ToggleTheme => return false,
         }
         true
@@ -366,7 +362,6 @@ impl EditorView {
         let m = &ev.keystroke.modifiers;
         let shift = m.shift;
         let key = ev.keystroke.key.as_str();
-
         if !ev.is_held
             && let Some(cmd) = self.keymap.lookup(&ev.keystroke)
             && self.run_command(cmd, window, cx)
@@ -388,7 +383,6 @@ impl EditorView {
             cx.stop_propagation();
             return true;
         }
-
         if crate::ui::chord::primary_down(m) && !m.shift && matches!(key, "[" | "]") {
             self.key_indent(key == "]", cx);
             self.wake_caret();

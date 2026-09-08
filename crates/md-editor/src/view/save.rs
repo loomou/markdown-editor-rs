@@ -321,7 +321,6 @@ impl EditorView {
 
     pub(crate) fn save_as(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
         self.bind_window(window);
-
         self.save.save_as_retry = None;
         let suggested = self.state.doc.source_path.clone();
         let window_handle = window.window_handle();

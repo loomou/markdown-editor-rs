@@ -94,7 +94,6 @@ fn paint_content(pass: &Pass<'_>, box_id: LayoutBoxId, a_top: Px, out: &mut Visi
             let avail = assembly.tree.avail_width(box_id, env.viewport_width);
             let style = assembly.tree.style_of(node);
             let inner_w = (avail - style.inline_border_padding()).max(0.0);
-
             let art = shaper.artifact(
                 assembly.tree.text_of(node),
                 assembly.tree.runs_of(node),

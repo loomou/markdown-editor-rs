@@ -35,7 +35,6 @@ fn recoloring_keeps_the_layout_and_the_scroll_position(cx: &mut TestAppContext) 
 
     place_caret(&editor, cx, 0, 0);
     let _ = draw(cx, &editor);
-
     for _ in 0..40 {
         cx.update(|_, app| {
             editor.update(app, |v, _| {
@@ -87,14 +86,14 @@ fn recoloring_keeps_the_layout_and_the_scroll_position(cx: &mut TestAppContext) 
             v.set_theme(bigger, cx);
             assert!(
                 v.state.incremental.is_none(),
-                "resizing the type kept the old engine"
+                "the old engine survived a font size change"
             );
         })
     });
     let resized = draw(cx, &editor);
     assert_ne!(
         before.1, resized.1,
-        "the type grew two points yet the total height did not change"
+        "two font sizes up and the total height did not change"
     );
 
     cx.update(|_, app| {
@@ -104,7 +103,7 @@ fn recoloring_keeps_the_layout_and_the_scroll_position(cx: &mut TestAppContext) 
             v.set_theme(taller, cx);
             assert!(
                 v.state.incremental.is_none(),
-                "changing the body line height kept the old engine"
+                "the old engine survived a body line height change"
             );
         })
     });
@@ -135,7 +134,7 @@ fn the_engine_never_holds_a_layout_theme_the_view_has_moved_on_from(cx: &mut Tes
                 .state
                 .incremental
                 .as_ref()
-                .expect("drawing should have created an engine");
+                .expect("painted once, so there is an engine");
             assert_eq!(
                 engine.layout_theme(),
                 &v.state.theme.layout_theme(),

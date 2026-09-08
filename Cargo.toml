@@ -67,6 +67,8 @@ percent-encoding = "2.3"
 futures = "0.3"
 smallvec = "1"
 usvg = { version = "0.45", default-features = false }
+flate2 = "1"
+resvg = { version = "0.45", default-features = false, features = ["raster-images"] }
 tree-sitter-highlight = "0.25"
 tree-sitter-rust = "0.24"
 tree-sitter-python = "0.25"

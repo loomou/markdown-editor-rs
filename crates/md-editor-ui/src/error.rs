@@ -181,9 +181,7 @@ mod tests {
             path: PathBuf::from("doc.md"),
             source: io::Error::new(io::ErrorKind::PermissionDenied, "denied"),
         };
-        let source = err
-            .source()
-            .expect("the underlying io error should still be reachable");
+        let source = err.source().expect("the layer below is still reachable");
         assert!(source.to_string().contains("denied"));
     }
 }

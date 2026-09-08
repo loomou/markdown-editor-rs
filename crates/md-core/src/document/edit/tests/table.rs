@@ -178,6 +178,42 @@ fn editing_a_cell_preserves_inline_source_and_marks() {
 }
 
 #[test]
+fn editing_a_header_cell_preserves_its_loaded_marks() {
+    let mut doc = load_markdown("| head |\n| --- |\n| body |\n", editor_options());
+    let header = doc.text_leaves()[0];
+    let id = doc.live_id(header).expect("header cell");
+    assert!(
+        doc.runs(id)
+            .iter()
+            .all(|run| run.marks.contains(InlineMarks::STRONG))
+    );
+    let _ = apply(
+        &mut doc,
+        Sel::collapsed(Caret {
+            block: header,
+            offset: 4,
+        }),
+        Command::Insert { text: "x".into() },
+    );
+    assert!(
+        doc.runs(id)
+            .iter()
+            .all(|run| run.marks.contains(InlineMarks::STRONG))
+    );
+    let markdown = doc.to_markdown();
+    let again = load_markdown(&markdown, editor_options());
+    let reloaded = again
+        .live_id(again.text_leaves()[0])
+        .expect("reloaded header");
+    assert!(
+        again
+            .runs(reloaded)
+            .iter()
+            .all(|run| run.marks.contains(InlineMarks::STRONG))
+    );
+}
+
+#[test]
 fn fence_line_break_in_a_cell_keeps_the_row_rectangular() {
     let mut doc = load_markdown("| a | b |\n| --- | --- |\n| c | d |\n", editor_options());
     let cell = leaf_named(&doc, "c");
@@ -1357,4 +1393,278 @@ fn select_across_two_tables_deletes_both() {
     assert_eq!(kind_count(&doc, BlockKind::Table), 0);
     assert_eq!(doc.text_leaves(), vec![out.block]);
     assert_eq!(doc.text_of(out.block).unwrap(), "");
+}
+
+fn wide_table_source(cols: usize) -> String {
+    let header = (0..cols)
+        .map(|col| format!("h{col}"))
+        .collect::<Vec<_>>()
+        .join(" | ");
+    let separator = vec!["---"; cols].join(" | ");
+    let body = (0..cols)
+        .map(|col| format!("b{col}"))
+        .collect::<Vec<_>>()
+        .join(" | ");
+    format!("| {header} |\n| {separator} |\n| {body} |\n")
+}
+
+fn separator_cells(md: &str) -> Vec<&str> {
+    md.lines()
+        .nth(1)
+        .expect("separator row")
+        .trim()
+        .trim_start_matches('|')
+        .trim_end_matches('|')
+        .trim()
+        .split(" | ")
+        .collect()
+}
+
+#[test]
+fn wide_table_alignment_updates_and_serializes() {
+    let cols = TABLE_ALIGN_COLS + 1;
+    let mut doc = load_markdown(&wide_table_source(cols), editor_options());
+    let cell = leaf_named(&doc, "b0");
+    let _ = apply_op(
+        &mut doc,
+        cell,
+        TableOp::SetColumnAlign(TableCellAlign::Center),
+    );
+    let table = first_table(&doc);
+    assert_eq!(
+        TableCellAlign::from(doc.table_alignment_at(table, 0)),
+        TableCellAlign::Center
+    );
+    for (ri, row) in rows(&doc, table).into_iter().enumerate() {
+        match doc.extra(cells(&doc, row)[0]) {
+            NodeExtra::Cell { align, .. } => {
+                assert_eq!(align, TableCellAlign::Center, "row {ri}");
+            }
+            other => panic!("cell extra {other:?}"),
+        }
+    }
+    let md = doc.to_markdown();
+    assert_eq!(separator_cells(&md)[0], ":---:", "{md}");
+    let reloaded = load_markdown(&md, editor_options());
+    assert_eq!(
+        TableCellAlign::from(reloaded.table_alignment_at(first_table(&reloaded), 0)),
+        TableCellAlign::Center
+    );
+}
+
+#[test]
+fn wide_table_alignment_beyond_the_packed_word_serializes() {
+    let cols = TABLE_ALIGN_COLS + 9;
+    let mut doc = load_markdown(&wide_table_source(cols), editor_options());
+    let cell = leaf_named(&doc, &format!("b{}", cols - 1));
+    let _ = apply_op(&mut doc, cell, TableOp::SetColumnAlign(TableCellAlign::End));
+    let md = doc.to_markdown();
+    let cells = separator_cells(&md);
+    assert_eq!(cells[cols - 1], "---:", "{md}");
+    assert_eq!(cells[0], "---", "{md}");
+    let reloaded = load_markdown(&md, editor_options());
+    assert_eq!(
+        TableCellAlign::from(reloaded.table_alignment_at(first_table(&reloaded), cols - 1)),
+        TableCellAlign::End
+    );
+}
+
+#[test]
+fn wide_table_alignment_undo_redo_round_trips() {
+    let cols = TABLE_ALIGN_COLS + 1;
+    let mut d = Doc::new(load_markdown(&wide_table_source(cols), editor_options()));
+    let cell = leaf_named(&d.document, "b0");
+    let before = d.document.to_markdown();
+    let _ = d.apply(
+        Sel::collapsed(caret(cell, 0)),
+        Command::Table(TableOp::SetColumnAlign(TableCellAlign::Center)),
+    );
+    let after = d.document.to_markdown();
+    assert!(after.contains(":---:"), "{after}");
+    let _ = d.undo().expect("undo");
+    assert_eq!(d.document.to_markdown(), before);
+    let _ = d.redo().expect("redo");
+    assert_eq!(d.document.to_markdown(), after);
+}
+
+#[test]
+fn wide_resize_is_a_noop_and_returns() {
+    let cols = TABLE_ALIGN_COLS + 1;
+    let mut doc = load_markdown(&wide_table_source(cols), editor_options());
+    let cell = leaf_named(&doc, "b0");
+    let before = doc.to_markdown();
+    let revision = doc.revision;
+    let _ = doc.take_changes();
+    let _ = apply_op(&mut doc, cell, TableOp::Resize { rows: 2, cols: 32 });
+    assert_eq!(doc.revision, revision);
+    assert!(doc.take_changes().is_empty());
+    assert_eq!(doc.to_markdown(), before);
+}
+
+#[test]
+fn deep_table_exit_completes_without_stack_overflow() {
+    let source = format!("| h |\n| --- |\n| b |\n\n{}deep\n", "> ".repeat(10_000));
+    let doc = load_markdown(&source, editor_options());
+    let cell = leaf_named(&doc, "h");
+    let caret = table_step(
+        &doc,
+        Caret {
+            block: cell,
+            offset: 0,
+        },
+        TableStep::ExitAfter,
+    )
+    .expect("exit lands in the deep quote");
+    assert_eq!(doc.text_of(caret.block), Some("deep"));
+    assert_eq!(caret.offset, 0);
+}
+
+#[test]
+fn pipe_header_commit_preserves_all_typed_headers() {
+    let headers: Vec<_> = (0..33).map(|i| format!("h{i}")).collect();
+    let source = format!("| {} |\n", headers.join(" | "));
+    let mut doc = load_markdown(&source, editor_options());
+    let leaf = doc.text_leaves()[0];
+    let end = doc.text_of(leaf).map(str::len).unwrap_or(0);
+    let _ = apply(&mut doc, Sel::collapsed(caret(leaf, end)), Command::Break);
+    let markdown = doc.to_markdown();
+    assert!(markdown.contains("h32"), "33rd header lost: {markdown:?}");
+    assert!(markdown.contains("h0"), "{markdown:?}");
+}
+
+#[test]
+fn editing_table_cell_preserves_loaded_html_break() {
+    for br in ["<br>", "<br/>", "<br />"] {
+        let source = format!("| h |\n| --- |\n| a{br}b |\n");
+        let mut doc = load_markdown(&source, editor_options());
+        let block = doc.text_leaves()[1];
+        assert_eq!(doc.collapsed_text_of(block), Some("a\nb"), "{br}");
+        let _ = apply(
+            &mut doc,
+            Sel::collapsed(caret(block, 0)),
+            Command::Insert { text: "x".into() },
+        );
+        assert_eq!(doc.collapsed_text_of(block), Some("xa\nb"), "{br}");
+        let markdown = doc.to_markdown();
+        assert!(markdown.contains(br), "source lost the tag: {markdown:?}");
+    }
+}
+
+#[test]
+fn moving_the_header_row_moves_the_synthetic_bold_with_it() {
+    let mut doc = load_markdown("| head |\n| --- |\n| body |\n", editor_options());
+    let header = leaf_named(&doc, "head");
+    let _ = apply_op(&mut doc, header, TableOp::MoveRowDown);
+    let new_header = doc.live_id(doc.text_leaves()[0]).expect("new header");
+    let old_header = doc.live_id(doc.text_leaves()[1]).expect("old header");
+    assert!(doc.extra(new_header).table_header());
+    assert!(!doc.extra(old_header).table_header());
+    assert!(
+        doc.runs(new_header)
+            .iter()
+            .any(|run| run.marks.contains(InlineMarks::STRONG)),
+        "promoted row must gain the synthetic bold"
+    );
+    assert!(
+        !doc.runs(old_header)
+            .iter()
+            .any(|run| run.marks.contains(InlineMarks::STRONG)),
+        "demoted row must drop the synthetic bold"
+    );
+    let markdown = doc.to_markdown();
+    let reloaded = load_markdown(&markdown, editor_options());
+    let rbody = reloaded
+        .live_id(reloaded.text_leaves()[0])
+        .expect("reloaded body");
+    let rhead = reloaded
+        .live_id(reloaded.text_leaves()[1])
+        .expect("reloaded head");
+    assert!(
+        reloaded
+            .runs(rbody)
+            .iter()
+            .any(|run| run.marks.contains(InlineMarks::STRONG)),
+        "md={markdown:?}"
+    );
+    assert!(
+        !reloaded
+            .runs(rhead)
+            .iter()
+            .any(|run| run.marks.contains(InlineMarks::STRONG)),
+        "md={markdown:?}"
+    );
+}
+
+#[test]
+fn cell_reference_link_keeps_its_projection_while_editing() {
+    let mut doc = load_markdown(
+        "| h |\n| --- |\n| [go][r] |\n\n[r]: https://example.test\n",
+        editor_options(),
+    );
+    let leaf = doc.live_id(doc.text_leaves()[1]).expect("live cell");
+    assert_eq!(doc.leaf_source(leaf), "[go][r]");
+    assert_eq!(doc.display(leaf), "go");
+    doc.replace_text(leaf.index, 1..1, "X");
+    assert_eq!(doc.leaf_source(leaf), "[gXo][r]");
+    assert_eq!(
+        doc.collapsed_display(leaf),
+        "gXo",
+        "after the edit a link must not be torn into literal text"
+    );
+    let gxo = doc.display(leaf).find("gXo").expect("link text");
+    assert_eq!(doc.link_at(leaf, gxo), Some("https://example.test"));
+}
+
+#[test]
+fn reference_image_edit_keeps_block_identity() {
+    let mut doc = load_markdown("![alt][r]\n\n[r]: image.png\n", editor_options());
+    let leaf = doc.live_id(doc.text_leaves()[0]).expect("live image");
+    assert!(matches!(
+        doc.arena.get(leaf).map(|n| n.kind),
+        Some(BlockKind::Image)
+    ));
+    assert_eq!(doc.display(leaf), "alt");
+    doc.replace_text(leaf.index, 3..3, "X");
+    assert_eq!(doc.leaf_source(leaf), "![aXlt][r]");
+    assert_eq!(
+        doc.display(leaf),
+        "aXlt",
+        "an image block's collapsed projection must keep up with the edit"
+    );
+    assert!(
+        matches!(doc.arena.get(leaf).map(|n| n.kind), Some(BlockKind::Image)),
+        "an image block's identity must not degrade because of the edit"
+    );
+}
+
+#[test]
+fn inserting_space_preserves_cell_line_break() {
+    use crate::doc::Doc;
+    let mut doc = Doc::new(load_markdown(
+        "| h |\n| --- |\n| a<br>b |\n",
+        editor_options(),
+    ));
+    let cell = doc.text_leaves()[1];
+    assert_eq!(doc.collapsed_text(cell), Some("a\nb"));
+    let _ = doc.apply(
+        Sel::collapsed(Caret {
+            block: cell,
+            offset: 0,
+        }),
+        Command::Insert { text: " ".into() },
+    );
+    let live = doc.collapsed_text(cell).unwrap().to_string();
+    assert_eq!(
+        live, " a\nb",
+        "the typed space must be visible in the edit state"
+    );
+    assert!(live.contains('\n'), "an untouched line break disappeared");
+    let saved = doc.document.to_markdown();
+    assert!(saved.contains("&#32;a<br>b"), "saved={saved:?}");
+    let reloaded = Doc::new(load_markdown(&saved, editor_options()));
+    assert_eq!(
+        reloaded.collapsed_text(reloaded.text_leaves()[1]),
+        Some(" a\nb"),
+        "saved={saved:?}"
+    );
 }

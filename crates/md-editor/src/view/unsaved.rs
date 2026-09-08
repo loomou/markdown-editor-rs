@@ -166,7 +166,6 @@ impl EditorView {
             self.apply_unsaved_choice(UnsavedChoice::Save, window, cx);
             return true;
         }
-
         if self
             .keymap
             .chord_for(crate::keymap::Cmd::Save)

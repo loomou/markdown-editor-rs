@@ -38,16 +38,16 @@ fn active_hit_on_a_revealed_block_gets_the_active_color(cx: &mut TestAppContext)
     assert_eq!(
         active.len(),
         1,
-        "the current hit must carry the active color"
+        "the current match should get the active color"
     );
     assert!(
         rest.is_empty(),
-        "the only hit is the current one, so the plain color must be empty"
+        "the only match is the current one, so the plain color set should be empty"
     );
     let (x, y, w, h) = active[0];
     assert!(
         w > 0.0 && h > 0.0,
-        "the active rect must really have an area, not a stack of zeros"
+        "the active rectangle must really have area, not a stack of zeros"
     );
     let _ = (x, y);
 }
@@ -59,9 +59,9 @@ fn empty_collapsed_scan_paints_no_highlights(cx: &mut TestAppContext) {
 
     assert!(
         rest.is_empty(),
-        "a collapsed region must have zero hits: the ** in revealed text is markup, not a match"
+        "zero matches in a collapsed span means no highlights in the frame: the ** in revealed text is a marker, not a match"
     );
-    assert!(active.is_empty(), "no hits, so there is no current hit");
+    assert!(active.is_empty(), "no matches means no current match");
 }
 
 #[gpui::test]
@@ -75,7 +75,7 @@ fn stepping_resumes_from_the_cursor_when_the_selection_left_the_hit(cx: &mut Tes
     assert_eq!(
         active(cx),
         Some(0),
-        "precondition: the first seeding stops at the first hit"
+        "precondition: the seeded typing should stop at the first match"
     );
 
     place_caret(&editor, cx, 0, 14);
@@ -86,7 +86,7 @@ fn stepping_resumes_from_the_cursor_when_the_selection_left_the_hit(cx: &mut Tes
     assert_eq!(
         active(cx),
         Some(2),
-        "\"next\" must take the first hit after the caret, not the one after the old active"
+        "\"next\" should take the first match after the caret, not the one after the old active"
     );
 
     place_caret(&editor, cx, 0, 14);
@@ -97,14 +97,13 @@ fn stepping_resumes_from_the_cursor_when_the_selection_left_the_hit(cx: &mut Tes
     assert_eq!(
         active(cx),
         Some(1),
-        "\"prev\" must step back to the second hit"
+        "\"previous\" should step back to the second match"
     );
 }
 
 #[gpui::test]
 fn jumping_to_a_revealed_hit_selects_only_the_match(cx: &mut TestAppContext) {
     let (editor, cx) = editor_with_doc("a**b**c\n", cx);
-
     place_caret(&editor, cx, 0, 1);
     cx.update(|_, app| {
         editor.update(app, |v, _| v.set_search_query("b"));
@@ -121,7 +120,7 @@ fn jumping_to_a_revealed_hit_selects_only_the_match(cx: &mut TestAppContext) {
             let (a, b) = v
                 .state
                 .selection
-                .expect("the jump must select the hit word, so the selection is non-empty");
+                .expect("the jump should select the matched text, so the selection is non-empty");
             assert_eq!(a.block, leaf);
             assert_eq!(b.block, leaf);
             let (lo, hi) = if a.offset <= b.offset {
@@ -155,7 +154,7 @@ fn a_search_jump_during_ime_interrupts_the_composition(cx: &mut TestAppContext) 
             EntityInputHandler::replace_and_mark_text_in_range(view, None, "ni", None, window, cx);
             assert!(
                 view.state.marked.is_some(),
-                "precondition: the composition must be active"
+                "precondition: should still be composing"
             );
             assert_eq!(view.state.doc.text(a).unwrap(), "abcni");
 
@@ -163,17 +162,17 @@ fn a_search_jump_during_ime_interrupts_the_composition(cx: &mut TestAppContext) 
 
             assert_eq!(
                 view.state.marked, None,
-                "a search jump must interrupt the composition"
+                "jumping through find matches should interrupt composition"
             );
             assert!(!view.state.doc.is_composing());
             assert_eq!(
                 view.state.doc.text(a).unwrap(),
                 "abc",
-                "the composition string must be dismissed"
+                "the composing string should be backed out"
             );
             assert_eq!(
                 view.state.cursor.block, b,
-                "the jump must carry the caret to the hit block"
+                "the jump should bring the caret to the matched block"
             );
         })
     });

@@ -6,7 +6,6 @@ const BOX_NONE: u32 = u32::MAX;
 #[derive(Clone, Debug, Default)]
 struct BoxColumn {
     index: Vec<u32>,
-
     dense: Vec<Option<Box<BoxNode>>>,
     free: Vec<u32>,
 }

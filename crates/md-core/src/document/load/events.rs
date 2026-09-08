@@ -4,7 +4,7 @@ use crate::block::{BlockKind, NodeExtra};
 use crate::document::bind::is_html_line_break;
 use crate::document::focus::RawConstruct;
 use crate::inline::InlineMarks;
-use pulldown_cmark::Event;
+use pulldown_cmark::{Event, Tag};
 use std::ops::Range;
 
 fn clamped(source: &str, range: &Range<usize>) -> (usize, usize) {
@@ -16,6 +16,18 @@ impl Builder {
     pub(super) fn handle(&mut self, source: &str, event: Event<'_>, range: Range<usize>) {
         match event {
             Event::Start(tag) => {
+                if !matches!(
+                    tag,
+                    Tag::Emphasis
+                        | Tag::Strong
+                        | Tag::Strikethrough
+                        | Tag::Superscript
+                        | Tag::Subscript
+                        | Tag::Link { .. }
+                        | Tag::Image { .. }
+                ) {
+                    self.math_extract_at = None;
+                }
                 let cover = covers_start(&tag);
                 let (lo, _) = clamped(source, &range);
                 self.recorder.start(&tag, lo);
@@ -28,7 +40,6 @@ impl Builder {
                 if covers_end(end) {
                     self.cover_source(source, range.clone());
                 }
-
                 let (_, hi) = clamped(source, &range);
                 if let Some(raw) = self.recorder.end(end, source, hi) {
                     self.record_construct(raw);
@@ -48,7 +59,7 @@ impl Builder {
                 self.push_inline(st.marks.union(InlineMarks::CODE), st.link);
                 self.push_text(source, &t, range.clone());
                 self.pop_inline();
-                self.cover_source(source, range);
+                self.cover_verbatim(source, range);
                 self.record_construct(raw);
             }
             Event::InlineMath(t) => {
@@ -59,15 +70,17 @@ impl Builder {
                 self.push_inline(st.marks.union(InlineMarks::MATH_INLINE), st.link);
                 self.push_span(source, &t, range.clone(), false);
                 self.pop_inline();
-                self.cover_source(source, range);
+                self.cover_verbatim(source, range);
                 self.record_construct(raw);
             }
             Event::DisplayMath(t) => {
                 self.image_only = false;
-
                 let latex = display_math_latex(t.as_ref());
-
-                if matches!(self.top().kind, FrameKind::Leaf(BlockKind::Paragraph)) {
+                let crossed = self
+                    .inline
+                    .iter()
+                    .any(|st| !st.marks.is_empty() || st.link.is_some());
+                if !crossed && matches!(self.top().kind, FrameKind::Leaf(BlockKind::Paragraph)) {
                     self.emit_display_math_block(
                         source,
                         latex,
@@ -77,13 +90,12 @@ impl Builder {
                     return;
                 }
                 let (lo, hi) = clamped(source, &range);
-
                 let raw = self.recorder.shown(source, lo..hi, t.as_ref());
                 let st = self.current_inline();
                 self.push_inline(st.marks.union(InlineMarks::MATH_DISPLAY), st.link);
                 self.push_span(source, latex, range.clone(), false);
                 self.pop_inline();
-                self.cover_source(source, range);
+                self.cover_verbatim(source, range);
                 self.record_construct(raw);
             }
             Event::Html(t) | Event::InlineHtml(t) => {
@@ -116,6 +128,7 @@ impl Builder {
                 self.cover_source(source, range);
             }
             Event::Rule => {
+                self.math_extract_at = None;
                 self.close_implicit(source);
                 self.mark_list_loose_before(source, range.start);
                 self.push_leaf(BlockKind::ThematicBreak);
@@ -137,10 +150,40 @@ impl Builder {
     }
 
     pub(super) fn cover_source(&mut self, source: &str, range: Range<usize>) {
+        self.cover_impl(source, range, false);
+    }
+
+    pub(super) fn cover_verbatim(&mut self, source: &str, range: Range<usize>) {
+        self.cover_impl(source, range, true);
+    }
+
+    fn cover_impl(&mut self, source: &str, range: Range<usize>, verbatim: bool) {
         if range.start > range.end {
             return;
         }
-        let pieces = self.split_off_block_prefixes(source, range);
+        let mut range = range;
+        let floor = self.cover_floor;
+        if let Some(floor) = floor
+            && floor < range.start
+        {
+            let bytes = source.as_bytes();
+            let prev_is_newline = floor > 0 && bytes[floor - 1] == b'\n';
+            let seam_has_newline = bytes[floor..range.start].contains(&b'\n');
+            if !prev_is_newline && !seam_has_newline {
+                range.start = floor;
+            } else if bytes.get(range.start - 1) == Some(&b'\\') {
+                range.start -= 1;
+            }
+        } else if range.start > 0 && source.as_bytes().get(range.start - 1) == Some(&b'\\') {
+            range.start -= 1;
+        }
+        self.cover_floor = Some(range.end.max(floor.unwrap_or(0)));
+        if let Some(floor) = self.math_extract_at
+            && range.start < floor
+        {
+            range.start = floor.min(range.end);
+        }
+        let pieces = self.split_off_block_prefixes(source, range, verbatim);
         let Some(frame) = self.stack.last_mut() else {
             return;
         };
@@ -155,23 +198,34 @@ impl Builder {
         }
     }
 
-    fn split_off_block_prefixes(&self, source: &str, range: Range<usize>) -> Vec<Range<usize>> {
+    fn split_off_block_prefixes(
+        &self,
+        source: &str,
+        range: Range<usize>,
+        verbatim: bool,
+    ) -> Vec<Range<usize>> {
         let in_quote = self.stack.iter().any(|frame| {
             self.arena.get(frame.id).map(|node| node.kind) == Some(BlockKind::BlockQuote)
         });
-        let phrasing = matches!(
-            self.stack.last().map(|frame| &frame.kind),
-            Some(FrameKind::Leaf(
-                BlockKind::Paragraph | BlockKind::Heading(_)
-            ))
-        );
+        let phrasing = !verbatim
+            && matches!(
+                self.stack.last().map(|frame| &frame.kind),
+                Some(FrameKind::Leaf(
+                    BlockKind::Paragraph | BlockKind::Heading(_)
+                ))
+            );
+        let host = if verbatim {
+            self.stack.iter().rev().find_map(|frame| frame.host_indent)
+        } else {
+            None
+        };
         let bytes = source.as_bytes();
         let mut out = Vec::new();
         let mut seg_start = range.start;
         let mut i = range.start;
         while i < range.end {
             if bytes[i] == b'\n'
-                && let Some(j) = block_prefix_end(bytes, i + 1, range.end, in_quote, phrasing)
+                && let Some(j) = block_prefix_end(bytes, i + 1, range.end, in_quote, phrasing, host)
             {
                 out.push(seg_start..i + 1);
                 seg_start = j;
@@ -218,23 +272,26 @@ impl Builder {
             };
             *range = start as u32..end as u32;
         }
-
         let mut constructs = Vec::with_capacity(frame.constructs.len());
+        let mut lost_construct = false;
         for raw in &frame.constructs {
             let (Some(start), Some(end)) = (
                 concat.offset(raw.source.start),
                 concat.offset(raw.source.end),
             ) else {
+                lost_construct = true;
                 continue;
             };
             let (Some(inner_start), Some(inner_end)) =
                 (concat.offset(raw.inner.start), concat.offset(raw.inner.end))
             else {
+                lost_construct = true;
                 continue;
             };
             if end - start != raw.source.end - raw.source.start
                 || inner_end - inner_start != raw.inner.end - raw.inner.start
             {
+                lost_construct = true;
                 continue;
             }
             constructs.push(RawConstruct {
@@ -255,8 +312,11 @@ impl Builder {
             }
             leaf.set_owned_source(joined);
         }
-
-        leaf.constructs = Some(constructs);
+        leaf.constructs = if lost_construct {
+            None
+        } else {
+            Some(constructs)
+        };
     }
 
     pub(super) fn mark_enclosing_list_loose(&mut self) {
@@ -308,8 +368,26 @@ impl Builder {
         range: Range<usize>,
         fenced: bool,
     ) {
+        if let Some(frame) = self.stack.last_mut() {
+            for r in &mut frame.source_ranges {
+                if r.end >= range.start {
+                    r.end = range.start.min(r.end);
+                    while r.end > r.start
+                        && matches!(
+                            source.as_bytes().get(r.end - 1),
+                            Some(b' ' | b'\t' | b'\n' | b'\r')
+                        )
+                    {
+                        r.end -= 1;
+                    }
+                }
+                if r.start > r.end {
+                    r.start = r.end;
+                }
+            }
+        }
         if let Some(leaf) = self.texts.get_mut(self.top().id.text_id()) {
-            leaf.trim_trailing_newline();
+            leaf.trim_trailing_whitespace();
         }
         let empty = self
             .texts
@@ -321,17 +399,23 @@ impl Builder {
         }
         self.pop(source);
         self.push_leaf(BlockKind::Math);
-
         if fenced {
             self.set_extra(self.top().id, NodeExtra::MathFence);
         }
         let st = self.current_inline();
         self.push_inline(st.marks.union(InlineMarks::MATH_DISPLAY), st.link);
+        let range_end = range.end;
         self.push_span(source, latex, range.clone(), false);
         self.pop_inline();
         self.cover_source(source, range);
         self.pop(source);
         self.push_leaf(BlockKind::Paragraph);
+        let mut floor = range_end;
+        let bytes = source.as_bytes();
+        while floor < source.len() && matches!(bytes[floor], b' ' | b'\t') {
+            floor += 1;
+        }
+        self.math_extract_at = Some(floor);
         self.image_only = false;
         self.math_continuation = true;
     }
@@ -367,13 +451,16 @@ fn normalized_source_ranges(source: &str, ranges: &[Range<usize>]) -> Vec<Range<
     merged
 }
 
+#[allow(clippy::too_many_arguments)]
 fn block_prefix_end(
     bytes: &[u8],
     at: usize,
     end: usize,
     in_quote: bool,
     phrasing: bool,
+    host: Option<super::builder::HostIndent>,
 ) -> Option<usize> {
+    use super::builder::HostIndent;
     let mut j = at;
     let mut cut = None;
     if in_quote {
@@ -388,13 +475,42 @@ fn block_prefix_end(
                 break;
             }
             k += 1;
-
             if k < end && matches!(bytes.get(k), Some(b' ' | b'\t')) {
                 k += 1;
             }
             j = k;
             cut = Some(j);
         }
+    }
+    if let Some(host) = host {
+        let mut k = j;
+        let mut col = 0usize;
+        for &b in &bytes[at..k] {
+            col = super::tags::expand_column(col, b);
+        }
+        let target = match host {
+            HostIndent::ContentColumn(target) => target as usize,
+            HostIndent::Relative(n) => col + n as usize,
+        };
+        while k < end && col < target && matches!(bytes.get(k), Some(b' ' | b'\t')) {
+            let step = if bytes[k] == b'\t' {
+                super::tags::next_tab_stop(col) - col
+            } else {
+                1
+            };
+            if col + step > target {
+                if bytes[k] == b'\t' {
+                    k += 1;
+                }
+                break;
+            }
+            col += step;
+            k += 1;
+        }
+        if k > j {
+            return Some(k);
+        }
+        return cut;
     }
     if !phrasing {
         return cut;
@@ -411,7 +527,6 @@ fn block_prefix_end(
 
 struct ConcatMap<'a> {
     ranges: &'a [Range<usize>],
-
     sums: Vec<usize>,
 }
 

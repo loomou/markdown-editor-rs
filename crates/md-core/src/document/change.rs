@@ -1,6 +1,7 @@
 use super::arena::NodeId;
 use crate::block::{BlockKind, NodeExtra};
 use std::ops::Range;
+use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DocChange {
@@ -13,7 +14,6 @@ pub enum DocChange {
         deleted: String,
         inserted: String,
     },
-
     TreeSpliced {
         parent: NodeId,
         before: Option<NodeId>,
@@ -26,6 +26,15 @@ pub enum DocChange {
         new_kind: BlockKind,
         old_extra: NodeExtra,
         new_extra: NodeExtra,
+    },
+    ReferenceDefsChanged {
+        old: Arc<Vec<String>>,
+        new: Arc<Vec<String>>,
+    },
+    TableAlignOverflow {
+        table: NodeId,
+        old: Arc<[u8]>,
+        new: Arc<[u8]>,
     },
 }
 
@@ -110,6 +119,14 @@ impl DocChange {
                 old_extra: new_extra,
                 new_extra: old_extra,
             },
+            DocChange::ReferenceDefsChanged { old, new } => {
+                DocChange::ReferenceDefsChanged { old: new, new: old }
+            }
+            DocChange::TableAlignOverflow { table, old, new } => DocChange::TableAlignOverflow {
+                table,
+                old: new,
+                new: old,
+            },
         }
     }
 
@@ -129,6 +146,8 @@ impl DocChange {
                 new_extra,
                 ..
             } => old_kind != new_kind || old_extra != new_extra,
+            DocChange::ReferenceDefsChanged { old, new } => old != new,
+            DocChange::TableAlignOverflow { old, new, .. } => old != new,
         }
     }
 }

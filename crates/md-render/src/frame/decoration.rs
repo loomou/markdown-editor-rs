@@ -19,7 +19,6 @@ pub(super) fn collect_decorations_window(
         let FlowItemKind::Content { box_id } = e.kind else {
             continue;
         };
-
         let tree = &pass.assembly.tree;
         let kind = tree.get(box_id).shape_kind();
         if !wants_leaf_decoration(kind) {

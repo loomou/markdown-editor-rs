@@ -199,3 +199,27 @@ fn delete_prefix_items_then_break_keeps_live_caret() {
     assert!(d.document.live_id(out.block).is_some());
     assert_eq!(list_count(&d.document), 1);
 }
+
+#[test]
+fn deleting_list_text_preserves_an_unselected_empty_table() {
+    let mut doc = Doc::new(load_markdown(
+        "- abc\n\n  |   |\n  | --- |\n  |   |\n",
+        editor_options(),
+    ));
+    let leaf = doc.text_leaves()[0];
+    let count_cells = |doc: &Doc| {
+        doc.text_leaves()
+            .into_iter()
+            .filter(|&id| doc.kind(id) == Some(BlockKind::TableCell))
+            .count()
+    };
+    assert_eq!(count_cells(&doc), 2);
+    let _ = doc.apply(
+        Sel {
+            anchor: caret(leaf, 0),
+            head: caret(leaf, 3),
+        },
+        Command::DeleteBackward,
+    );
+    assert_eq!(count_cells(&doc), 2, "the table was outside the selection");
+}

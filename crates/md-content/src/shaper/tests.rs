@@ -2,6 +2,8 @@ use super::artifact::{locate_hard_offset, offset_on_hard_line};
 use super::color::color_runs_by_line;
 
 use crate::highlight::Span;
+use md_core::inline::InlineRun;
+use md_core::inline::covering_runs;
 use md_theme::{DocumentTheme, SyntaxRole};
 
 #[test]
@@ -111,5 +113,56 @@ fn image_source_text_treats_object_replacement_as_empty_alt() {
     assert_eq!(
         super::atoms::image_source_text("\u{FFFC}", "a.png", ""),
         "![](a.png)"
+    );
+}
+
+fn reference_slice_runs(runs: &[InlineRun], start: u32, end: u32) -> Vec<InlineRun> {
+    covering_runs(end, runs)
+        .into_iter()
+        .filter_map(|r| {
+            let s = r.display_range.start.max(start);
+            let e = r.display_range.end.min(end);
+            (e > s).then(|| InlineRun {
+                display_range: (s - start)..(e - start),
+                source_range: r.source_range.clone(),
+                marks: r.marks,
+                link: r.link,
+            })
+        })
+        .collect()
+}
+
+#[test]
+fn slice_runs_matches_the_reference_on_every_window() {
+    use md_core::inline::InlineMarks;
+    fn run(range: std::ops::Range<u32>, marks: InlineMarks, link: Option<u32>) -> InlineRun {
+        InlineRun {
+            display_range: range,
+            source_range: None,
+            marks,
+            link,
+        }
+    }
+    let runs = [
+        run(0..5, InlineMarks::EM, None),
+        run(5..8, InlineMarks::NONE, None),
+        run(8..14, InlineMarks::STRONG, Some(7)),
+        run(14..20, InlineMarks::CODE, None),
+        run(20..24, InlineMarks::NONE, None),
+    ];
+    for start in 0..24u32 {
+        for end in start..=24u32 {
+            assert_eq!(
+                super::atoms::slice_runs(&runs, start, end),
+                reference_slice_runs(&runs, start, end),
+                "window {start}..{end}"
+            );
+        }
+    }
+    assert!(super::atoms::slice_runs(&runs, 6, 6).is_empty());
+    assert!(super::atoms::slice_runs(&runs, 9, 4).is_empty());
+    assert_eq!(
+        super::atoms::slice_runs(&runs, 24, 30),
+        reference_slice_runs(&runs, 24, 30)
     );
 }

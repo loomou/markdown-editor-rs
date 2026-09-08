@@ -1,11 +1,12 @@
 use super::{
     TABLE_INSERT_MAX_COLS, TABLE_INSERT_MAX_ROWS, TABLE_INSERT_MIN_COLS, TABLE_INSERT_MIN_ROWS,
 };
-use crate::block::{BlockKind, NodeExtra, TableCellAlign};
+use crate::block::{BlockKind, NodeExtra, TableCellAlign, set_alignment};
 use crate::document::Document;
 use crate::document::arena::NodeId;
 use crate::document::change::DocChange;
 use crate::document::edit::Caret;
+use std::sync::Arc;
 
 pub(crate) fn kids(doc: &Document, id: NodeId) -> Vec<NodeId> {
     doc.arena.children(id).collect()
@@ -126,7 +127,6 @@ pub(crate) fn alloc_table(
         }
         doc.arena.append_child(table, row);
     }
-
     let header = header.expect("header");
     (table, header, body.unwrap_or(header))
 }
@@ -149,6 +149,39 @@ pub(crate) fn set_packed(
         },
     );
     changes.push(doc.attrs_change(table, BlockKind::Table, old));
+}
+
+pub(crate) fn set_alignment_at(
+    doc: &mut Document,
+    table: NodeId,
+    col: usize,
+    bits: u8,
+    changes: &mut Vec<DocChange>,
+) {
+    let Some(old) = doc.table_alignment_overflow.get(&table).cloned() else {
+        return;
+    };
+    let Some(&current) = old.get(col) else {
+        return;
+    };
+    if current == bits {
+        return;
+    }
+    let mut bytes = old.to_vec();
+    bytes[col] = bits;
+    let new: Arc<[u8]> = bytes.into();
+    doc.table_alignment_overflow.insert(table, Arc::clone(&new));
+    changes.push(DocChange::TableAlignOverflow { table, old, new });
+    let extra = doc.extra(table);
+    let packed = set_alignment(table_packed(doc, table), col, bits);
+    doc.set_extra(
+        table,
+        NodeExtra::Table {
+            alignments: packed,
+            source: None,
+        },
+    );
+    changes.push(doc.attrs_change(table, BlockKind::Table, extra));
 }
 
 pub(crate) fn retarget_header(doc: &mut Document, table: NodeId, changes: &mut Vec<DocChange>) {
@@ -174,9 +207,13 @@ pub(crate) fn retarget_header(doc: &mut Document, table: NodeId, changes: &mut V
                 header,
             };
             let old = doc.extra(cell);
+            let identity_flipped = old != want && old.table_header() != want.table_header();
             if old != want {
                 doc.set_extra(cell, want);
                 changes.push(doc.attrs_change(cell, BlockKind::TableCell, old));
+            }
+            if identity_flipped {
+                doc.retable_header_cell(cell, header, changes);
             }
         }
     }

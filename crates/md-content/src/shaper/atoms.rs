@@ -107,17 +107,45 @@ pub(super) fn split_words(text: &str, start: usize, end: usize, out: &mut Vec<At
 
 pub(super) fn slice_runs(runs: &[InlineRun], start: u32, end: u32) -> Vec<InlineRun> {
     let mut out = Vec::new();
-    for r in covering_runs(end, runs) {
-        let s = r.display_range.start.max(start);
-        let e = r.display_range.end.min(end);
+    if end <= start {
+        return out;
+    }
+    let mut at = start;
+    let mut push = |at: &mut u32, s: u32, e: u32, r: Option<&InlineRun>| {
+        if s > *at {
+            out.push(InlineRun {
+                display_range: (*at - start)..(s - start),
+                source_range: None,
+                marks: InlineMarks::NONE,
+                link: None,
+            });
+            *at = s;
+        }
         if e > s {
+            let (source_range, marks, link) = match r {
+                Some(r) => (r.source_range.clone(), r.marks, r.link),
+                None => (None, InlineMarks::NONE, None),
+            };
             out.push(InlineRun {
                 display_range: (s - start)..(e - start),
-                source_range: r.source_range.clone(),
-                marks: r.marks,
-                link: r.link,
+                source_range,
+                marks,
+                link,
             });
+            *at = e;
         }
+    };
+    let first = runs.partition_point(|r| r.display_range.end <= start);
+    for r in &runs[first..] {
+        let s = r.display_range.start.clamp(at, end);
+        let e = r.display_range.end.min(end).max(s);
+        push(&mut at, s, e, Some(r));
+        if at >= end {
+            break;
+        }
+    }
+    if at < end {
+        push(&mut at, end, end, None);
     }
     out
 }

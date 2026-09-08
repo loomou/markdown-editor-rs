@@ -5,7 +5,6 @@ use std::num::NonZeroU32;
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct NodeId {
     pub index: u32,
-
     pub generation: NonZeroU32,
 }
 
@@ -76,7 +75,6 @@ struct Slot {
 #[derive(Clone)]
 pub struct DocumentArena {
     slots: Vec<Slot>,
-
     frozen: HashMap<u32, Node>,
 }
 
@@ -163,7 +161,6 @@ impl DocumentArena {
         if !slot.live || slot.generation != id.generation.get() {
             return;
         }
-
         self.freeze(id.index, true);
     }
 
@@ -175,7 +172,6 @@ impl DocumentArena {
             return false;
         }
         let index = id.index;
-
         if let Some(frozen) = self.frozen.remove(&index) {
             self.slots[index as usize].node = frozen;
         }
@@ -202,6 +198,14 @@ impl DocumentArena {
         } else {
             None
         }
+    }
+
+    pub(crate) fn frozen_node(&self, id: NodeId) -> Option<&Node> {
+        let slot = self.slots.get(id.index as usize)?;
+        if slot.generation != id.generation.get() {
+            return None;
+        }
+        self.frozen.get(&id.index)
     }
 
     pub(crate) fn live_at(&self, index: u32) -> Option<NodeId> {
@@ -352,7 +356,6 @@ mod sizes {
     fn node_and_slot_shrink_with_the_niche() {
         assert_eq!(size_of::<Node>(), 96);
         assert_eq!(size_of::<Option<Node>>(), 96);
-
         assert_eq!(size_of::<Slot>(), 104);
     }
 

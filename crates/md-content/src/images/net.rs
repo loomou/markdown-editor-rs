@@ -213,7 +213,6 @@ mod tests {
         }
         assert!(blocked_hostname("localhost"));
         assert!(blocked_hostname("printer.local"));
-
         assert!(blocked_hostname("LOCALHOST."));
     }
 

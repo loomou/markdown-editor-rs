@@ -26,7 +26,6 @@ fn shell_starts_dark_with_outline_closed(cx: &mut TestAppContext) {
     assert!(!outline_open);
     assert_eq!(settings_nav, 0);
     assert_eq!(theme, DocumentTheme::one_dark());
-
     assert_eq!(settings, crate::store::settings::Settings::default());
     assert!(shell.read_with(cx, |s, _| s.settings_store.is_none()));
 }
@@ -78,9 +77,8 @@ fn the_font_slider_maps_the_track_onto_the_size_range() {
     assert_eq!(
         font_size_fraction(99.0),
         1.0,
-        "out-of-range values should stay on the track"
+        "an out-of-range value must stay clamped to the track"
     );
-
     assert!((font_size_fraction(18.0) - 0.5).abs() < f32::EPSILON);
 }
 

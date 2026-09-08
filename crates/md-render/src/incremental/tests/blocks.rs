@@ -473,7 +473,6 @@ fn deleting_every_block_keeps_the_survivor_renderable() {
         Command::DeleteBackward,
     );
     let changes = doc.take_changes();
-
     assert!(
         changes.changes.iter().any(|c| matches!(
             c,

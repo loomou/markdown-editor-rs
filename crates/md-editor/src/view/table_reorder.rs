@@ -679,7 +679,6 @@ impl EditorView {
             cx.notify();
             return;
         }
-
         self.place_cursor(
             Cursor {
                 block: drag.cell,

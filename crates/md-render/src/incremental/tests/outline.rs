@@ -40,7 +40,7 @@ fn heading_at_or_above_picks_the_last_heading_past_the_line() {
     for (i, &h) in hs.iter().enumerate() {
         let y = engine
             .content_top(h)
-            .expect("a flat heading must have an exact item");
+            .expect("a flat heading should have an exact item");
         assert_eq!(
             engine.heading_at_or_above(&doc, &hs, y),
             Some(h),
@@ -100,16 +100,16 @@ fn heading_at_or_above_falls_back_to_a_collapsed_ancestor() {
 
     let ay = engine
         .content_top(a)
-        .expect("# a must sit on the first screen");
+        .expect("# a should be on the first screen");
     assert_eq!(
         engine.content_top(h1),
         None,
-        "headings inside a collapsed quote must not have exact items"
+        "headings inside the collapsed quote have no exact item"
     );
     assert_eq!(engine.content_top(h2), None);
     let by = engine
         .content_top(b)
-        .expect("# b is a top-level leaf; its item must stay");
+        .expect("# b is a top-level leaf, its item is always there");
 
     let qy = engine
         .spine
@@ -119,7 +119,6 @@ fn heading_at_or_above_falls_back_to_a_collapsed_ancestor() {
 
     assert_eq!(engine.heading_at_or_above(&doc, &hs, ay + 0.5), Some(a));
     assert_eq!(engine.heading_at_or_above(&doc, &hs, qy - 0.5), Some(a));
-
     assert_eq!(
         engine.heading_at_or_above(&doc, &hs, qy),
         Some(h2),
@@ -141,7 +140,7 @@ fn heading_at_or_above_falls_back_to_a_collapsed_ancestor() {
     assert_eq!(engine.heading_at_or_above(&doc, &hs, hy + 0.5), Some(h1));
     let hy2 = engine
         .content_top(h2)
-        .expect("h2 must have an exact item too");
+        .expect("h2 must also have an exact item");
     assert_eq!(engine.heading_at_or_above(&doc, &hs, hy2), Some(h2));
 }
 
@@ -170,7 +169,7 @@ fn demoted_offscreen_heading_keeps_its_pickable_top() {
     assert_eq!(hs.len(), 1);
     let y0 = engine
         .content_top(hs[0])
-        .expect("the heading on the first screen must have an exact item");
+        .expect("the first-screen heading should have an exact item");
 
     for _ in 0..8 {
         let anchor = engine.anchor_at_y(

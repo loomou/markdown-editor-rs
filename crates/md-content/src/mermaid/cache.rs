@@ -114,9 +114,7 @@ impl MermaidCache {
         self.hot.extend(hot);
         self.warm.clear();
         self.warm.extend(warm);
-
         self.warm.retain(|key| !self.hot.contains(key));
-
         let ready: Vec<MermaidKey> = self
             .hot
             .iter()

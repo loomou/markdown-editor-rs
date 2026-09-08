@@ -60,13 +60,11 @@ impl Shell {
         ) {
             return true;
         }
-
         if key == "backspace" && Mods::from(ev.keystroke.modifiers) == Mods::none() {
             self.settings.keymap.clear(cmd);
             self.commit_recording(None, window, cx);
             return true;
         }
-
         let Some(chord) = Chord::from_keystroke(&ev.keystroke) else {
             return true;
         };
@@ -170,7 +168,6 @@ impl Shell {
     fn shortcut_button(&self, t: ShellTheme, this: &Entity<Self>, cmd: Cmd) -> Stateful<Div> {
         let recording = self.recording == Some(cmd);
         let chord = self.settings.keymap.chord_for(cmd).map(Chord::display);
-
         let (text, mono) = match (recording, chord) {
             (true, _) => (t18(Key::ShortcutRecording).to_owned(), false),
             (false, Some(c)) => (c, true),

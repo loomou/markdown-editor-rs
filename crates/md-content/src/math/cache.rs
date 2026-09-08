@@ -74,9 +74,7 @@ impl MathCache {
         self.hot.extend(hot);
         self.warm.clear();
         self.warm.extend(warm);
-
         self.warm.retain(|key| !self.hot.contains(key));
-
         let ready: Vec<MathKey> = self
             .hot
             .iter()
@@ -249,17 +247,29 @@ impl MathCache {
     }
 
     fn trim_metrics(&mut self) {
+        if self.metrics_order.len() <= MAX_METRIC_ENTRIES {
+            return;
+        }
+        let referenced: HashSet<(&str, bool)> = self
+            .map
+            .keys()
+            .map(|key| (key.latex.as_str(), key.display))
+            .collect();
         while self.metrics_order.len() > MAX_METRIC_ENTRIES {
-            let Some((latex, display)) = self.metrics_order.pop_front() else {
+            let Some(idx) = self
+                .metrics_order
+                .iter()
+                .position(|(latex, display)| !referenced.contains(&(latex.as_str(), *display)))
+            else {
                 break;
             };
+            let (latex, display) = self.metrics_order.remove(idx).expect("metrics order");
             let metrics = Rc::make_mut(&mut self.metrics);
-            let Some(slots) = metrics.get_mut(&latex) else {
-                continue;
-            };
-            slots.remove(display);
-            if slots.is_empty() {
-                metrics.remove(&latex);
+            if let Some(slots) = metrics.get_mut(&latex) {
+                slots.remove(display);
+                if slots.is_empty() {
+                    metrics.remove(&latex);
+                }
             }
         }
     }

@@ -61,7 +61,6 @@ impl EditorView {
                 jobs.push((key, src.to_string(), mermaid::spec_from_theme(&theme, key)));
             }
         }
-
         let mut warm = Vec::new();
         let mut warm_jobs = Vec::new();
         for (block, width) in self.warm_mermaid_blocks(top, viewport_h) {
@@ -76,7 +75,6 @@ impl EditorView {
             ) else {
                 continue;
             };
-
             if protect.contains(&key) {
                 continue;
             }
@@ -89,7 +87,6 @@ impl EditorView {
             }
         }
         self.mermaid.set_working_set(protect, warm, cx);
-
         let jobs: Vec<_> = jobs.into_iter().chain(warm_jobs).collect();
         for (key, src, spec) in jobs {
             if !self.mermaid.begin(key) {
@@ -153,11 +150,9 @@ impl EditorView {
                 &mut protect,
             );
         }
-
         if let Some(p) = popover {
             collect_math_popover_job(p, &mut jobs, &mut protect);
         }
-
         self.math.set_working_set(protect, std::iter::empty(), cx);
         for (key, (src, spec, blocks)) in jobs {
             if self.math.contains(&key) {
@@ -245,29 +240,25 @@ impl EditorView {
             for c in cells {
                 collect_image_jobs(&c.art, c.block, &mut sched);
             }
-
             if let Some(p) = popover {
                 collect_popover_job(p, &mut sched);
             }
         }
         let hot_sources: Vec<String> = source_jobs.keys().cloned().collect();
-
         let mut warm_jobs = self.warm_image_sources(top, viewport_h);
-
         warm_jobs.retain(|dest, _| !source_jobs.contains_key(dest));
         let warm_sources: Vec<String> = warm_jobs.keys().cloned().collect();
         self.images
             .set_working_set(protect, hot_sources, warm_sources, cx);
-
         let source_jobs: Vec<(String, Vec<BlockId>)> =
             source_jobs.into_iter().chain(warm_jobs).collect();
         for (dest, blocks) in source_jobs {
-            if self.images.source_contains(&dest) {
+            if self.images.source_contains(&dest) && !self.images.source_retry_due(&dest) {
                 continue;
             }
-            if !self.images.begin_source(dest.clone()) {
+            let Some(token) = self.images.begin_source(dest.clone()) else {
                 continue;
-            }
+            };
             let source = self
                 .doc_maps
                 .data_source_links
@@ -286,14 +277,16 @@ impl EditorView {
                     resolved.map(|resolved| images::load_source(resolved, view.remote_images, cx))
                 }) {
                     Ok(Some(fut)) => cx.background_executor().spawn(fut).await,
-                    Ok(None) => Err(md_content::Error::Image(md_i18n::Key::ImageBadPath.into())),
+                    Ok(None) => Err(md_content::images::SourceError::Fatal(
+                        md_content::Error::Image(md_i18n::Key::ImageBadPath.into()),
+                    )),
                     Err(_) => return,
                 };
                 let _ = this.update(cx, |v, cx| {
                     if let Err(ref err) = result {
-                        tracing::warn!(error = %err, dest, "image source");
+                        tracing::warn!(error = %err, dest = %token.dest, "image source");
                     }
-                    let changed = v.images.finish_source(dest, result, cx);
+                    let changed = v.images.finish_source(token, result, cx);
                     if changed && let Some(eng) = v.state.incremental.as_mut() {
                         for b in blocks {
                             eng.invalidate_island_for_block(b);
@@ -308,9 +301,9 @@ impl EditorView {
             if self.images.display_contains(&key) {
                 continue;
             }
-            if !self.images.begin_display(key.clone()) {
+            let Some(display_token) = self.images.begin_display(key.clone()) else {
                 continue;
-            }
+            };
             let DisplayJob { source, blocks } = job;
             cx.spawn(async move |this, cx| {
                 let raster_key = key.clone();
@@ -322,7 +315,7 @@ impl EditorView {
                     if let Err(ref err) = result {
                         tracing::warn!(error = %err, "image display");
                     }
-                    let changed = v.images.finish_display(key, result, cx);
+                    let changed = v.images.finish_display(display_token, result, cx);
                     if changed && let Some(eng) = v.state.incremental.as_mut() {
                         for b in blocks {
                             eng.invalidate_island_for_block(b);

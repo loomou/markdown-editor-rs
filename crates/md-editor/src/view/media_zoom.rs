@@ -20,9 +20,7 @@ const BTN_PAD: f32 = 6.0;
 const FIT_PAD: f32 = 32.0;
 const SCALE_MIN: f32 = 0.25;
 const SCALE_MAX: f32 = 16.0;
-
 const ZOOM_RASTER_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(120);
-
 const DENSITY_EPS: f32 = 0.05;
 
 pub(crate) struct ZoomRaster {
@@ -34,7 +32,6 @@ pub(crate) struct ZoomRaster {
 pub(crate) struct ZoomRasterJob {
     pub key: mermaid::MermaidSvgKey,
     pub density: f32,
-
     #[expect(dead_code)]
     pub task: gpui::Task<()>,
 }
@@ -62,7 +59,6 @@ pub(crate) struct MediaChrome {
     pub block: BlockId,
     pub kind: BlockKind,
     pub x: Px,
-
     pub y: Px,
     pub w: Px,
     pub h: Px,
@@ -82,7 +78,6 @@ pub(crate) struct MediaZoom {
     pub block: BlockId,
     pub kind: BlockKind,
     pub slot_w: Px,
-
     pub user_scale: f32,
     pub pan: (f32, f32),
     drag: Option<(f32, f32)>,
@@ -511,7 +506,6 @@ impl EditorView {
                     scale,
                     mermaid::theme_fingerprint(theme),
                 )?;
-
                 if let Some(zr) = &self.zoom_raster
                     && zr.key == key.svg_key()
                 {
@@ -641,7 +635,6 @@ pub(crate) fn paint_zoom(
         origin: point(px(origin.0 + x), px(origin.1 + y)),
         size: size(px(w.max(1.0)), px(h.max(1.0))),
     };
-
     window.paint_quad(gpui::fill(bounds, v.state.theme.paint.canvas.hsla()));
     let _ = window.paint_image(bounds, Corners::all(px(0.0)), image, 0, false);
 }
@@ -692,8 +685,8 @@ mod tests {
         let d = zoom_target_density((800.0, 600.0), (1600.0, 1200.0), 1.0, 2.0, 4.0);
         assert!(d.is_none(), "a 4x document flow already covers it: {d:?}");
         let d = zoom_target_density((800.0, 600.0), (1600.0, 1200.0), 1.0, 2.0, 2.0)
-            .expect("2x is not enough, so a raster must be scheduled");
-        assert!(d > 3.5 && d < 4.1, "fit*dpr is about 3.79, got {d}");
+            .expect("2x is not enough, it should schedule");
+        assert!(d > 3.5 && d < 4.1, "fit times dpr is about 3.79; got {d}");
     }
 
     #[test]
@@ -754,13 +747,12 @@ mod tests {
             let zr = v
                 .zoom_raster
                 .as_ref()
-                .expect("after the debounce there must be an overlay bitmap");
+                .expect("past the debounce there should be a dense raster");
             zr.density
         });
-
         assert!(
             density > 4.0,
-            "the overlay density {density} must outrun the 4x document flow"
+            "the popover bitmap density {density} should exceed the document flow's 4x"
         );
 
         editor.update(cx, |v, cx| v.close_media_zoom(cx));

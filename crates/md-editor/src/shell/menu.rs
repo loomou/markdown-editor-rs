@@ -35,14 +35,12 @@ pub(super) enum MenuId {
 pub(super) enum MenuAction {
     Nothing,
     Cmd(Cmd),
-
     Table(TableOp),
 }
 
 #[derive(Clone, Copy)]
 pub(super) enum MenuEntry {
     Separator,
-
     Item {
         label: Key,
         action: MenuAction,
@@ -136,7 +134,6 @@ pub(super) fn menu_entries(id: MenuId) -> &'static [MenuEntry] {
                 action: MenuAction::Cmd(Cmd::ToggleTheme),
             },
         ],
-
         MenuId::Go => &[Item {
             label: Key::MenuGoToLine,
             action: MenuAction::Nothing,
@@ -151,7 +148,6 @@ pub(super) fn menu_entries(id: MenuId) -> &'static [MenuEntry] {
                 action: MenuAction::Nothing,
             },
         ],
-
         MenuId::Context => &[
             Item {
                 label: Key::MenuUndo,
@@ -690,9 +686,7 @@ impl Shell {
                 cx.notify();
             }
             Cmd::ToggleTheme => self.toggle_variant(cx),
-
             Cmd::Find => self.open_find(window, cx),
-
             Cmd::FindNext | Cmd::FindPrev => {
                 if self.find.read(cx).open {
                     let dir = if cmd == Cmd::FindPrev { -1 } else { 1 };

@@ -108,15 +108,22 @@ struct PlacedHit {
 }
 
 #[cfg(test)]
-pub(crate) fn inline_constructs(source: &str, s2d: &[usize]) -> Vec<InlineConstruct> {
-    finish_constructs(&raw_constructs(source), s2d)
+pub(crate) fn inline_constructs(
+    source: &str,
+    s2d: &[usize],
+    definitions: &[String],
+) -> Vec<InlineConstruct> {
+    finish_constructs(&raw_constructs(source, definitions), s2d)
 }
 
-pub(crate) fn raw_constructs(source: &str) -> Vec<RawConstruct> {
+pub(crate) fn raw_constructs(source: &str, definitions: &[String]) -> Vec<RawConstruct> {
     let n = source.len();
     let mut recorder = ConstructRecorder::new();
     let mut out = Vec::new();
-    for (event, range) in Parser::new_ext(source, sanitized_editor_options()).into_offset_iter() {
+    let parse_source = crate::document::bind::with_definitions(source, definitions);
+    for (event, range) in
+        Parser::new_ext(parse_source.as_ref(), sanitized_editor_options()).into_offset_iter()
+    {
         let lo = range.start.min(n);
         let hi = range.end.min(n).max(lo);
         match event {
@@ -427,16 +434,19 @@ pub(crate) fn project_focus(
         collapsed_display,
         collapsed_runs,
         collapsed_s2d,
+        &constructs,
         &hits,
         src,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn expand_many(
     source: &str,
     collapsed_display: &str,
     collapsed_runs: &[InlineRun],
     collapsed_s2d: &[usize],
+    constructs: &[InlineConstruct],
     hits: &[InlineConstruct],
     src: usize,
 ) -> Option<FocusProjection> {
@@ -478,10 +488,12 @@ fn expand_many(
     let src = src.min(source.len());
     let caret = source_to_display(&s2d, src);
     let span = placed.first()?.hit.source.start..placed.last()?.hit.source.end;
-    let image = placed.iter().find_map(|p| focus_image(collapsed_runs, p));
+    let image = placed
+        .iter()
+        .find_map(|p| focus_image(collapsed_runs, constructs, p));
     let math = placed
         .iter()
-        .find_map(|p| focus_math(source, collapsed_runs, p));
+        .find_map(|p| focus_math(source, collapsed_runs, constructs, p));
     Some(FocusProjection {
         display: display.clone(),
         runs: covering_runs(display.len() as u32, &out_runs),
@@ -493,37 +505,73 @@ fn expand_many(
     })
 }
 
-fn focus_image(collapsed_runs: &[InlineRun], placed: &PlacedHit) -> Option<FocusImage> {
+fn focus_image(
+    collapsed_runs: &[InlineRun],
+    constructs: &[InlineConstruct],
+    placed: &PlacedHit,
+) -> Option<FocusImage> {
     let hit = &placed.hit;
-    let link = collapsed_runs
+    let (image_construct, run) = constructs
         .iter()
-        .find(|r| {
-            r.marks.is_image()
-                && (r.display_range.start as usize) <= hit.display.start
-                && hit.display.start < (r.display_range.end as usize)
-        })
-        .and_then(|r| r.link)?;
-    let len = hit.source.end.saturating_sub(hit.source.start);
+        .filter(|c| c.source.start >= hit.source.start && c.source.end <= hit.source.end)
+        .find_map(|c| {
+            collapsed_runs
+                .iter()
+                .find(|r| {
+                    r.marks.is_image()
+                        && (r.display_range.start as usize) <= c.display.start
+                        && c.display.start < (r.display_range.end as usize)
+                })
+                .map(|r| (c, r))
+        })?;
+    let link = run.link?;
+    let len = image_construct
+        .source
+        .end
+        .saturating_sub(image_construct.source.start);
+    let vis_start = placed.vis_start + (image_construct.source.start - hit.source.start);
     Some(FocusImage {
-        display: placed.vis_start..placed.vis_start + len,
+        display: vis_start..vis_start + len,
         link,
     })
 }
 
-fn focus_math(source: &str, collapsed_runs: &[InlineRun], placed: &PlacedHit) -> Option<FocusMath> {
+fn focus_math(
+    source: &str,
+    collapsed_runs: &[InlineRun],
+    constructs: &[InlineConstruct],
+    placed: &PlacedHit,
+) -> Option<FocusMath> {
     let hit = &placed.hit;
-    let run = collapsed_runs.iter().find(|r| {
-        r.marks.is_math()
-            && (r.display_range.start as usize) <= hit.display.start
-            && hit.display.start < (r.display_range.end as usize)
-    })?;
-    let latex = source.get(hit.inner.clone())?;
+    let math_construct = constructs
+        .iter()
+        .filter(|c| c.source.start >= hit.source.start && c.source.end <= hit.source.end)
+        .find(|c| {
+            collapsed_runs.iter().any(|r| {
+                r.marks.is_math()
+                    && (r.display_range.start as usize) < c.display.end
+                    && c.display.start < (r.display_range.end as usize)
+            })
+        })?;
+    let run = collapsed_runs
+        .iter()
+        .find(|r| {
+            r.marks.is_math()
+                && (r.display_range.start as usize) < math_construct.display.end
+                && math_construct.display.start < (r.display_range.end as usize)
+        })
+        .expect("the construct matched a math run above");
+    let latex = source.get(math_construct.inner.clone())?;
     if latex.trim().is_empty() {
         return None;
     }
-    let len = hit.source.end.saturating_sub(hit.source.start);
+    let len = math_construct
+        .source
+        .end
+        .saturating_sub(math_construct.source.start);
+    let vis_start = placed.vis_start + (math_construct.source.start - hit.source.start);
     Some(FocusMath {
-        display: placed.vis_start..placed.vis_start + len,
+        display: vis_start..vis_start + len,
         latex: latex.to_string(),
         display_math: run.marks.contains(InlineMarks::MATH_DISPLAY),
     })
@@ -582,7 +630,6 @@ fn push_hit_runs(
     vis_start: usize,
 ) {
     let opener_len = hit.inner.start.saturating_sub(hit.source.start);
-
     let inner_len = hit.inner.end.saturating_sub(hit.inner.start);
     let closer_len = hit.source.end.saturating_sub(hit.inner.end);
     if opener_len > 0 {

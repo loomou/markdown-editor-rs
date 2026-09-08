@@ -14,11 +14,9 @@ pub(super) struct InputFrame {
     pub(super) state: gpui::Entity<EditorView>,
     pub(super) hitbox: gpui::Hitbox,
     pub(super) focus: gpui::FocusHandle,
-
     pub(super) origin: (f32, f32),
     pub(super) viewport: (Px, Px),
     pub(super) total_height: Px,
-
     pub(super) painted_scroll: Px,
     pub(super) chrome: ChromeTokens,
     pub(super) snapshot: Rc<LayoutSnapshot>,
@@ -151,7 +149,6 @@ pub(super) fn on_mouse_down(f: &InputFrame, window: &mut Window) {
                 let s = v.well_scroll.get(&hit.id).copied().unwrap_or_default();
                 let lx = local.0 - hit.x;
                 let ly = local.1 - hit.y;
-
                 for vertical in [true, false] {
                     if let Some(bar) = WellBar::on_axis(vertical, hit, s, &bar_chrome)
                         && bar.contains(lx, ly)

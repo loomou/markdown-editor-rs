@@ -57,7 +57,6 @@ pub const TABLE_INSERT_MAX_ROWS: usize = 100;
 pub const TABLE_INSERT_MAX_COLS: usize = 32;
 
 const _: () = assert!(TABLE_INSERT_MAX_COLS <= TABLE_ALIGN_COLS);
-
 const _: () = assert!(TABLE_INSERT_MIN_ROWS >= 1 && TABLE_INSERT_MIN_COLS >= 1);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -83,7 +82,6 @@ pub(super) fn apply_table(doc: &mut Document, sel: Sel, op: TableOp) -> Caret {
     let Some(path) = TablePath::at(doc, sel.head) else {
         return sel.head;
     };
-
     #[cfg(debug_assertions)]
     let table = path.table;
     let caret = match op {

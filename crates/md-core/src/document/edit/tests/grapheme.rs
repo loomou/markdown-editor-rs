@@ -28,10 +28,8 @@ fn text_of(doc: &Document, leaf: u32) -> &str {
 fn backspace_deletes_the_combining_cluster_whole() {
     let (mut doc, leaf) = doc_with("ae\u{301}b");
     let len = "ae\u{301}b".len();
-
     delete_backward(&mut doc, leaf, len);
     assert_eq!(text_of(&doc, leaf), "ae\u{301}");
-
     delete_backward(&mut doc, leaf, len - 1);
     assert_eq!(text_of(&doc, leaf), "a");
 }
@@ -120,40 +118,40 @@ fn char_boundary_helpers_clamp_arbitrary_byte_offsets() {
     assert_eq!(
         floor_char_boundary(text, 2),
         1,
-        "a byte inside the middle char snaps back to its start"
+        "from the middle of a multibyte char it clamps back to the start"
     );
     assert_eq!(floor_char_boundary(text, 3), 1, "same as above");
     assert_eq!(floor_char_boundary(text, 4), 4);
     assert_eq!(
         floor_char_boundary(text, usize::MAX),
         5,
-        "out of range clamps back to len"
+        "out of bounds clamps back to len"
     );
 
     assert_eq!(prev_char_boundary(text, 0), 0);
     assert_eq!(
         prev_char_boundary(text, 2),
         1,
-        "a byte inside the middle char steps back to its start"
+        "from the middle of a multibyte char it steps back to the start"
     );
     assert_eq!(
         prev_char_boundary(text, 4),
         1,
-        "one step back from before b clears the whole middle char (the previous char's start)"
+        "stepping back once from in front of b skips the whole multibyte char (the previous char's start)"
     );
     assert_eq!(prev_char_boundary(text, 5), 4);
     assert_eq!(
         prev_char_boundary(text, 999),
         5,
-        "out of range starts from len and converges"
+        "out of bounds starts clamping from len"
     );
 
     assert_eq!(next_char_boundary(text, 0), 1);
     assert_eq!(
         next_char_boundary(text, 1),
         4,
-        "a byte inside the middle char advances to its end"
+        "from the middle of a multibyte char it advances to the end"
     );
     assert_eq!(next_char_boundary(text, 3), 4);
-    assert_eq!(next_char_boundary(text, 5), 5, "endpoints do not move");
+    assert_eq!(next_char_boundary(text, 5), 5, "the endpoints do not move");
 }

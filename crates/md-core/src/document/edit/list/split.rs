@@ -37,7 +37,6 @@ pub(crate) fn split_item(doc: &mut Document, path: &Path) -> Caret {
             inserted: vec![item, new_item],
         },
     ];
-
     if !moved.is_empty() {
         changes.push(DocChange::TreeSpliced {
             parent: item,

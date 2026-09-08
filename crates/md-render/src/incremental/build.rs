@@ -104,13 +104,14 @@ impl IncrementalEngine {
                     let item = self.spine.item_at(pos);
                     match item.kind {
                         FlowItemKind::Content { box_id } => {
-                            if !self.store.is_fresh(&self.tree, box_id)
+                            if !self
+                                .store
+                                .is_fresh(&self.tree, box_id, self.viewport_width())
                                 || !self.spine.effective_height(pos).is_exact()
                             {
                                 pending.push(box_id);
                             }
                         }
-
                         FlowItemKind::Collapsed { box_id } => {
                             if self.tree.deferred_height(box_id).is_some()
                                 || self.tree.nodes().contains_key(&box_id)
@@ -222,7 +223,6 @@ impl IncrementalEngine {
         solver: &dyn IslandSolver,
     ) -> (Assembly, PublishedFrame) {
         let published = self.settle_inner(doc, sa, viewport_h, measure, solver);
-
         let top = published.resolved_top;
         let pin_boxes: Vec<LayoutBoxId> = self.pins.iter().copied().collect();
         let window = self
@@ -235,7 +235,9 @@ impl IncrementalEngine {
                 if geometries.contains_key(&box_id) {
                     continue;
                 }
-                if self.store.is_fresh(&self.tree, box_id)
+                if self
+                    .store
+                    .is_fresh(&self.tree, box_id, self.viewport_width())
                     && let Some(g) = self.store.get(box_id)
                 {
                     heights.insert(box_id, HeightState::Exact(g.border_box_height));
@@ -247,7 +249,7 @@ impl IncrementalEngine {
         }
         for id in window.extra_spans.keys() {
             if !geometries.contains_key(id)
-                && self.store.is_fresh(&self.tree, *id)
+                && self.store.is_fresh(&self.tree, *id, self.viewport_width())
                 && let Some(g) = self.store.get(*id)
             {
                 heights.insert(*id, HeightState::Exact(g.border_box_height));
@@ -279,7 +281,10 @@ impl IncrementalEngine {
             return;
         };
         self.pins.insert(island);
-        if !self.store.is_fresh(&self.tree, island) {
+        if !self
+            .store
+            .is_fresh(&self.tree, island, self.viewport_width())
+        {
             self.materialize_one(island, measure, solver);
         }
     }

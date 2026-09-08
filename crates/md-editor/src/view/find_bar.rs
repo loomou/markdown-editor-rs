@@ -14,11 +14,8 @@ use std::ops::Range;
 use std::time::Duration;
 
 const PLACEHOLDER: &str = "Find";
-
 const QUERY_W: f32 = 140.0;
-
 const COUNT_SLOT_W: f32 = 68.0;
-
 const GAP: f32 = 6.0;
 
 const FIND_DEBOUNCE: Duration = Duration::from_millis(120);
@@ -32,11 +29,9 @@ enum QueryPush {
 pub struct FindBar {
     pub focus: FocusHandle,
     pub open: bool,
-
     query: TextInput,
     editor: Entity<EditorView>,
     synced_rev: u64,
-
     debounce: Option<gpui::Task<()>>,
 }
 
@@ -83,7 +78,6 @@ impl FindBar {
         if !seed.is_empty() {
             self.query.set_text(seed);
         }
-
         self.query.select_all();
         self.query.mouse_up();
         window.focus(&self.focus);
@@ -119,7 +113,6 @@ impl FindBar {
         }
         self.open = false;
         self.query.dismiss();
-
         self.debounce = None;
         cx.notify();
     }
@@ -207,14 +200,12 @@ impl FindBar {
             return false;
         }
         let m = &ev.keystroke.modifiers;
-
         let cmd = self
             .editor
             .read(cx)
             .keymap()
             .lookup(&ev.keystroke)
             .filter(|c| matches!(c, Cmd::Find | Cmd::Quit | Cmd::FindNext | Cmd::FindPrev));
-
         if cmd == Some(Cmd::Find) {
             window.focus(&self.focus);
             self.query.wake();
@@ -228,7 +219,6 @@ impl FindBar {
             cx.stop_propagation();
             return true;
         }
-
         if let Some(cmd @ (Cmd::FindNext | Cmd::FindPrev)) = cmd {
             if self.query.composing() {
                 cx.stop_propagation();
@@ -242,7 +232,6 @@ impl FindBar {
             cx.stop_propagation();
             return true;
         }
-
         let shift = m.shift;
         if !crate::ui::chord::has_chord(m) {
             match ev.keystroke.key.as_str() {
@@ -251,7 +240,6 @@ impl FindBar {
                     cx.stop_propagation();
                     return true;
                 }
-
                 "enter" => {
                     if self.query.composing() {
                         cx.stop_propagation();
@@ -267,7 +255,6 @@ impl FindBar {
                 _ => {}
             }
         }
-
         match self.query.nav_key(&ev.keystroke.key, m, cx) {
             KeyOutcome::Ignored => false,
             KeyOutcome::Moved => {
@@ -293,7 +280,6 @@ impl Render for FindBar {
         let editor = self.editor.read(cx);
         let theme = editor.state.theme;
         let chrome = theme.chrome;
-
         let app = theme.app;
         let n = editor.search.matches.len();
         let composing = self.query.composing();
@@ -479,7 +465,6 @@ impl FindBar {
             )
     }
 }
-
 impl EntityInputHandler for FindBar {
     fn text_for_range(
         &mut self,
@@ -650,7 +635,6 @@ mod tests {
     }
 
     const PAST_WINDOW: Duration = Duration::from_millis(200);
-
     const WITHIN_WINDOW: Duration = Duration::from_millis(40);
 
     fn type_into_find(find: &Entity<FindBar>, text: &str, cx: &mut VisualTestContext) {
@@ -691,7 +675,6 @@ mod tests {
     fn clicking_the_query_keeps_focus_in_the_find_bar(cx: &mut TestAppContext) {
         let (shell, cx) = shell_with("needle and needle\n", cx);
         let (find, bounds) = open_find(&shell, "needle", cx);
-
         cx.update(|window, app| {
             shell.read(app).editor_focus().clone().focus(window);
         });
@@ -800,7 +783,6 @@ mod tests {
     fn count_slot_holds_every_label(cx: &mut TestAppContext) {
         let (_shell, cx) = shell_with("x\n", cx);
         let chrome = DocumentTheme::one_dark().chrome;
-
         let room = px(COUNT_SLOT_W - 4.0);
         let capped = CountState {
             empty: false,
@@ -866,7 +848,6 @@ mod tests {
             "caret width should come from the theme; measured {w}"
         );
         let field_h = f32::from(bounds.size.height);
-
         assert!(
             (y as f32 + h as f32 / 2.0 - field_h / 2.0).abs() <= 0.5,
             "the row's midline {} should sit on the field box's midline {}, or the text would sit a notch above the icon",
@@ -917,7 +898,7 @@ mod tests {
         cx.run_until_parked();
         assert!(
             visible(cx),
-            "the heartbeat right after the input should be swallowed, or a keystroke just before a beat would flash the caret off"
+            "input should put the caret back into its on phase"
         );
         cx.executor()
             .advance_clock(period + Duration::from_millis(20));
@@ -1006,7 +987,7 @@ mod tests {
         assert_eq!(
             caret(cx),
             6,
-            "word-right should land on the start of the next word"
+            "word-right did not land on the start of the next word"
         );
 
         cx.simulate_keystrokes("secondary-a");
@@ -1016,7 +997,7 @@ mod tests {
         assert_eq!(
             cx.update(|_, app| app.read_from_clipboard().and_then(|it| it.text())),
             Some("hello world".to_string()),
-            "copy should have read from the query field"
+            "copy did not read from the query field"
         );
         cx.simulate_keystrokes("end");
         cx.run_until_parked();
@@ -1025,7 +1006,7 @@ mod tests {
         assert_eq!(
             query(cx),
             "hello worldhello world",
-            "paste should have landed in the query field"
+            "paste did not reach the query field"
         );
 
         cx.simulate_keystrokes(word_backspace);
@@ -1033,14 +1014,14 @@ mod tests {
         assert_eq!(
             query(cx),
             "hello worldhello ",
-            "word backspace should have deleted the whole word"
+            "word-backspace did not delete the whole word"
         );
 
         cx.simulate_keystrokes("secondary-a");
         cx.run_until_parked();
         cx.simulate_keystrokes("secondary-x");
         cx.run_until_parked();
-        assert_eq!(query(cx), "", "cut should have read from the query field");
+        assert_eq!(query(cx), "", "cut did not read from the query field");
         assert_eq!(
             cx.update(|_, app| app.read_from_clipboard().and_then(|it| it.text())),
             Some("hello worldhello ".to_string())
@@ -1094,7 +1075,7 @@ mod tests {
                     .expect("there should be a shape cache"),
                 bar.query
                     .ime_caret()
-                    .expect("there should be a caret rect")
+                    .expect("there should be a caret rectangle")
                     .0 as f32,
                 f32::from(bar.query.scroll_x()),
             )
@@ -1106,9 +1087,8 @@ mod tests {
         );
         assert!(
             scroll < 0.0,
-            "the text is wider than the field but nothing scrolled: {scroll}"
+            "the text is wider than the field but it did not scroll: {scroll}"
         );
-
         assert!(
             (0.0..=field_w).contains(&caret),
             "the caret ran off the field: field width {field_w}, caret at {caret}"
@@ -1119,13 +1099,16 @@ mod tests {
         let (caret, scroll) = cx.update(|_, app| {
             let bar = find.read(app);
             (
-                bar.query.ime_caret().expect("caret rect").0 as f32,
+                bar.query
+                    .ime_caret()
+                    .expect("there should be a caret rectangle")
+                    .0 as f32,
                 f32::from(bar.query.scroll_x()),
             )
         });
         assert!(
             scroll.abs() < 3.0,
-            "the caret is back at the line start; it should scroll back to the left: {scroll}"
+            "the caret is back at the line start, it should have scrolled back to the left edge: {scroll}"
         );
         assert!(
             (0.0..=field_w).contains(&caret),
@@ -1136,7 +1119,6 @@ mod tests {
     #[gpui::test]
     fn the_find_bar_reads_its_keys_from_the_table(cx: &mut TestAppContext) {
         let (shell, cx) = shell_with("needle needle needle\n", cx);
-
         let (find, _) = open_find(&shell, "", cx);
         cx.simulate_input("needle");
         cx.run_until_parked();
@@ -1161,7 +1143,7 @@ mod tests {
 
         let old_next = Cmd::FindNext
             .default_chord()
-            .expect("there should be a default chord")
+            .expect("default chord")
             .unparse();
         cx.update(|_, app| {
             shell.update(app, |s, cx| {
@@ -1176,21 +1158,21 @@ mod tests {
         assert_eq!(
             active(cx),
             Some(1),
-            "the old key {old_next} that was unbound still steps to the next match"
+            "the unbound old chord {old_next} still jumps to the next match"
         );
         cx.simulate_keystrokes("f7");
         cx.run_until_parked();
         assert_eq!(
             active(cx),
             Some(2),
-            "the new key should step to the next match"
+            "the new chord should jump to the next match"
         );
 
         cx.simulate_keystrokes("home");
         cx.run_until_parked();
         assert!(
             cx.update(|_, app| find.read(app).selection().is_empty()),
-            "precondition: after Home there should be no selection"
+            "precondition: there should be no selection after Home"
         );
         assert!(
             cx.update(|window, app| find.read(app).focus.is_focused(window)),
@@ -1200,7 +1182,7 @@ mod tests {
         cx.run_until_parked();
         assert!(
             cx.update(|window, app| find.read(app).focus.is_focused(window)),
-            "the rebound find key should keep focus in the query field"
+            "the rebound find chord should keep focus in the query field"
         );
         assert!(
             cx.update(|_, app| find.read(app).selection().is_empty()),
@@ -1232,17 +1214,17 @@ mod tests {
         cx.run_until_parked();
         assert!(
             cx.update(|_, app| find.read(app).query.composing()),
-            "precondition: the query field should be composing"
+            "premise: the query field should be composing"
         );
         assert!(
             cx.update(|window, app| find.read(app).focus.is_focused(window)),
-            "precondition: focus should be in the find bar"
+            "premise: focus should be in the find bar"
         );
         let before = cx.update(|_, app| find.read(app).query().to_string());
 
         let next = Cmd::FindNext
             .default_chord()
-            .expect("there should be a default chord")
+            .expect("default chord")
             .unparse();
         cx.simulate_keystrokes(&next);
         cx.run_until_parked();
@@ -1255,7 +1237,7 @@ mod tests {
             cx.update(|_, app| find.read(app).query.composing()),
             "the composing state was reset"
         );
-        assert_eq!(active(cx), Some(0), "it should not step while composing");
+        assert_eq!(active(cx), Some(0), "no stepping while composing");
 
         let before = cx.update(|_, app| find.read(app).query().to_string());
         cx.simulate_keystrokes("enter");
@@ -1304,7 +1286,7 @@ mod tests {
         assert_eq!(
             editor_query(&editor, cx),
             "ddddx",
-            "only after the window has elapsed since the last keystroke should it scan, and it scans the final query"
+            "it scans only after the window runs out, and what it scans is the final query"
         );
     }
 
@@ -1322,7 +1304,7 @@ mod tests {
         assert_eq!(
             editor_matches(&editor, cx),
             0,
-            "still inside the window; no matches yet"
+            "still inside the window, no matches"
         );
 
         cx.executor().advance_clock(PAST_WINDOW);
@@ -1359,7 +1341,7 @@ mod tests {
         assert_eq!(
             editor_query(&editor, cx),
             "de",
-            "it scans once the window has run out"
+            "once the window runs out, it scans"
         );
     }
 
@@ -1409,7 +1391,7 @@ mod tests {
         assert_eq!(
             editor_query(&editor, cx),
             "",
-            "after dismissing the bar, the pending scan should not run"
+            "the scan after dismissal must not run"
         );
         assert_eq!(editor_matches(&editor, cx), 0);
     }
@@ -1428,7 +1410,7 @@ mod tests {
         assert_eq!(
             editor_query(&editor, cx),
             "",
-            "an abandoned word should not be scanned"
+            "an abandoned half-typed word must not be scanned"
         );
 
         clear_query(&find, cx);

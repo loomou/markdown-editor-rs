@@ -60,14 +60,10 @@ struct FrameGear<'a> {
     shaper: &'a GpuiShaper,
     snap: &'a SnapOperator,
     viewport: (Px, Px),
-
     scale: f64,
-
     cursor: Cursor,
     selection: Option<(Cursor, Cursor)>,
-
     paint_rev: u64,
-
     caret_ly: Option<Px>,
 }
 
@@ -102,7 +98,6 @@ impl EditorElement {
         } = self.read_frame_inputs(bounds, cx);
 
         let cold_once = md_render::cold_trace::enabled();
-
         let t_docmaps0 = std::time::Instant::now();
         let media = self.sync_shape_media(cx);
         let t_docmaps = t_docmaps0.elapsed();
@@ -179,7 +174,6 @@ impl EditorElement {
         self.state.update(cx, |v, cx| {
             v.sync_table_chrome(&frame.cells, cx);
             v.sync_media_chrome(&frame.texts, cx);
-
             let viewfinder = Viewfinder {
                 top: frame.scroll,
                 height: viewport.1,
@@ -224,15 +218,7 @@ impl EditorElement {
                 search_skip: v
                     .search
                     .active
-                    .and_then(|i| v.search.matches.get(i).copied())
-                    .map(|m| {
-                        let hit = v.state.doc.visual_range(m.block, m.start..m.end);
-                        SearchMatch {
-                            block: m.block,
-                            start: hit.start,
-                            end: hit.end,
-                        }
-                    }),
+                    .and_then(|i| v.search.matches.get(i).copied()),
             }
         });
         inputs.env.viewport_width = f32::from(bounds.size.width) as Px;
@@ -339,7 +325,6 @@ impl EditorElement {
             if !changes.is_empty() {
                 engine.apply_changes(&v.state.doc.document, &changes);
             }
-
             scroll = engine.sync_block_edit_retain_y(
                 &v.state.doc.document,
                 cursor.block,
@@ -347,7 +332,6 @@ impl EditorElement {
                 shaper,
                 solver,
             );
-
             scroll = scroll.clamp(0.0, (engine.total_height() - viewport.1).max(0.0));
             v.state.scroll = scroll;
 
@@ -391,11 +375,9 @@ impl EditorElement {
                 shaper,
                 solver,
             );
-
             let scroll_used = published.resolved_top;
             t.assemble = t_asm0.elapsed();
             v.state.incremental_last_anchor = Some(scroll_anchor);
-
             v.state.resolved_top = scroll_used;
 
             let t_geom0 = std::time::Instant::now();
@@ -414,7 +396,6 @@ impl EditorElement {
                 },
                 &FrameRequest {
                     viewport,
-
                     scroll: scroll_used,
                     cursor,
                     selection,
@@ -662,14 +643,18 @@ impl EditorElement {
             return;
         };
         let (from, to) = gear.selection.unwrap_or((gear.cursor, gear.cursor));
-        let span = selection_vertical_span(
-            &frame.assembly,
-            &frame.spans,
-            gear.shaper,
-            gear.env,
-            from,
-            to,
-        );
+        let span = {
+            let doc = &self.state.read(cx).state.doc;
+            selection_vertical_span(
+                doc,
+                &frame.assembly,
+                &frame.spans,
+                gear.shaper,
+                gear.env,
+                from,
+                to,
+            )
+        };
         let vh = gear.viewport.1;
         let total = frame.total_height;
         self.state.update(cx, |v, cx| {
@@ -1070,7 +1055,6 @@ mod tests {
     #[gpui::test]
     fn a_missing_caret_device_still_walks_the_structure(cx: &mut TestAppContext) {
         let (editor, cx) = editor_with_doc("abc\n\nxyz\n", cx);
-
         let (a, b) = cx.update(|_, app| {
             let v = editor.read(app);
             let leaves = v.state.doc.text_leaves();
@@ -1153,7 +1137,7 @@ mod tests {
         });
         assert!(
             moved,
-            "the structural fallback must move the caret even when geometry is absent"
+            "with geometry missing the structural fallback should still move the caret"
         );
         let (block, text) = cx.update(|_, app| {
             let v = editor.read(app);

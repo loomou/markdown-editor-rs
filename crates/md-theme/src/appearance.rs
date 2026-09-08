@@ -113,10 +113,8 @@ impl Density {
 pub struct Appearance {
     pub variant: ThemeVariant,
     pub body_family: BodyFamily,
-
     pub body_size_px: f32,
     pub density: Density,
-
     pub colors: [ColorOverrides; ThemeVariant::COUNT],
 }
 
@@ -200,14 +198,12 @@ mod tests {
             .with_body_size_px(24.0)
             .document_theme();
         assert_eq!(theme.type_scale.body.size_px, 24.0);
-
         assert!(theme.type_scale.heading[3].size_px >= theme.type_scale.body.size_px);
         assert_eq!(theme.type_scale.code.size_px, base.code.size_px * 1.5);
         assert_eq!(
             theme.type_scale.heading[0].letter_spacing_px,
             base.heading[0].letter_spacing_px * 1.5
         );
-
         assert_eq!(
             theme.type_scale.body.line_height_em,
             base.body.line_height_em

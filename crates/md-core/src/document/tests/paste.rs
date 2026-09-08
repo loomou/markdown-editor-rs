@@ -131,7 +131,6 @@ fn merged_paragraph_keeps_inline_source() {
     let mut doc = load_markdown("a b\n", editor_options());
     let leaf = doc.text_leaves()[0];
     let _ = apply(&mut doc, at(leaf, 2), fragment("**bold**"));
-
     assert_eq!(doc.text_of(leaf).unwrap(), "a **bold**b");
     assert_eq!(doc.collapsed_text_of(leaf).unwrap(), "a boldb");
     assert_eq!(doc.to_markdown(), "a **bold**b\n");
@@ -239,6 +238,29 @@ fn plain_paste_with_blank_lines_stays_inside_fenced_blocks() {
 }
 
 #[test]
+fn plain_paste_of_literal_dollars_with_suffix_stays_literal() {
+    let mut doc = load_markdown("head tail\n", editor_options());
+    let _ = doc.take_changes();
+    let first = doc.text_leaves()[0];
+    let (_, last, _) = doc.paste(first, 5..5, "one\n\n$x$", PasteIntent::PlainText);
+    assert_eq!(doc.collapsed_text_of(last), Some("$x$tail"));
+    let markdown = doc.to_markdown();
+    let again = load_markdown(&markdown, editor_options());
+    let reloaded = again
+        .live_id(again.text_leaves()[1])
+        .expect("reloaded tail");
+    assert_eq!(
+        again.collapsed_text_of(again.text_leaves()[1]),
+        Some("$x$tail"),
+        "{markdown:?}"
+    );
+    assert!(
+        !again.runs(reloaded).iter().any(|r| r.marks.is_math()),
+        "dollar fence must stay literal: {markdown:?}"
+    );
+}
+
+#[test]
 fn plain_paste_with_blank_lines_splits_after_the_math_block() {
     let mut doc = load_markdown("$$\na\n$$\n", editor_options());
     let _ = doc.take_changes();
@@ -308,8 +330,8 @@ fn pasted_paragraphs_inside_a_tight_item_keep_their_boundary() {
         (
             "a\n\n---",
             PasteIntent::PlainText,
-            "- itema\n  \n  ---\n",
-            vec![BlockKind::Paragraph, BlockKind::ThematicBreak],
+            "- itema\n  \n  \\-\\-\\-\n",
+            vec![BlockKind::Paragraph, BlockKind::Paragraph],
         ),
         (
             "a\n\nb",
@@ -329,7 +351,6 @@ fn pasted_paragraphs_inside_a_tight_item_keep_their_boundary() {
         let _ = doc.paste(leaf, at..at, text, intent);
         let markdown = doc.to_markdown();
         assert_eq!(markdown, saved, "paste={text:?}");
-
         let again = load_markdown(&markdown, editor_options());
         assert_eq!(again.to_markdown(), markdown, "paste={text:?}");
         let item = again
@@ -531,4 +552,516 @@ fn paste_onto_root_or_container_is_a_graceful_noop() {
     );
     assert_eq!(kind_count(&doc, BlockKind::List), 0, "no list appears");
     assert_eq!(doc.text_leaves().len(), 1, "no phantom leaves");
+}
+
+fn fragment_text(text: &str) -> Command {
+    Command::Paste {
+        text: text.into(),
+        intent: PasteIntent::IndependentFragment,
+    }
+}
+
+#[test]
+fn independent_paste_keeps_reference_definition() {
+    let mut doc = load_markdown("host\n", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let _ = apply(
+        &mut doc,
+        at(leaf, 4),
+        fragment_text("See [the docs][docs].\n\n[docs]: https://example.test/docs \"the title\"\n"),
+    );
+    let md = doc.to_markdown();
+    assert!(
+        md.contains("[docs]: https://example.test/docs \"the title\""),
+        "{md}"
+    );
+    let reloaded = load_markdown(&md, editor_options());
+    assert!(
+        reloaded
+            .links
+            .iter()
+            .any(|l| l.dest == "https://example.test/docs" && l.title == "the title"),
+        "dest/title lost on reload: {md}"
+    );
+}
+
+#[test]
+fn grafted_fragment_keeps_reference_definition() {
+    let mut doc = load_markdown("host\n", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let _ = apply(
+        &mut doc,
+        at(leaf, 4),
+        fragment_text("# heading\n\nSee [the docs][docs].\n\n[docs]: https://example.test/docs\n"),
+    );
+    let md = doc.to_markdown();
+    assert!(md.contains("# heading"), "{md}");
+    assert!(md.contains("[docs]: https://example.test/docs"), "{md}");
+    let reloaded = load_markdown(&md, editor_options());
+    assert!(
+        reloaded
+            .links
+            .iter()
+            .any(|l| l.dest == "https://example.test/docs"),
+        "dest lost on reload: {md}"
+    );
+}
+
+#[test]
+fn pasting_a_known_label_keeps_the_host_definition() {
+    let mut doc = load_markdown(
+        "host\n\n[docs]: https://host.test/first\n",
+        editor_options(),
+    );
+    let leaf = doc.text_leaves()[0];
+    let _ = apply(
+        &mut doc,
+        at(leaf, 4),
+        fragment_text("See [the docs][docs].\n\n[docs]: https://example.test/docs\n"),
+    );
+    let md = doc.to_markdown();
+    assert!(md.contains("[docs]: https://host.test/first"), "{md}");
+    assert!(!md.contains("[docs]: https://example.test/docs"), "{md}");
+    let reloaded = load_markdown(&md, editor_options());
+    assert!(
+        reloaded
+            .links
+            .iter()
+            .all(|l| l.dest != "https://example.test/docs"),
+        "the dropped definition must not resolve: {md}"
+    );
+}
+
+#[test]
+fn undo_after_pasting_a_definition_restores_the_previous_text() {
+    let mut d = Doc::new(load_markdown("host\n", editor_options()));
+    let leaf = d.text_leaves()[0];
+    let before = d.document.to_markdown();
+    let _ = d.apply(
+        at(leaf, 4),
+        fragment_text("See [the docs][docs].\n\n[docs]: https://example.test/docs\n"),
+    );
+    let after = d.document.to_markdown();
+    assert!(
+        after.contains("[docs]: https://example.test/docs"),
+        "{after}"
+    );
+    let _ = d.undo().expect("undo");
+    assert_eq!(d.document.to_markdown(), before);
+    let _ = d.redo().expect("redo");
+    assert_eq!(d.document.to_markdown(), after);
+}
+
+#[test]
+fn middle_plain_paste_keeps_the_original_suffix_after_the_fragment() {
+    let mut doc = load_markdown("hello\n", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let _ = apply(
+        &mut doc,
+        at(leaf, 2),
+        Command::Paste {
+            text: "x\n\ny".into(),
+            intent: PasteIntent::PlainText,
+        },
+    );
+    assert_eq!(doc.to_markdown(), "hex\n\nyllo\n");
+}
+
+#[test]
+fn middle_plain_paste_replacement_keeps_inline_suffix_source() {
+    let mut doc = load_markdown("he**bo**\n", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let _ = apply(
+        &mut doc,
+        at(leaf, 2),
+        Command::Paste {
+            text: "x\n\ny".into(),
+            intent: PasteIntent::PlainText,
+        },
+    );
+    let md = doc.to_markdown();
+    assert!(
+        md.contains("hex\n\ny**bo**"),
+        "suffix must follow the fragment: {md:?}"
+    );
+}
+
+#[test]
+fn undo_after_middle_plain_paste_restores_the_source() {
+    let mut d = Doc::new(load_markdown("hello\n", editor_options()));
+    let leaf = d.text_leaves()[0];
+    let before = d.document.to_markdown();
+    let _ = d.apply(
+        at(leaf, 2),
+        Command::Paste {
+            text: "x\n\ny".into(),
+            intent: PasteIntent::PlainText,
+        },
+    );
+    assert_eq!(d.document.to_markdown(), "hex\n\nyllo\n");
+    let _ = d.undo().expect("undo");
+    assert_eq!(d.document.to_markdown(), before);
+}
+
+#[test]
+fn pasted_reference_links_agree_with_the_reloaded_binding() {
+    let mut doc = load_markdown("host\n", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let _ = apply(
+        &mut doc,
+        at(leaf, 4),
+        fragment_text("x [go][r]\n\n[r]: https://new.test\n"),
+    );
+    let reloaded = load_markdown(&doc.to_markdown(), editor_options());
+    let id = doc.live_id(doc.text_leaves()[0]).unwrap();
+    let go = doc.display(id).find("go").expect("pasted link text");
+    let doc_target = doc.link_at(id, go);
+    let rid = reloaded.live_id(reloaded.text_leaves()[0]).unwrap();
+    let rgo = reloaded
+        .display(rid)
+        .find("go")
+        .expect("reloaded link text");
+    let reload_target = reloaded.link_at(rid, rgo);
+    assert_eq!(
+        doc_target,
+        Some("https://new.test"),
+        "{:?}",
+        doc.to_markdown()
+    );
+    assert_eq!(reload_target, Some("https://new.test"));
+    assert_eq!(
+        doc_target, reload_target,
+        "in-memory link must match reload"
+    );
+
+    let mut host = load_markdown("[h][r]\n\n[r]: https://host.test\n", editor_options());
+    let hleaf = host.text_leaves()[0];
+    let _ = apply(
+        &mut host,
+        at(hleaf, 5),
+        fragment_text("\n\n# [i][r]\n\n[r]: https://incoming.test\n"),
+    );
+    let md = host.to_markdown();
+    let reloaded = load_markdown(&md, editor_options());
+    for doc in [&host, &reloaded] {
+        for leaf in doc.text_leaves() {
+            let id = doc.live_id(leaf).unwrap();
+            let text = doc.display(id);
+            for off in 0..=text.len() {
+                if let Some(dest) = doc.link_at(id, off) {
+                    assert_eq!(dest, "https://host.test", "md={md:?} off={off}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn plain_multiline_paste_keeps_the_suffix_source() {
+    let mut doc = load_markdown("head [tail](https://example.test)\n", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let (changes, last, caret) = doc.paste(leaf, 5..5, "X\n\nY", PasteIntent::PlainText);
+    assert!(changes.is_structural());
+    let markdown = doc.to_markdown();
+    assert_eq!(
+        markdown, "head X\n\nY[tail](https://example.test)\n",
+        "suffix link must survive: {markdown:?}"
+    );
+    let id = doc.live_id(last).expect("last leaf");
+    let text = doc.collapsed_display(id);
+    let tail = text.find("tail").expect("suffix text");
+    assert_eq!(doc.link_at(id, tail), Some("https://example.test"));
+    let reloaded = load_markdown(&markdown, editor_options());
+    let rid = reloaded
+        .live_id(reloaded.text_leaves()[1])
+        .expect("reloaded");
+    let rtext = reloaded.collapsed_display(rid);
+    let rtail = rtext.find("tail").expect("reloaded suffix");
+    assert_eq!(reloaded.link_at(rid, rtail), Some("https://example.test"));
+    assert_eq!(caret, 1, "caret sits before the suffix");
+}
+
+#[test]
+fn plain_multiline_paste_clamps_non_boundary_offsets() {
+    let mut doc = load_markdown("€€\n", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let (changes, last, _) = doc.paste(leaf, 1..1, "X\n\nY", PasteIntent::PlainText);
+    assert!(changes.is_structural());
+    let markdown = doc.to_markdown();
+    assert_eq!(markdown, "X\n\nY€€\n", "{markdown:?}");
+    let mut doc = load_markdown("€€\n", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let _ = doc.paste(leaf, 4..4, "X\n\nY", PasteIntent::PlainText);
+    assert_eq!(doc.to_markdown(), "€X\n\nY€\n", "{:?}", doc.to_markdown());
+    let _ = last;
+}
+
+#[test]
+fn fragment_rebind_never_rewrites_host_links() {
+    let mut doc = Doc::new(load_markdown(
+        "[old](shared)\n\nhost\n\n[r]: target\n",
+        editor_options(),
+    ));
+    let before = doc.document.to_markdown();
+    let old = doc.text_leaves()[0];
+    let host = doc.text_leaves()[1];
+    assert_eq!(
+        doc.link_at(Caret {
+            block: old,
+            offset: 0
+        }),
+        Some("shared")
+    );
+    let _ = doc.apply(
+        at(host, 0),
+        fragment("[ref][r] [inline](direct)\n\nsecond\n\n[r]: shared\n"),
+    );
+    let fragment_block = doc
+        .text_leaves()
+        .into_iter()
+        .find(|&b| doc.text(b) == Some("ref inline"))
+        .expect("grafted leaf");
+    assert_eq!(
+        doc.link_at(Caret {
+            block: old,
+            offset: 0
+        }),
+        Some("shared"),
+        "host link was rewritten"
+    );
+    assert_eq!(
+        doc.link_at(Caret {
+            block: fragment_block,
+            offset: 0
+        }),
+        Some("target")
+    );
+    assert_eq!(
+        doc.link_at(Caret {
+            block: fragment_block,
+            offset: 4
+        }),
+        Some("direct")
+    );
+    let reloaded = Doc::new(load_markdown(&doc.document.to_markdown(), editor_options()));
+    let leaves = reloaded.text_leaves();
+    assert_eq!(
+        reloaded.link_at(Caret {
+            block: leaves[0],
+            offset: 0
+        }),
+        Some("shared")
+    );
+    assert_eq!(
+        reloaded.link_at(Caret {
+            block: leaves[1],
+            offset: 0
+        }),
+        Some("target")
+    );
+    assert_eq!(
+        reloaded.link_at(Caret {
+            block: leaves[1],
+            offset: 4
+        }),
+        Some("direct")
+    );
+    assert!(doc.undo().is_some());
+    assert_eq!(doc.document.to_markdown(), before);
+    assert_eq!(
+        doc.link_at(Caret {
+            block: old,
+            offset: 0
+        }),
+        Some("shared"),
+        "undo must restore the host link"
+    );
+}
+
+#[test]
+fn fragment_rebind_covers_heading_leaves() {
+    let mut host = Doc::new(load_markdown(
+        "[h][r]\n\n[r]: https://host.test\n",
+        editor_options(),
+    ));
+    let hleaf = host.text_leaves()[0];
+    let _ = host.apply(
+        at(hleaf, 5),
+        fragment("\n\n# [i][r]\n\n[r]: https://incoming.test\n"),
+    );
+    let heading = host
+        .text_leaves()
+        .into_iter()
+        .find(|&b| host.kind(b) == Some(BlockKind::Heading(1)))
+        .expect("grafted heading");
+    assert_eq!(
+        host.link_at(Caret {
+            block: heading,
+            offset: 0
+        }),
+        Some("https://host.test")
+    );
+}
+
+#[test]
+fn plain_multiline_paste_across_a_link_keeps_both_literal() {
+    let mut doc = load_markdown("head [tail](u)\n", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let (_, last, caret) = doc.paste(leaf, 5..5, "one\n\n**b**", PasteIntent::PlainText);
+    let markdown = doc.to_markdown();
+    assert_eq!(markdown, "head one\n\n\\*\\*b\\*\\*[tail](u)\n");
+    let reloaded = load_markdown(&markdown, editor_options());
+    let rid = reloaded
+        .live_id(reloaded.text_leaves()[1])
+        .expect("reloaded");
+    assert_eq!(reloaded.collapsed_display(rid), "**b**tail");
+    assert_eq!(
+        reloaded.link_at(rid, reloaded.collapsed_display(rid).find("tail").unwrap()),
+        Some("u")
+    );
+    assert_eq!(caret, "**b**".len(), "caret sits before the suffix");
+    assert_eq!(
+        doc.collapsed_display(doc.live_id(last).unwrap()),
+        "**b**tail"
+    );
+}
+
+#[test]
+fn plain_multiline_paste_keeps_a_definition_shaped_tail() {
+    let mut doc = load_markdown("head tail\n", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let _ = doc.paste(leaf, 5..5, "one\n\n[r]: hidden", PasteIntent::PlainText);
+    let markdown = doc.to_markdown();
+    assert_eq!(markdown, "head one\n\n\\[r\\]: hiddentail\n");
+    let reloaded = load_markdown(&markdown, editor_options());
+    assert_eq!(reloaded.text_leaves().len(), 2);
+    let rid = reloaded
+        .live_id(reloaded.text_leaves()[1])
+        .expect("reloaded");
+    assert_eq!(reloaded.collapsed_display(rid), "[r]: hiddentail");
+    assert!(
+        reloaded.reference_definitions.is_empty(),
+        "no definition adopted"
+    );
+}
+
+#[test]
+fn fragment_with_a_multiline_definition_keeps_the_link_live() {
+    for source in [
+        "[text][r]\n\n[r]:\n target\n",
+        "[text][r]\n\n[r]: target\n \"title\"\n",
+    ] {
+        let mut host = Doc::new(load_markdown("host\n", editor_options()));
+        let leaf = host.text_leaves()[0];
+        let _ = host.apply(at(leaf, 4), fragment(source));
+        let id = host.document.live_id(leaf).expect("host leaf");
+        let text = host.document.display(id);
+        let at_link = text.find("text").expect("link text");
+        assert_eq!(
+            host.document.link_at(id, at_link),
+            Some("target"),
+            "src={source:?}"
+        );
+        assert!(
+            host.document.to_markdown().contains("[r]:"),
+            "definition must travel: {:?}",
+            host.document.to_markdown()
+        );
+    }
+}
+
+#[test]
+fn undo_and_redo_flip_existing_reference_links_with_the_definition_table() {
+    let mut doc = Doc::new(load_markdown("[existing][r]\n\nhost\n", editor_options()));
+    let original = doc.text_leaves()[0];
+    let host = doc.text_leaves()[1];
+    let before = doc.document.to_markdown();
+    let _ = doc.apply(
+        Sel::collapsed(Caret {
+            block: host,
+            offset: 4,
+        }),
+        Command::Paste {
+            text: "> [new][r]\n\n[r]: target\n".into(),
+            intent: PasteIntent::IndependentFragment,
+        },
+    );
+    let id = doc.document.live_id(original).unwrap();
+    assert_eq!(doc.document.link_at(id, 1), Some("target"));
+    let saved = doc.document.to_markdown();
+    assert!(doc.undo().is_some());
+    assert_eq!(doc.document.to_markdown(), before);
+    assert_eq!(doc.document.link_at(id, 1), None);
+    assert!(doc.redo().is_some());
+    assert_eq!(doc.document.to_markdown(), saved);
+    assert_eq!(doc.document.link_at(id, 1), Some("target"));
+}
+
+#[test]
+fn shortcut_reference_in_grafted_fragment_uses_host_definition() {
+    let mut doc = Doc::new(load_markdown("host\n\n[r]: host-url\n", editor_options()));
+    let host = doc.text_leaves()[0];
+    let _ = doc.apply(
+        Sel::collapsed(Caret {
+            block: host,
+            offset: 4,
+        }),
+        Command::Paste {
+            text: "> [r]\n\n[r]: pasted-url\n".into(),
+            intent: PasteIntent::IndependentFragment,
+        },
+    );
+    let leaf = doc.text_leaves()[1];
+    let live = doc
+        .link_at(Caret {
+            block: leaf,
+            offset: 0,
+        })
+        .map(str::to_owned);
+    assert_eq!(live.as_deref(), Some("host-url"));
+    let saved = doc.document.to_markdown();
+    let reloaded = Doc::new(load_markdown(&saved, editor_options()));
+    assert_eq!(
+        reloaded.link_at(Caret {
+            block: reloaded.text_leaves()[1],
+            offset: 0
+        }),
+        live.as_deref(),
+        "saved={saved:?}"
+    );
+}
+
+#[test]
+fn single_paragraph_paste_refreshes_existing_references() {
+    let mut doc = Doc::new(load_markdown("[existing][r]\n\nhost\n", editor_options()));
+    let leaves = doc.text_leaves();
+    let _ = doc.apply(
+        Sel::collapsed(Caret {
+            block: leaves[1],
+            offset: 4,
+        }),
+        Command::Paste {
+            text: "[new][r]\n\n[r]: target\n".into(),
+            intent: PasteIntent::IndependentFragment,
+        },
+    );
+    let live = doc
+        .link_at(Caret {
+            block: leaves[0],
+            offset: 0,
+        })
+        .map(str::to_owned);
+    assert_eq!(live.as_deref(), Some("target"));
+    let saved = doc.document.to_markdown();
+    let reloaded = Doc::new(load_markdown(&saved, editor_options()));
+    assert_eq!(
+        reloaded
+            .link_at(Caret {
+                block: reloaded.text_leaves()[0],
+                offset: 0
+            })
+            .map(str::to_owned),
+        live,
+        "saved={saved:?}"
+    );
 }

@@ -235,7 +235,6 @@ pub(crate) fn overlay(
     picker_open: bool,
     picker_hover: Option<(usize, usize)>,
     theme: DocumentTheme,
-
     row_below_chord: Option<String>,
     editor: Entity<EditorView>,
 ) -> Stateful<Div> {

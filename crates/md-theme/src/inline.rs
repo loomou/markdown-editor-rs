@@ -7,7 +7,6 @@ pub struct InlineTokens {
     pub link: ThemeColor,
     pub inline_code: ThemeColor,
     pub inline_code_fill: ThemeColor,
-
     pub inline_code_radius: f32,
     pub inline_code_pad_x: Px,
     pub inline_code_pad_y: Px,

@@ -14,7 +14,10 @@ pub fn first_row_col_count(tree: &BoxTree, table: LayoutBoxId) -> usize {
     use crate::box_tree::BoxChildren;
     if let BoxChildren::Vertical(rows) = &tree.get(table).children {
         for r in rows {
-            if let BoxChildren::Island(cells) = &tree.get(*r).children {
+            let Some(node) = tree.nodes().get(r) else {
+                continue;
+            };
+            if let BoxChildren::Island(cells) = &node.children {
                 return cells.len();
             }
         }
@@ -24,7 +27,6 @@ pub fn first_row_col_count(tree: &BoxTree, table: LayoutBoxId) -> usize {
 
 pub struct Assembly {
     pub tree: Rc<BoxTree>,
-
     pub table_cons: Rc<BTreeMap<LayoutBoxId, TableColumnConstraintSet>>,
     pub heights: BTreeMap<LayoutBoxId, HeightState>,
 

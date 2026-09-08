@@ -70,13 +70,13 @@ pub(super) fn collect_image_jobs(
             if dest.is_empty() {
                 continue;
             }
-
-            if fallback.is_some() {
+            let retry = sched.cache.source_retry_due(dest);
+            if fallback.is_some() && !retry {
                 continue;
             }
             let dkey = images::display_key(dest, *slot_w as f32, *slot_h as f32, sched.dpr);
             sched.protect.push(dkey.clone());
-            if !sched.cache.source_contains(dest) {
+            if !sched.cache.source_contains(dest) || retry {
                 let entry = sched.source_jobs.entry(dest.clone()).or_default();
                 if !entry.contains(&block) {
                     entry.push(block);
@@ -99,7 +99,8 @@ pub(super) fn collect_image_jobs(
 
 pub(super) fn collect_popover_job(popover: &ImagePopover, sched: &mut ImageSchedule<'_>) {
     let dest = &popover.dest;
-    if !sched.cache.source_contains(dest) {
+    let retry = sched.cache.source_retry_due(dest);
+    if !sched.cache.source_contains(dest) || retry {
         sched.source_jobs.entry(dest.clone()).or_default();
         return;
     }
@@ -140,7 +141,6 @@ pub(super) fn collect_math_jobs(
             else {
                 continue;
             };
-
             if fallback.is_some() {
                 continue;
             }

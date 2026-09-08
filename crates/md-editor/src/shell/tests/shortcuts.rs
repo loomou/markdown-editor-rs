@@ -12,7 +12,6 @@ fn open_shortcuts_page(shell: &Entity<Shell>, cx: &mut VisualTestContext) {
     cx.update(|_, app| {
         shell.update(app, |s, cx| {
             s.show_settings = true;
-
             s.settings_nav = 3;
             cx.notify();
         });
@@ -30,10 +29,7 @@ fn click_shortcut_row(cmd: Cmd, cx: &mut VisualTestContext) {
         Cmd::Undo => "kb:Undo",
         Cmd::ToggleOutline => "kb:ToggleOutline",
         Cmd::Find => "kb:Find",
-        other => panic!(
-            "no selector is registered for this command: {}",
-            other.key()
-        ),
+        other => panic!("this one has no registered selector: {}", other.key()),
     };
     let cell = cx
         .debug_bounds(selector)
@@ -107,7 +103,6 @@ fn clicking_a_row_then_pressing_a_key_rebinds_it(cx: &mut TestAppContext) {
 #[gpui::test]
 fn recording_does_not_run_the_command_it_records(cx: &mut TestAppContext) {
     let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
-
     cx.update(|_, app| {
         shell.update(app, |s, cx| {
             s.editor.update(cx, |editor, cx| {
@@ -125,12 +120,11 @@ fn recording_does_not_run_the_command_it_records(cx: &mut TestAppContext) {
     });
     assert!(
         dirty.contains('x'),
-        "precondition: that edit should have landed in the document"
+        "precondition: that stroke should have landed in the document"
     );
 
     open_shortcuts_page(&shell, cx);
     click_shortcut_row(Cmd::ToggleOutline, cx);
-
     cx.simulate_keystrokes(&key_for(Cmd::Undo));
     cx.run_until_parked();
 
@@ -156,7 +150,6 @@ fn recording_does_not_run_the_command_it_records(cx: &mut TestAppContext) {
         Some(key_for(Cmd::Undo)),
         "that stroke should have been recorded under the toggle-outline command"
     );
-
     assert_eq!(
         shell.read_with(cx, |s, _| s.settings.keymap.chord_for(Cmd::Undo).cloned()),
         None,
@@ -167,7 +160,6 @@ fn recording_does_not_run_the_command_it_records(cx: &mut TestAppContext) {
 #[gpui::test]
 fn backspace_clears_and_escape_cancels(cx: &mut TestAppContext) {
     let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
-
     cx.update(|_, app| {
         app.bind_keys([gpui::KeyBinding::new("escape", CloseFind, None)]);
     });
@@ -219,17 +211,17 @@ fn a_refused_combination_says_which_kind_and_stays_armed(cx: &mut TestAppContext
     assert_eq!(
         needs_mod.0,
         Cmd::ToggleOutline,
-        "the note should attach to that row"
+        "that sentence should hang on this row"
     );
     assert_eq!(
         needs_mod.1,
         md_i18n::t(Key::ShortcutNeedsModifier),
-        "bare `a` should say \"a modifier is needed\""
+        "bare `a` should say \"needs a modifier\""
     );
     assert_eq!(
         shell.read_with(cx, |s, _| s.recording),
         Some(Cmd::ToggleOutline),
-        "a refusal should leave it armed, ready for the next key"
+        "a refusal should stay in the waiting-to-record state and let the user keep pressing"
     );
 
     let reserved_chord = Chord::new(Mods::primary(), "right").unparse();
@@ -252,7 +244,6 @@ fn a_refused_combination_says_which_kind_and_stays_armed(cx: &mut TestAppContext
         Some(Cmd::ToggleOutline),
         "after the second refusal it must stay armed"
     );
-
     assert_eq!(
         shell.read_with(cx, |s, _| s
             .settings
@@ -267,12 +258,11 @@ fn a_refused_combination_says_which_kind_and_stays_armed(cx: &mut TestAppContext
 #[gpui::test]
 fn the_shortcut_page_shows_the_key_the_table_holds(cx: &mut TestAppContext) {
     let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
-
     open_shortcuts_page(&shell, cx);
 
     let save = Cmd::Save
         .default_chord()
-        .expect("save must ship with a default key")
+        .expect("save ships with a default key")
         .display();
     let bound = f32::from(
         cx.debug_bounds("kb:Save")
@@ -286,7 +276,6 @@ fn the_shortcut_page_shows_the_key_the_table_holds(cx: &mut TestAppContext) {
             .size
             .width,
     );
-
     const PAD: f32 = 10.0 * 2.0 + 2.0;
     let want_bound = mono_px(cx, &save, 11.5) + PAD;
     let want_unset = text_px(cx, t18(Key::ShortcutUnset), 11.5) + PAD;
@@ -341,8 +330,8 @@ fn the_shortcut_page_shows_the_key_the_table_holds(cx: &mut TestAppContext) {
     );
     assert!(
         (after - want_after).abs() < 1.0,
-        "after recording it painted {after}px, but by `{}` it should be {want_after}px — \
-         that cell reads like the stock table, not the current one",
+        "after recording it paints {after}px, and pressing `{}` should give {want_after}px — \
+         this cell looks like it read the factory table instead of the current one",
         recorded.display()
     );
 }
@@ -366,7 +355,7 @@ fn the_reset_row_shows_up_only_after_a_change(cx: &mut TestAppContext) {
 
     let cell = cx
         .debug_bounds("btn:shortcuts-reset")
-        .expect("just asserted it is painted");
+        .expect("it was just asserted to be drawn");
     cx.simulate_event(MouseDownEvent {
         button: MouseButton::Left,
         position: cell.center(),
@@ -401,7 +390,6 @@ fn every_shortcut_row_still_fits_in_the_other_language(cx: &mut TestAppContext) 
         .expect("precondition: after a refusal the note below must be painted");
     let kb_box = leaked_bounds(cx, &format!("kb:{}", probe.debug_name()))
         .expect("precondition: that button must be painted");
-
     let side_by_side = note_box.top() < kb_box.bottom() && kb_box.top() < note_box.bottom();
 
     let pad = f32::from(kb_box.size.width) - text_px(cx, md_i18n::t(Key::ShortcutRecording), 11.5);
@@ -409,7 +397,6 @@ fn every_shortcut_row_still_fits_in_the_other_language(cx: &mut TestAppContext) 
         (0.0..60.0).contains(&pad),
         "precondition: the button padding measured {pad}px, which is absurd — that cell is probably not painting the recording text"
     );
-
     const GAP: f32 = 8.0;
     let mut discriminating = 0;
     for cmd in Cmd::ALL.iter().copied() {
@@ -423,7 +410,7 @@ fn every_shortcut_row_still_fits_in_the_other_language(cx: &mut TestAppContext) 
         );
         assert!(
             column > 100.0,
-            "{selector} is only {column}px wide — the ruler is wrong"
+            "{selector} is only {column}px wide; the ruler is wrong"
         );
         let mut widths = vec![];
         for lang in Lang::ALL {
@@ -433,7 +420,6 @@ fn every_shortcut_row_still_fits_in_the_other_language(cx: &mut TestAppContext) 
             if let Some(chord) = cmd.default_chord() {
                 button = button.max(mono_px(cx, &chord.display(), 11.5));
             }
-
             let notes = [
                 t_in(lang, Key::ShortcutNeedsModifier).to_owned(),
                 md_i18n::fmt::shortcut_reserved_in(lang, "ctrl-right"),
@@ -452,9 +438,8 @@ fn every_shortcut_row_still_fits_in_the_other_language(cx: &mut TestAppContext) 
             let need = left + GAP + button + pad;
             assert!(
                 need <= column,
-                "row {} under {} needs {need}px, but the content column is only {column}px — \
-                 the translation is too long, the left side will push the button off to the right \
-                 (left {left}px + button {}px; that note is {})",
+                "row {} needs {need}px under {}, but the content column is only {column}px — the translation is too long; \
+                 the left would push the right button out (left {left}px + button {}px; the sentence {})",
                 cmd.key(),
                 lang.key(),
                 button + pad,
@@ -464,12 +449,11 @@ fn every_shortcut_row_still_fits_in_the_other_language(cx: &mut TestAppContext) 
                     "on its own line, not counted in"
                 },
             );
-
             if !side_by_side {
                 assert!(
                     widest_note <= column,
-                    "the longest note under {} in {} needs {widest_note}px, but the content column \
-                     is only {column}px — it will wrap or be clipped",
+                    "under {}, the widest sentence of {} needs {widest_note}px, but the content column is only {column}px — \
+                     it would wrap or get cut off",
                     cmd.key(),
                     lang.key(),
                 );
@@ -482,8 +466,7 @@ fn every_shortcut_row_still_fits_in_the_other_language(cx: &mut TestAppContext) 
     }
     assert!(
         discriminating > 0,
-        "precondition: at least one row must compute a different width in the two languages, \
-         otherwise this test cannot tell them apart"
+        "precondition: of the eighteen rows at least one must measure differently in Chinese and English, or this test cannot see the language"
     );
 }
 

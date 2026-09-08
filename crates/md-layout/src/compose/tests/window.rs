@@ -187,25 +187,24 @@ fn release_targets_never_pick_a_preview_box() {
     let preview = LayoutBoxId::preview(block);
     assert!(
         tree.nodes().contains_key(&preview),
-        "edit state should have a Preview box"
+        "edit mode should have a Preview box"
     );
 
     let spine = FlowSpine::flatten(&tree, 800.0, &|_, h| HeightState::Exact(h));
-
     let targets = spine.next_release_targets(&tree, 10_000.0, 10_100.0, None, &[], 64);
     assert!(
         !targets.is_empty(),
-        "with nothing protected, there must always be release targets"
+        "with nothing protected there should always be release targets"
     );
     for id in &targets {
         assert!(
             matches!(id.role, BoxRole::Frame | BoxRole::Cell),
-            "release target must not be {id:?}: preview/chrome lifecycle rides with the host Frame"
+            "the release targets must not contain {id:?}: preview/chrome ride with the host Frame's lifecycle"
         );
     }
     assert!(
         !targets.contains(&preview),
-        "the Preview box must not be released on its own"
+        "a Preview box made it into the release targets on its own"
     );
 }
 
@@ -243,7 +242,6 @@ fn window_tolerates_a_deferred_collapsed_in_view() {
         HeightState::Estimated(tree.deferred_height(id).unwrap_or(20.0))
     });
     let total = spine.total_height();
-
     let w = spine.window(&tree, 0.0, total, &[]);
     assert!(
         w.entries.iter().any(|e| {
@@ -255,7 +253,6 @@ fn window_tolerates_a_deferred_collapsed_in_view() {
         }),
         "fixture must put a deferred Collapsed in view"
     );
-
     assert!(
         w.container_spans.iter().any(|s| s.box_id == tree.root()),
         "root span must survive the deferred skip"
@@ -292,4 +289,118 @@ fn compose_still_builds_the_full_tree() {
     let tree = compose(&doc, &theme);
     assert!(tree.deferred_len() == 0);
     assert!(tree.nodes().len() > 40);
+}
+
+fn constant_height(_id: LayoutBoxId, _avail: md_core::Px) -> HeightState {
+    HeightState::Exact(10.0)
+}
+
+#[test]
+fn editing_a_deferred_quote_refreshes_its_estimate() {
+    use md_core::document::{Caret, Command, Sel, apply};
+
+    let mut doc = load_markdown("head\n\n> a\n", editor_options());
+    let theme = layout();
+    let mut tree = compose_window(&doc, &theme, window(10.0), &metrics());
+    let quote = doc
+        .preorder()
+        .into_iter()
+        .find(|&id| doc.arena.get(id).unwrap().kind == md_core::block::BlockKind::BlockQuote)
+        .unwrap();
+    let quote_box = LayoutBoxId::frame(quote.index);
+    let before = tree.deferred_height(quote_box).expect("deferred quote");
+    let block = doc.text_leaves()[1];
+    let _ = doc.take_changes();
+    apply(
+        &mut doc,
+        Sel::collapsed(Caret { block, offset: 1 }),
+        Command::Insert {
+            text: "a".repeat(1_000),
+        },
+    );
+    let changes = doc.take_changes();
+    crate::compose::sync_layout(&mut tree, &doc, &changes, &theme);
+    let fresh = compose_window(&doc, &theme, window(10.0), &metrics());
+    assert_eq!(
+        tree.deferred_height(quote_box),
+        fresh.deferred_height(quote_box),
+        "a cold subtree edit must invalidate or refresh its old estimate"
+    );
+    assert!(
+        tree.deferred_height(quote_box).unwrap_or(0.0) > before,
+        "the re-estimate must react to the new document"
+    );
+}
+
+#[test]
+fn windowed_height_of_a_block_editing_leaf_includes_its_preview() {
+    use md_core::document::{Caret, FocusBias};
+
+    let plain = load_markdown("head\n\n$$\nx\n$$\n", editor_options());
+    let block = plain
+        .text_leaves()
+        .into_iter()
+        .find(|&b| plain.kind(b) == Some(md_core::block::BlockKind::Math))
+        .unwrap();
+    let frame = LayoutBoxId::frame(block);
+    let theme = layout();
+    let cold = compose_window(&plain, &theme, window(10.0), &metrics());
+    let plain_height = cold.deferred_height(frame).expect("deferred math");
+
+    let mut doc = load_markdown("head\n\n$$\nx\n$$\n", editor_options());
+    doc.retarget_inline_focus_biased(Caret { block, offset: 0 }, FocusBias::Neutral);
+    assert_eq!(doc.block_edit(), Some(block));
+    let hot = compose_window(&doc, &theme, window(10.0), &metrics());
+    let edit_height = hot.deferred_height(frame).expect("deferred editing math");
+    assert!(
+        edit_height > plain_height,
+        "the estimate must include the source frame plus the preview ({edit_height} vs {plain_height})"
+    );
+    let again = compose_window(&doc, &theme, window(10.0), &metrics());
+    assert_eq!(again.deferred_height(frame), Some(edit_height));
+}
+
+#[test]
+fn realizing_a_cold_editing_block_includes_its_preview() {
+    use md_core::document::{Caret, FocusBias};
+
+    let mut doc = load_markdown("head\n\n$$\nx\n$$\n", editor_options());
+    let block = doc
+        .text_leaves()
+        .into_iter()
+        .find(|&b| doc.kind(b) == Some(md_core::block::BlockKind::Math))
+        .unwrap();
+    doc.retarget_inline_focus_biased(Caret { block, offset: 0 }, FocusBias::Neutral);
+    assert_eq!(doc.block_edit(), Some(block));
+    let frame = LayoutBoxId::frame(block);
+    let preview = LayoutBoxId::preview(block);
+    let theme = layout();
+    let mut tree = compose_window(&doc, &theme, window(10.0), &metrics());
+    assert!(tree.deferred_height(frame).is_some());
+    let mut spine = FlowSpine::flatten(&tree, 800.0, &constant_height);
+    compose_into(&mut tree, &doc, &theme, frame);
+    assert!(
+        tree.nodes().contains_key(&preview),
+        "fixture: realized preview"
+    );
+    let _ = spine.expand_visible(&tree, 0.0, 1_000.0, &constant_height);
+    assert!(
+        spine.content_id(preview).is_some(),
+        "realizing a cold editing block must lower every emitted materializable box"
+    );
+    let cold_tree = compose(&doc, &theme);
+    let cold = FlowSpine::flatten(&cold_tree, 800.0, &constant_height);
+    assert_eq!(spine.total_height(), cold.total_height());
+}
+
+#[test]
+fn deep_nested_quotes_compose_without_recursion() {
+    let depth = 1024;
+    let mut md = "> ".repeat(depth);
+    md.push_str("x\n");
+    let doc = load_markdown(&md, editor_options());
+    let theme = layout();
+    let tree = compose(&doc, &theme);
+    assert!(tree.nodes().len() >= depth, "nodes={}", tree.nodes().len());
+    let _ = compose_window(&doc, &theme, window(10.0), &metrics());
 }

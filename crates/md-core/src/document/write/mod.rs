@@ -172,7 +172,6 @@ pub(super) fn pristine_subtree(doc: &Document, id: NodeId) -> bool {
 #[derive(Clone, Copy, PartialEq)]
 enum PrefixSeg {
     Quote,
-
     Indent(u16),
 }
 
@@ -275,11 +274,22 @@ where
     D: MarkdownExport,
     W: fmt::Write,
 {
+    let definitions = doc.reference_definitions();
+    let definitions_first = !definitions.is_empty() && tail_swallows_appended_definitions(doc);
     let mut w = MarkdownWriter::new(out);
-    run(doc, doc.root(), &mut w, &Prefix::default())?;
-    if !doc.reference_definitions().is_empty() {
+    if definitions_first {
+        for (index, definition) in definitions.iter().enumerate() {
+            if index > 0 {
+                w.write_str("\n")?;
+            }
+            w.write_str(definition.trim_end_matches(['\n', '\r']))?;
+        }
         blank_line(&mut w, &Prefix::default())?;
-        for (index, definition) in doc.reference_definitions().iter().enumerate() {
+    }
+    run(doc, doc.root(), &mut w, &Prefix::default())?;
+    if !definitions.is_empty() && !definitions_first {
+        blank_line(&mut w, &Prefix::default())?;
+        for (index, definition) in definitions.iter().enumerate() {
             if index > 0 && w.nl_run == 0 {
                 w.write_str("\n")?;
             }
@@ -290,6 +300,51 @@ where
         w.write_str("\n")?;
     }
     Ok(())
+}
+
+fn tail_swallows_appended_definitions<D: MarkdownExport>(doc: &D) -> bool {
+    let kids: Vec<NodeId> = doc.children(doc.root()).collect();
+    let Some(last) = kids
+        .iter()
+        .copied()
+        .rev()
+        .find(|&id| !block::is_blank_paragraph(doc, id))
+    else {
+        return false;
+    };
+    if doc.kind(last) != Some(BlockKind::Paragraph) {
+        return false;
+    }
+    html_block_swallows(doc.leaf_source(last))
+}
+
+fn html_block_swallows(source: &str) -> bool {
+    let lower = source.to_ascii_lowercase();
+    for (open, close) in [("<!--", "-->"), ("<?", "?>"), ("<![cdata[", "]]>")] {
+        if lower.starts_with(open) {
+            return !lower.contains(close);
+        }
+    }
+    for tag in ["script", "pre", "style", "textarea"] {
+        let open = format!("<{tag}");
+        if lower.starts_with(&open)
+            && lower
+                .get(1 + tag.len()..)
+                .is_some_and(|rest| rest.starts_with(['>', ' ', '\t', '\n', '\r']))
+        {
+            return !closes_tag(&lower, tag);
+        }
+    }
+    if let Some(rest) = lower.strip_prefix("<!")
+        && rest.starts_with(|c: char| c.is_ascii_alphabetic())
+    {
+        return !lower.contains('>');
+    }
+    false
+}
+
+fn closes_tag(lower: &str, tag: &str) -> bool {
+    lower.contains(&format!("</{tag}>"))
 }
 
 pub(super) fn write_node(doc: &Document, id: NodeId, out: &mut String) {
@@ -317,7 +372,6 @@ fn write_prefixed<W: fmt::Write>(
     if text.is_empty() {
         return prefix.write_open(out);
     }
-
     let flat = prefix.flat();
     for (i, line) in text.split('\n').enumerate() {
         if i > 0 {

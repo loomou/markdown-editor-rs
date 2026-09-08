@@ -97,7 +97,6 @@ fn replace_file(from: &Path, to: &Path) -> io::Result<()> {
 
     let from_w: Vec<u16> = from.as_os_str().encode_wide().chain(Some(0)).collect();
     let to_w: Vec<u16> = to.as_os_str().encode_wide().chain(Some(0)).collect();
-    // SAFETY: from_w / to_w are NUL-terminated wide paths; MoveFileExW only reads these two buffers.
     let ok = unsafe {
         MoveFileExW(
             from_w.as_ptr(),

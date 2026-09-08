@@ -22,7 +22,7 @@ fn outdent_mid_list_item_with_a_pasted_tail_keeps_the_rest() {
     let pasted = doc.document.to_markdown();
     assert_eq!(
         pasted,
-        "- first item> quoted\n  \n  ```rust\n  fn q() {}\n  ```\n- second item\n"
+        "- first item> quoted\n  \n  \\`\\`\\`rust\n  fn q() {}\n  \\`\\`\\`\n- second item\n"
     );
 
     let _ = doc.apply(Sel::collapsed(pasted_caret), Command::Outdent);
@@ -635,4 +635,72 @@ fn outdent_lifting_the_whole_list_then_undo_restores_the_subtree() {
         "- first\n  - second\n",
         "undo must return the nested list into the item"
     );
+}
+
+#[test]
+fn outdent_middle_item_preserves_document_text_order() {
+    let mut doc = load_markdown("- a\n- b\n- c\n", editor_options());
+    let block = doc.text_leaves()[1];
+    let _ = apply(&mut doc, Sel::collapsed(caret(block, 0)), Command::Outdent);
+    let texts = doc
+        .text_leaves()
+        .into_iter()
+        .filter_map(|id| doc.text_of(id))
+        .collect::<Vec<_>>();
+    assert_eq!(texts, vec!["a", "b", "c"], "{:?}", doc.to_markdown());
+    let md = doc.to_markdown();
+    assert!(md.contains("b"), "{md:?}");
+}
+
+#[test]
+fn undo_after_middle_outdent_restores_the_list() {
+    let mut d = Doc::new(load_markdown("- a\n- b\n- c\n", editor_options()));
+    let block = d.text_leaves()[1];
+    let before = d.document.to_markdown();
+    let _ = d.apply(Sel::collapsed(caret(block, 0)), Command::Outdent);
+    assert_ne!(d.document.to_markdown(), before);
+    let _ = d.undo().expect("undo");
+    assert_eq!(d.document.to_markdown(), before);
+    let _ = d.redo().expect("redo");
+    assert_eq!(
+        d.document
+            .text_leaves()
+            .into_iter()
+            .filter_map(|id| d.text(id))
+            .collect::<Vec<_>>(),
+        vec!["a", "b", "c"]
+    );
+}
+
+#[test]
+fn outdent_two_nested_items_keeps_the_tail_after_them() {
+    let source = "- a\n  - b\n  - c\n  - d\n- e\n";
+    let mut doc = Doc::new(load_markdown(source, editor_options()));
+    let leaves = doc.text_leaves();
+    let (b, c) = (leaves[1], leaves[2]);
+    let _ = doc.apply(
+        Sel {
+            anchor: caret(b, 0),
+            head: caret(c, 1),
+        },
+        Command::Outdent,
+    );
+    let texts: Vec<_> = doc
+        .text_leaves()
+        .into_iter()
+        .map(|l| doc.text(l).unwrap().to_string())
+        .collect();
+    assert_eq!(
+        texts,
+        ["a", "b", "c", "d", "e"],
+        "tree order must not move d"
+    );
+    assert_eq!(doc.document.to_markdown(), "- a\n- b\n- c\n  - d\n- e\n");
+    let changes = doc.take_changes();
+    assert_changeset_parents_live(&doc.document, &changes);
+
+    assert!(doc.undo().is_some());
+    assert_eq!(doc.document.to_markdown(), source);
+    assert!(doc.redo().is_some());
+    assert_eq!(doc.document.to_markdown(), "- a\n- b\n- c\n  - d\n- e\n");
 }

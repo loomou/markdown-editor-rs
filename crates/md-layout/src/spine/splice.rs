@@ -223,7 +223,6 @@ impl FlowSpine {
         };
         let kids = match &tree.get(parent).children {
             BoxChildren::Vertical(c) => c.as_slice(),
-
             BoxChildren::Island(_) => unreachable!(
                 "row islands carry no open/close span; cell changes invalidate the row instead"
             ),

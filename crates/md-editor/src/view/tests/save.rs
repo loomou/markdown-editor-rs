@@ -217,7 +217,6 @@ fn a_save_as_landing_on_an_in_flight_save_is_deferred_not_dropped(cx: &mut TestA
             view.bind_window(window);
             view.state.doc.source_path = Some(old.clone());
             view.apply_cmd(Command::Insert { text: "x".into() });
-
             view.save.in_flight = true;
             view.save_as_confirmed_for_test(new.clone(), window, cx);
         })
@@ -235,7 +234,6 @@ fn a_save_as_landing_on_an_in_flight_save_is_deferred_not_dropped(cx: &mut TestA
             assert!(view.state.doc.is_dirty());
         })
     });
-
     cx.update(|window, app| {
         editor.update(app, |view, cx| {
             let epoch = view.save.epoch;
@@ -254,10 +252,7 @@ fn a_save_as_landing_on_an_in_flight_save_is_deferred_not_dropped(cx: &mut TestA
     cx.run_until_parked();
     cx.update(|_, app| {
         editor.update(app, |view, _| {
-            assert_eq!(
-                view.save.save_as_retry, None,
-                "the retry should have been drained"
-            );
+            assert_eq!(view.save.save_as_retry, None, "the retry should be drained");
             assert_eq!(
                 view.state.doc.source_path.as_ref(),
                 Some(&new),
@@ -284,14 +279,12 @@ fn a_save_as_with_a_pending_nav_still_reaches_the_new_path(cx: &mut TestAppConte
             view.bind_window(window);
             view.state.doc.source_path = Some(old.clone());
             view.apply_cmd(Command::Insert { text: "x".into() });
-
             view.save.pending_after_save = Some(PendingNav::New);
             view.save.in_flight = true;
             view.save_as_confirmed_for_test(new.clone(), window, cx);
         })
     });
     cx.run_until_parked();
-
     cx.update(|window, app| {
         editor.update(app, |view, cx| {
             let epoch = view.save.epoch;
@@ -334,7 +327,6 @@ fn a_stale_save_landing_releases_in_flight_and_marks_nothing(cx: &mut TestAppCon
         editor.update(app, |view, cx| {
             view.apply_cmd(Command::Insert { text: "x".into() });
             view.save.pending_after_save = Some(PendingNav::Close);
-
             view.save.in_flight = true;
             view.save.epoch = 9;
             view.settle_save(

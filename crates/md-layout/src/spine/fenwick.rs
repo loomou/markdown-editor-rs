@@ -48,9 +48,7 @@ impl Chunk {
 
 pub(super) struct Fenwick {
     chunks: Vec<Chunk>,
-
     ends: Vec<usize>,
-
     totals: Vec<Px>,
 }
 
@@ -168,7 +166,6 @@ impl Fenwick {
                 .min(self.chunks.len() - 1)
         };
         let base = self.chunk_start(first);
-
         let window = |last: usize, ends: &[usize]| ends[last] - base - delete + insert;
         while window(last, &self.ends) < CHUNK_CAPACITY / 2 && last + 1 < self.chunks.len() {
             last += 1;

@@ -123,6 +123,7 @@ pub struct IslandGeometry {
     pub cells: Vec<CellGeometry>,
     pub content_generation: u32,
     pub content_revision: u64,
+    pub avail_width: Px,
 }
 
 #[derive(Debug, Default)]
@@ -213,6 +214,7 @@ fn solve_island(
                 cells,
                 content_generation: node.content_generation,
                 content_revision: node.content_revision,
+                avail_width,
             }
         }
         BoxChildren::None => {
@@ -237,6 +239,7 @@ fn solve_island(
                 cells: Vec::new(),
                 content_generation: node.content_generation,
                 content_revision: node.content_revision,
+                avail_width,
             }
         }
         BoxChildren::Vertical(_) => {

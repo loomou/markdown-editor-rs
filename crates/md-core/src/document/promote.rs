@@ -137,7 +137,6 @@ impl Document {
         if !syntax::is_math_fence_line(source) {
             return None;
         }
-
         if self.is_list_item_first_child(id) {
             return None;
         }
@@ -146,7 +145,6 @@ impl Document {
         if next != BlockKind::Math {
             return None;
         }
-
         self.set_leaf_shape(&transition, BlockKind::Math, NodeExtra::MathFence);
         let text_change = self.replace_leaf_projection(
             &transition,
@@ -248,16 +246,19 @@ impl Document {
         if !syntax::is_atx_commit(source) {
             return None;
         }
-        let frag = load_markdown(source, editor_options());
+        let frag = load_markdown(
+            &super::bind::with_definitions(source, &self.reference_definitions),
+            editor_options(),
+        );
         let (frag_leaf, next) = bind::unique_root(&frag)?;
         if !matches!(next, BlockKind::Heading(_)) {
             return None;
         }
         let display = frag.display(frag_leaf).to_string();
         let runs = self.remap_runs(&frag, frag_leaf);
-        let s2d = bind::source_to_display_map(source);
+        let s2d = bind::source_to_display_map(source, &self.reference_definitions);
         let constructs = frag.recorded_constructs(frag_leaf).map(|c| c.to_vec());
-        let (display, s2d) = bind::restore_visible_ws(next, source, display, s2d);
+        let (display, s2d, runs) = bind::restore_visible_ws(next, source, display, s2d, runs);
         let caret = if s2d.last().copied().unwrap_or(0) == display.len() {
             bind::source_to_display(&s2d, display_caret.min(source.len()))
         } else {
@@ -285,16 +286,17 @@ impl Document {
         if !matches!(transition.old_kind, BlockKind::Heading(_)) {
             return None;
         }
-        let body = bind::heading_body(&transition.old_source).to_string();
+        let body = bind::setext_body(&transition.old_source)
+            .map(str::to_string)
+            .unwrap_or_else(|| bind::heading_body(&transition.old_source).to_string());
         let source_len = transition.old_source.len() as u32;
         self.set_leaf_shape(&transition, BlockKind::Paragraph, transition.old_extra);
-        let (text_change, caret) = self.project_phrasing(
+        let (text_change, caret) = self.project_phrasing_at(
             id,
             body.clone(),
             0,
-            0..source_len,
-            transition.old_source.clone(),
-            body,
+            (0..source_len, transition.old_source.clone(), body),
+            true,
         );
         self.finish_leaf_transition(transition, text_change, Vec::new());
         Some(Caret {
@@ -459,8 +461,8 @@ impl Document {
         let display = self.display(id).to_string();
         let off = floor_char_boundary(&display, offset.min(display.len()));
         let before = self.revision;
-        let (change, caret) = self.rewrite_text(id, off..off, "\n");
-        let _ = self.commit(before, vec![change]);
+        let (changes, caret) = self.rewrite_text(id, off..off, "\n");
+        let _ = self.commit(before, changes);
         Some(Caret {
             block: id.index,
             offset: caret,
@@ -483,12 +485,14 @@ impl Document {
         if !syntax::is_quote_commit(source) {
             return None;
         }
-        let frag = load_markdown(source, editor_options());
+        let frag = load_markdown(
+            &super::bind::with_definitions(source, &self.reference_definitions),
+            editor_options(),
+        );
         let lead = bind::quote_lead_paragraph(&frag)?;
         let prev = self.arena.get(id).and_then(|n| n.prev_sibling);
         let old_revision = self.arena.get(id).map(|n| n.content_revision).unwrap_or(1);
         let before = self.revision;
-
         let (display, inner, runs, constructs) = match lead {
             Some(lead) => (
                 frag.display(lead).to_string(),
@@ -498,7 +502,7 @@ impl Document {
             ),
             None => (String::new(), String::new(), Vec::new(), Some(Vec::new())),
         };
-        let s2d = bind::source_to_display_map(source);
+        let s2d = bind::source_to_display_map(source, &self.reference_definitions);
         let caret = if s2d.last().copied().unwrap_or(0) == display.len() {
             bind::source_to_display(&s2d, display_caret.min(source.len()))
         } else {
@@ -507,7 +511,13 @@ impl Document {
         let caret = floor_char_boundary(&display, caret);
         self.ensure_leaf_text(id);
         if let Some(leaf) = self.texts.get_mut(id.text_id()) {
-            let collapsed = bind::bind_map(&inner, &display, BlockKind::Paragraph).1;
+            let collapsed = bind::bind_map(
+                &inner,
+                &display,
+                BlockKind::Paragraph,
+                &self.reference_definitions,
+            )
+            .1;
             leaf.set_projected(display, inner.clone(), runs, constructs);
             leaf.s2d = collapsed;
         }

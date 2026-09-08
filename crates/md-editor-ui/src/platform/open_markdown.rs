@@ -177,17 +177,12 @@ pub fn gpui_hwnd() -> windows_sys::Win32::Foundation::HWND {
     const GPUI_WINDOW_CLASS: &[u16] = &[90, 101, 100, 58, 58, 87, 105, 110, 100, 111, 119, 0];
 
     unsafe extern "system" fn find_ours(hwnd: HWND, lparam: isize) -> i32 {
-        // SAFETY: lparam is passed through verbatim by EnumWindows and points at the
-        // `target` local below.
         let out = unsafe { &mut *(lparam as *mut HWND) };
         let mut pid = 0u32;
-        // SAFETY: hwnd is a valid window handed to the callback; pid points at a valid local.
         unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
         let mut class = [0u16; 32];
-        // SAFETY: the class buffer is large enough for the class name ("Zed::Window", 11 chars).
         let len = unsafe { GetClassNameW(hwnd, class.as_mut_ptr(), 32) } as usize;
         let is_gpui = class[..len] == GPUI_WINDOW_CLASS[..GPUI_WINDOW_CLASS.len() - 1];
-        // SAFETY: same as above, hwnd comes from the system callback.
         if pid == std::process::id() && unsafe { IsWindowVisible(hwnd) != 0 } && is_gpui {
             *out = hwnd;
             return 0;
@@ -195,7 +190,6 @@ pub fn gpui_hwnd() -> windows_sys::Win32::Foundation::HWND {
         1
     }
 
-    // SAFETY: target is a local; EnumWindows fills it through lparam within this call.
     unsafe {
         let mut target: HWND = std::ptr::null_mut();
         EnumWindows(Some(find_ours), &mut target as *mut HWND as isize);
@@ -285,7 +279,6 @@ pub fn pick_markdown_file(
         FlagsEx: 0,
     };
 
-    // SAFETY: ofn is fully initialized above; the system only reads the buffers it points at.
     let ok = unsafe { GetOpenFileNameW(&mut ofn) } != 0;
     if !ok {
         return None;
@@ -353,7 +346,6 @@ pub fn pick_markdown_save_path(
         FlagsEx: 0,
     };
 
-    // SAFETY: ofn is fully initialized above; the system only reads the buffers it points at.
     let ok = unsafe { GetSaveFileNameW(&mut ofn) } != 0;
     if !ok {
         return None;
@@ -377,7 +369,6 @@ mod ext_tests {
             with_markdown_extension(PathBuf::from("dir/notes")),
             PathBuf::from("dir/notes.md")
         );
-
         assert_eq!(
             with_markdown_extension(PathBuf::from("notes.")),
             PathBuf::from("notes.md")
@@ -431,7 +422,7 @@ mod ext_tests {
         assert!(target.ends_with(&name), "{target:?}");
         assert!(
             !target.to_string_lossy().starts_with(r"\\?\"),
-            "a verbatim prefix leaked into the open path: {target:?}"
+            "the verbatim prefix leaked into the open path: {target:?}"
         );
     }
 
@@ -471,7 +462,6 @@ mod tests {
             strip_verbatim(PathBuf::from(r"\\?\UNC\server\share\a.md")),
             PathBuf::from(r"\\server\share\a.md")
         );
-
         assert_eq!(
             strip_verbatim(PathBuf::from(r"C:\notes\a.md")),
             PathBuf::from(r"C:\notes\a.md")
@@ -489,12 +479,11 @@ mod tests {
         assert_eq!(
             wide_z(""),
             vec![0],
-            "even the empty string needs its terminator"
+            "even the empty string needs a terminator"
         );
-
         let title = wide_z(md_i18n::t(md_i18n::Key::DlgOpenMarkdown));
         assert_eq!(title.iter().filter(|u| **u == 0).count(), 1, "{title:?}");
-        assert!(title.len() > 1, "the title must not be empty");
+        assert!(title.len() > 1, "the title is empty");
     }
 
     #[test]
@@ -511,7 +500,7 @@ mod tests {
         assert_eq!(
             f.iter().filter(|u| **u == 0).count(),
             3,
-            "the label, the pattern, and the terminator each need one NUL: {f:?}"
+            "one NUL each for the label, the pattern, and the list terminator: {f:?}"
         );
     }
 

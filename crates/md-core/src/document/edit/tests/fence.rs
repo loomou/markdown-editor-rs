@@ -213,7 +213,6 @@ fn math_fence_enter_becomes_empty_math_block() {
     assert_eq!(out, caret(leaf, 0));
     assert_eq!(doc.kind(leaf), Some(BlockKind::Math));
     assert_eq!(doc.text_of(leaf).unwrap(), "");
-
     assert_eq!(doc.live_id(leaf), Some(id));
     assert_eq!(doc.text_leaves().len(), 1);
 }
@@ -234,7 +233,6 @@ fn math_fence_enter_then_typing_round_trips() {
     assert_eq!(typed, caret(leaf, 3));
     assert_eq!(doc.text_of(leaf).unwrap(), "a+b");
     let markdown = doc.to_markdown();
-
     assert_eq!(markdown, "$$\na+b\n$$\n");
     let again = load_markdown(&markdown, editor_options());
     assert_eq!(
@@ -254,7 +252,6 @@ fn math_fence_commit_saves_empty_block_as_fenced() {
     let leaf = doc.text_leaves()[0];
     let at = fence_open(&mut doc, leaf, "$$");
     let _ = apply(&mut doc, Sel::collapsed(at), Command::Break);
-
     let markdown = doc.to_markdown();
     assert_eq!(markdown, "$$\n$$\n");
     let again = load_markdown(&markdown, editor_options());
@@ -326,7 +323,6 @@ fn math_fence_skips_a_list_items_first_block() {
     let _ = apply(&mut doc, Sel::collapsed(at), Command::Break);
 
     assert_ne!(doc.kind(leaf), Some(BlockKind::Math));
-
     let markdown = doc.to_markdown();
     assert!(markdown.contains("$$"), "{markdown:?}");
 }
@@ -360,7 +356,6 @@ fn math_fence_commits_in_a_list_items_later_block() {
     );
     assert_eq!(typed.offset, 3);
     assert_eq!(doc.text_of(out.block), Some("a+b"));
-
     let markdown = doc.to_markdown();
     let again = load_markdown(&markdown, editor_options());
     assert_eq!(
@@ -373,4 +368,38 @@ fn math_fence_commits_in_a_list_items_later_block() {
         "{markdown:?}"
     );
     assert_eq!(again.to_markdown(), markdown);
+}
+
+#[test]
+fn enter_on_nonclosing_fence_content_keeps_that_content() {
+    for source in ["```\n~~~\n```\n", "~~~~\n~~~\n~~~~\n", "    ~~~\n"] {
+        let mut doc = load_markdown(source, editor_options());
+        let block = doc.text_leaves()[0];
+        assert_eq!(doc.kind(block), Some(BlockKind::CodeBlock), "{source:?}");
+        assert_eq!(doc.collapsed_text_of(block), Some("~~~"), "{source:?}");
+        let out = apply(&mut doc, Sel::collapsed(caret(block, 3)), Command::Break);
+        assert_eq!(
+            doc.collapsed_text_of(block),
+            Some("~~~\n"),
+            "content consumed: input={source:?}, markdown={:?}",
+            doc.to_markdown()
+        );
+        assert_eq!(out.block, block, "caret left the block: {source:?}");
+    }
+}
+
+#[test]
+fn enter_inside_an_empty_list_code_block_stays_inside_the_code() {
+    use crate::doc::Doc;
+    let mut doc = Doc::new(load_markdown("- ```rust\n  ```\n", editor_options()));
+    let block = doc.text_leaves()[0];
+    assert_eq!(doc.kind(block), Some(BlockKind::CodeBlock));
+    let _ = doc.apply(Sel::collapsed(caret(block, 0)), Command::Break);
+    let id = doc.document.live_id(block).expect("block survives");
+    let parent = doc.document.arena.get(id).unwrap().parent.unwrap();
+    assert_eq!(doc.text(block), Some("\n"));
+    assert_eq!(
+        doc.document.arena.get(parent).map(|n| n.kind),
+        Some(BlockKind::ListItem)
+    );
 }

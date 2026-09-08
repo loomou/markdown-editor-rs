@@ -26,21 +26,20 @@ fn open_picker(
     cx.run_until_parked();
     let (field, hue) = shell
         .read_with(cx, |s, _| s.color_picker.as_ref().map(ColorPicker::blocks))
-        .expect("the color picker overlay should be open");
-    let field = field.expect("the overlay is open, so the S/L square should have painted a frame");
-    let hue = hue.expect("the overlay is open, so the hue bar should have painted a frame");
+        .expect("the color picker popover should be open");
+    let field = field.expect("with the popover open, the S/L square should have painted a frame");
+    let hue = hue.expect("with the popover open, the hue strip should have painted a frame");
     assert!(
         f32::from(field.size.width) > 1.0 && f32::from(field.size.height) > 1.0,
         "the square measured zero size:{field:?}"
     );
     assert!(
         f32::from(hue.size.width) > 1.0,
-        "the hue bar measured zero width:{hue:?}"
+        "the hue strip measured zero width: {hue:?}"
     );
-
     let outer = cx
         .debug_bounds("color-picker")
-        .expect("the overlay should have painted a frame")
+        .expect("the popover should have painted a frame")
         .size;
     assert!(
         (f32::from(outer.width) - PICKER_W).abs() <= 1.0
@@ -94,7 +93,6 @@ fn hover_to(cx: &mut VisualTestContext, at: Point<Pixels>) {
 fn a_swatch_toggles_its_own_popover_and_hands_over_in_one_click(cx: &mut TestAppContext) {
     let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
     stop_blink(&shell, cx);
-
     open_picker(&shell, cx, ColorSlot::Canvas);
     let open_slot = |cx: &mut VisualTestContext| {
         shell.read_with(cx, |s, _| s.color_picker.as_ref().map(ColorPicker::slot))
@@ -113,7 +111,7 @@ fn a_swatch_toggles_its_own_popover_and_hands_over_in_one_click(cx: &mut TestApp
     assert_eq!(
         open_slot(cx),
         None,
-        "clicking the same swatch should put the overlay away"
+        "clicking the same swatch should close the popover"
     );
     release(cx, canvas_swatch);
 
@@ -121,7 +119,7 @@ fn a_swatch_toggles_its_own_popover_and_hands_over_in_one_click(cx: &mut TestApp
     assert_eq!(
         open_slot(cx),
         Some(ColorSlot::Canvas),
-        "a second click should bring it back"
+        "clicking again should reopen it"
     );
     release(cx, canvas_swatch);
 
@@ -130,7 +128,7 @@ fn a_swatch_toggles_its_own_popover_and_hands_over_in_one_click(cx: &mut TestApp
     assert_eq!(
         open_slot(cx),
         Some(ColorSlot::Rule),
-        "clicking another swatch should switch over in one click"
+        "clicking another swatch should switch over at once"
     );
     release(cx, rule_swatch);
 }
@@ -157,33 +155,33 @@ fn dragging_the_color_square_recolors_just_that_slot(cx: &mut TestAppContext) {
 
     press(cx, field.origin + point(px(1.), px(1.)));
     let (over, painted) = canvas_now(cx);
-    let over = over.expect("a single press should record an override");
+    let over = over.expect("one press should already record an overlay");
     assert!(
         over.l > 0.98 && over.s < 0.02,
-        "the top-left corner is not white:{over:?}"
+        "the top-left corner is not white: {over:?}"
     );
     assert_eq!(
         painted, over,
-        "the changed color should carry through to the editor's token"
+        "the edited color should carry through to the editor's token"
     );
     assert!(
         shell.read_with(cx, |s, _| s
             .color_picker
             .as_ref()
             .is_some_and(ColorPicker::dragging)),
-        "pressing should enter the dragging state"
+        "a press should enter the drag state"
     );
     assert!(
         shell.read_with(cx, |s, app| s.editor.read(app).state.incremental.is_some()),
-        "the recolor dropped the incremental engine: without it, every drag across the plate would reflow the whole document"
+        "recoloring dropped the incremental engine: every drag on the picker would then relayout the whole document"
     );
 
     drag_to(cx, field.bottom_right() - point(px(1.), px(1.)));
     let (over, painted) = canvas_now(cx);
-    let over = over.expect("an override should exist mid-drag");
+    let over = over.expect("mid-drag");
     assert!(
         over.l < 0.02,
-        "the bottom-right corner is not black:{over:?}"
+        "the bottom-right corner is not black: {over:?}"
     );
     assert_eq!(painted, over);
 
@@ -193,33 +191,29 @@ fn dragging_the_color_square_recolors_just_that_slot(cx: &mut TestAppContext) {
             .color_picker
             .as_ref()
             .is_some_and(ColorPicker::dragging)),
-        "the drag state was not cleared on release; any later mouse move would then recolor"
+        "the drag state was not cleared on release; any later mouse move would change the color"
     );
     let after_release = canvas_now(cx).0;
     drag_to(cx, field.center());
     assert_eq!(
         canvas_now(cx).0,
         after_release,
-        "moving after the release should not recolor"
+        "moves after release must not change the color again"
     );
 
     press(cx, field.center());
     release(cx, field.center());
-    let mid = canvas_now(cx)
-        .0
-        .expect("pressing the square's middle should record an override");
+    let mid = canvas_now(cx).0.expect("middle of the square");
     press(cx, point(hue.left() + hue.size.width / 3., hue.center().y));
-    let turned = canvas_now(cx)
-        .0
-        .expect("pressing the hue bar should record an override");
+    let turned = canvas_now(cx).0.expect("the hue strip");
     assert!(
         (turned.h - 1.0 / 3.0).abs() < 0.02,
-        "the hue did not land on 1/3:{turned:?}"
+        "the hue did not land on 1/3: {turned:?}"
     );
     assert_eq!(
         (turned.s, turned.l),
         (mid.s, mid.l),
-        "the hue-bar drag changed saturation or lightness as well"
+        "dragging the hue strip dragged saturation or lightness along with it"
     );
     release(cx, hue.center());
 
@@ -236,7 +230,7 @@ fn dragging_the_color_square_recolors_just_that_slot(cx: &mut TestAppContext) {
     assert_eq!(over, None);
     assert_eq!(
         painted, base,
-        "after removing the override, the canvas did not return to the stock theme's value"
+        "after clearing the override the canvas did not return to the stock theme's value"
     );
 }
 
@@ -267,7 +261,7 @@ fn collapsing_a_group_puts_away_the_picker_inside_it(cx: &mut TestAppContext) {
     assert_eq!(
         editing(cx),
         None,
-        "collapsing the group should put away the picker inside it"
+        "the group is collapsed, so the color picker inside it should close with it"
     );
 
     cx.update(|window, app| {
@@ -300,7 +294,7 @@ fn pressing_outside_the_popover_puts_it_away(cx: &mut TestAppContext) {
     assert_eq!(
         open_slot(cx),
         Some(ColorSlot::Canvas),
-        "pressing inside the overlay should not close it"
+        "pressing inside the popover should not close it"
     );
 
     let y = cx.update(|window, _| window.viewport_size().height) / 2.;
@@ -308,7 +302,7 @@ fn pressing_outside_the_popover_puts_it_away(cx: &mut TestAppContext) {
     assert_eq!(
         open_slot(cx),
         None,
-        "pressing outside the overlay should put it away"
+        "a press outside the popover did not close it"
     );
 }
 
@@ -318,7 +312,7 @@ fn hex_state(shell: &Entity<Shell>, cx: &mut VisualTestContext) -> (String, Opti
             s.color_picker
                 .as_ref()
                 .map(|p| p.hex.text().to_string())
-                .expect("the overlay should be open"),
+                .expect("the popover should be open"),
             s.settings.appearance.colors().get(ColorSlot::Canvas),
         )
     })
@@ -327,18 +321,17 @@ fn hex_state(shell: &Entity<Shell>, cx: &mut VisualTestContext) -> (String, Opti
 fn focus_hex(shell: &Entity<Shell>, cx: &mut VisualTestContext) {
     let field = cx
         .debug_bounds("color-picker-hex")
-        .expect("the overlay is open, so the hex field should have painted a frame");
+        .expect("with the popover open, the hex field should have painted a frame");
     hover_to(cx, field.center());
     press(cx, field.center());
     release(cx, field.center());
-
     assert!(
         shell.read_with(cx, |s, _| s.color_picker.is_some()),
-        "clicking the hex field closed the picker overlay"
+        "clicking the hex field closed the color picker popover"
     );
     assert!(
         cx.update(|window, app| shell.read(app).hex_focus.is_focused(window)),
-        "clicking the hex field did not give it focus"
+        "the hex field was clicked but never got focus"
     );
 }
 
@@ -357,12 +350,11 @@ fn typing_six_hex_digits_recolors_and_a_partial_one_does_not(cx: &mut TestAppCon
         });
     });
     open_picker(&shell, cx, ColorSlot::Canvas);
-
     let base = md_theme::DocumentTheme::one_dark().paint.canvas;
     assert_eq!(
         hex_state(&shell, cx).0,
         base.to_css_hex().trim_start_matches('#'),
-        "a freshly opened field should show this item's current hex"
+        "the freshly opened field should show this slot's current hex"
     );
     focus_hex(&shell, cx);
 
@@ -370,7 +362,7 @@ fn typing_six_hex_digits_recolors_and_a_partial_one_does_not(cx: &mut TestAppCon
         shell.update(app, |s, cx| {
             s.color_picker
                 .as_mut()
-                .expect("the picker should be open")
+                .expect("the picker is open")
                 .hex
                 .select_all();
             cx.notify();
@@ -382,17 +374,16 @@ fn typing_six_hex_digits_recolors_and_a_partial_one_does_not(cx: &mut TestAppCon
     assert_eq!(text, "3a7");
     assert_eq!(
         over, None,
-        "typing just 3 digits recolored: a partial hex is not a color"
+        "three characters alone must not change the color: a partial hex is not a color"
     );
 
     cx.simulate_input("f2c");
     cx.run_until_parked();
     let (text, over) = hex_state(&shell, cx);
     assert_eq!(text, "3a7f2c");
-    let want = ThemeColor::from_css_hex("#3a7f2c").expect("the 6-digit hex should parse");
-    let over = over.expect("six digits should apply the color");
+    let want = ThemeColor::from_css_hex("#3a7f2c").expect("a 6-digit hex");
+    let over = over.expect("six digits should already set the color");
     assert_eq!(over.to_css_hex(), want.to_css_hex());
-
     assert_eq!(
         shell
             .read_with(cx, |s, app| s.editor.read(app).state.theme.paint.canvas)
@@ -402,13 +393,13 @@ fn typing_six_hex_digits_recolors_and_a_partial_one_does_not(cx: &mut TestAppCon
     assert_eq!(
         store
             .load()
-            .expect("once typed in full it should already be on disk")
+            .expect("one full keystroke sequence should already persist")
             .appearance
             .colors()
             .get(ColorSlot::Canvas)
             .map(ThemeColor::to_css_hex),
         Some(want.to_css_hex()),
-        "a completed hex should write the file on the spot — unlike dragging the square, which streams through over a hundred color values"
+        "a fully typed hex should write the file immediately — unlike dragging the square, which passes through hundreds of colors"
     );
 
     cx.simulate_input("9");
@@ -416,7 +407,7 @@ fn typing_six_hex_digits_recolors_and_a_partial_one_does_not(cx: &mut TestAppCon
     assert_eq!(
         hex_state(&shell, cx).0,
         "3a7f2c",
-        "the field should accept only 6 digits"
+        "the field should only take 6 digits"
     );
 
     if let Some(dir) = path.parent() {
@@ -428,7 +419,6 @@ fn typing_six_hex_digits_recolors_and_a_partial_one_does_not(cx: &mut TestAppCon
 #[gpui::test]
 fn pressing_inside_the_popover_never_reaches_the_rows_behind(cx: &mut TestAppContext) {
     let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
-
     cx.simulate_resize(size(px(900.), px(680.)));
     cx.run_until_parked();
     stop_blink(&shell, cx);
@@ -455,11 +445,11 @@ fn pressing_inside_the_popover_never_reaches_the_rows_behind(cx: &mut TestAppCon
     assert_eq!(
         shell.read_with(cx, |s, _| s.color_picker.as_ref().map(ColorPicker::slot)),
         Some(ColorSlot::Body),
-        "precondition: clicking the swatch should open the overlay"
+        "precondition: clicking a swatch should open the popover"
     );
     let plate = cx
         .debug_bounds("color-picker")
-        .expect("the overlay should have painted a frame");
+        .expect("the popover should have painted a frame");
     let field = cx
         .debug_bounds("color-picker-hex")
         .expect("the hex field should have painted a frame");
@@ -470,12 +460,12 @@ fn pressing_inside_the_popover_never_reaches_the_rows_behind(cx: &mut TestAppCon
     release(cx, field.center());
     assert!(
         shell.read_with(cx, |s, _| s.color_picker.is_some()),
-        "clicking the hex field put the picker overlay away: the plate did not block the row behind from the mouse"
+        "clicking the hex field closed the color picker popover: the board did not block the mouse over the row behind it"
     );
     assert_eq!(
         shell.read_with(cx, |s, _| s.color_groups_open),
         groups_before,
-        "a click on the plate toggled the group behind it: the mouse-up leaked into the header's on_click"
+        "clicking the plate toggled the group behind it: the release leaked to the header's on_click"
     );
 
     for at in [
@@ -488,12 +478,12 @@ fn pressing_inside_the_popover_never_reaches_the_rows_behind(cx: &mut TestAppCon
         release(cx, at);
         assert!(
             shell.read_with(cx, |s, _| s.color_picker.is_some()),
-            "clicking inside the plate at {at:?} put the overlay away"
+            "clicking at {at:?} inside the board closed the popover"
         );
         assert_eq!(
             shell.read_with(cx, |s, _| s.color_groups_open),
             groups_before,
-            "clicking inside the plate at {at:?} toggled the group behind it"
+            "clicking the plate at {at:?} toggled the group behind it"
         );
     }
 }
@@ -514,7 +504,7 @@ fn pasting_into_the_hex_field_still_filters(cx: &mut TestAppContext) {
         shell.update(app, |s, cx| {
             s.color_picker
                 .as_mut()
-                .expect("the picker should be open")
+                .expect("the picker is open")
                 .hex
                 .select_all();
             cx.notify();
@@ -525,16 +515,16 @@ fn pasting_into_the_hex_field_still_filters(cx: &mut TestAppContext) {
     let text = hex_state(&shell, cx).0;
     assert!(
         text.chars().all(|c| c.is_ascii_hexdigit()) && text.len() <= 6,
-        "pasted content was not filtered:{text:?}"
+        "the pasted text was not filtered: {text:?}"
     );
     assert_eq!(
         text, "28c2ff",
-        "it should strip #, lowercase it, and clip to 6 digits"
+        "it should strip #, lowercase, and cut to 6 digits"
     );
     assert_eq!(
         hex_state(&shell, cx).1.map(ThemeColor::to_css_hex),
         Some("#28c2ff".to_string()),
-        "six digits should apply the color"
+        "once 6 digits are in, the color should land"
     );
 }
 
@@ -548,7 +538,7 @@ fn the_hex_field_only_takes_hex_digits(cx: &mut TestAppContext) {
         shell.update(app, |s, cx| {
             s.color_picker
                 .as_mut()
-                .expect("the picker should be open")
+                .expect("the picker is open")
                 .hex
                 .select_all();
             cx.notify();
@@ -563,7 +553,7 @@ fn the_hex_field_only_takes_hex_digits(cx: &mut TestAppContext) {
         shell.update(app, |s, cx| {
             s.color_picker
                 .as_mut()
-                .expect("the picker should be open")
+                .expect("the picker is open")
                 .hex
                 .select_all();
             s.replace_text_in_range(None, "#28C2Ff00", window, cx);
@@ -573,7 +563,7 @@ fn the_hex_field_only_takes_hex_digits(cx: &mut TestAppContext) {
     assert_eq!(
         hex_state(&shell, cx).0,
         "28c2ff",
-        "pasted text should strip #, lowercase it, and clip to 6 digits"
+        "pasted input should strip the #, lowercase, and truncate to 6 digits"
     );
 }
 
@@ -587,10 +577,10 @@ fn the_hex_text_follows_the_colour_only_while_unfocused(cx: &mut TestAppContext)
     press(cx, field.origin + point(px(1.), px(1.)));
     release(cx, field.origin + point(px(1.), px(1.)));
     let (text, over) = hex_state(&shell, cx);
-    let over = over.expect("a single drag should leave an override");
+    let over = over.expect("one drag should already produce an overlay");
     assert_ne!(
         text, before,
-        "the hex text should have followed the square drag"
+        "after dragging the square the hex text did not follow"
     );
     assert_eq!(
         text,
@@ -603,7 +593,7 @@ fn the_hex_text_follows_the_colour_only_while_unfocused(cx: &mut TestAppContext)
         shell.update(app, |s, cx| {
             s.color_picker
                 .as_mut()
-                .expect("the picker should be open")
+                .expect("the picker is open")
                 .hex
                 .select_all();
             cx.notify();
@@ -612,13 +602,12 @@ fn the_hex_text_follows_the_colour_only_while_unfocused(cx: &mut TestAppContext)
     cx.simulate_input("ab");
     cx.run_until_parked();
     assert_eq!(hex_state(&shell, cx).0, "ab");
-
     cx.update(|_, app| shell.update(app, |_, cx| cx.notify()));
     cx.run_until_parked();
     assert_eq!(
         hex_state(&shell, cx).0,
         "ab",
-        "the partial hex under focus was clobbered by the current-color writeback: the field would not accept typed input"
+        "the half-typed hex was wiped by the current color write-back while focused: the field cannot be typed into"
     );
 
     cx.update(|_, app| {
@@ -629,11 +618,11 @@ fn the_hex_text_follows_the_colour_only_while_unfocused(cx: &mut TestAppContext)
     assert_eq!(
         hex_state(&shell, cx).0,
         over.to_css_hex().trim_start_matches('#'),
-        "Esc should restore the partial hex to this item's current color"
+        "Esc should restore the half-typed hex to this slot's current color"
     );
     assert!(
         !cx.update(|window, app| shell.read(app).hex_focus.is_focused(window)),
-        "after Esc, focus should return, or actions like Ctrl+F would not work"
+        "after Esc the focus should be handed back, or actions like Ctrl+F cannot run"
     );
 }
 
@@ -643,7 +632,6 @@ fn the_popover_follows_its_swatch_as_the_list_scrolls(cx: &mut TestAppContext) {
     let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
     stop_blink(&shell, cx);
     open_picker(&shell, cx, ColorSlot::Canvas);
-
     cx.update(|_, app| {
         shell.update(app, |s, cx| {
             for g in ColorGroup::ALL {
@@ -679,27 +667,27 @@ fn the_popover_follows_its_swatch_as_the_list_scrolls(cx: &mut TestAppContext) {
     scroll_by(cx, f32::from(before.top()) - mid);
 
     let (swatch, popover) = measure(cx);
-    let popover = popover.expect("scrolled to the column middle, the overlay should be painted");
-
+    let popover =
+        popover.expect("scrolled to the middle of the column, the popover should still paint");
     assert!(
         (f32::from(popover.right()) - f32::from(swatch.right())).abs() <= 1.0,
-        "the overlay's right edge is not aligned with the swatch's:{popover:?} / {swatch:?}"
+        "the popover's right edge does not align with the swatch's right edge: {popover:?} / {swatch:?}"
     );
     let gap = f32::from(popover.top()) - f32::from(swatch.bottom());
     assert!(
         (0.0..=20.0).contains(&gap),
-        "the overlay did not open just below the row:{gap}"
+        "the overlay did not open just below the row: {gap}"
     );
 
     scroll_by(cx, 80.0);
     let (rolled, popover2) = measure(cx);
     let popover2 =
-        popover2.expect("the swatch is still visible, so the overlay should still be there");
+        popover2.expect("the swatch is still visible, so the popover should still be there");
     let moved = f32::from(swatch.top()) - f32::from(rolled.top());
-    assert!(moved > 60.0, "the column did not scroll:{moved}");
+    assert!(moved > 60.0, "that column did not scroll: {moved}");
     assert!(
         (f32::from(popover2.top()) - f32::from(rolled.bottom()) - gap).abs() <= 1.0,
-        "the overlay did not follow the swatch: swatch {rolled:?}, overlay {popover2:?}"
+        "the popover did not follow the swatch: swatch {rolled:?}, popover {popover2:?}"
     );
 
     let at = shell.read_with(cx, |s, _| s.settings_scroll.offset());
@@ -707,14 +695,13 @@ fn the_popover_follows_its_swatch_as_the_list_scrolls(cx: &mut TestAppContext) {
     let (gone, _) = measure(cx);
     assert!(
         f32::from(gone.bottom()) <= f32::from(band.top()),
-        "content is not tall enough: the row has not scrolled out of the visible range:{gone:?} / {band:?}"
+        "the content is not tall enough; that row has not left the visible range yet: {gone:?} / {band:?}"
     );
     assert_eq!(
         shell.read_with(cx, |s, _| s.color_picker.as_ref().map(ColorPicker::showing)),
         Some(false),
-        "the swatch scrolled out of view, yet the overlay is still painted"
+        "the swatch scrolled away but the popover still paints"
     );
-
     assert_eq!(
         shell.read_with(cx, |s, _| s.color_picker.as_ref().map(ColorPicker::slot)),
         Some(ColorSlot::Canvas)
@@ -728,14 +715,14 @@ fn the_popover_follows_its_swatch_as_the_list_scrolls(cx: &mut TestAppContext) {
     cx.run_until_parked();
     let (back, popover5) = measure(cx);
     let popover5 =
-        popover5.expect("after scrolling back, the overlay should still be on the swatch");
+        popover5.expect("after scrolling back the popover should sit on the swatch as before");
     assert_eq!(
         shell.read_with(cx, |s, _| s.color_picker.as_ref().map(ColorPicker::showing)),
         Some(true)
     );
     assert!(
         (f32::from(popover5.top()) - f32::from(back.bottom()) - gap).abs() <= 1.0,
-        "after scrolling back the overlay did not stick to the row: swatch {back:?}, overlay {popover5:?}"
+        "scrolling back did not reattach to the row: swatch {back:?}, popover {popover5:?}"
     );
 }
 
@@ -745,7 +732,7 @@ fn the_new_color_reaches_the_file_only_on_mouse_up(cx: &mut TestAppContext) {
     let store = crate::store::settings::SettingsStore::at(path.clone());
     store
         .save(&crate::store::settings::Settings::default())
-        .expect("write an initial settings file first");
+        .expect("write a config first");
 
     let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
     stop_blink(&shell, cx);
@@ -764,19 +751,18 @@ fn the_new_color_reaches_the_file_only_on_mouse_up(cx: &mut TestAppContext) {
     assert!(
         store
             .load()
-            .expect("the settings file should still be there")
+            .expect("the config is still there")
             .appearance
             .colors()
             .is_empty(),
-        "it persisted mid-drag: one drag would write the file over a hundred times"
+        "it wrote to disk mid-drag: a single drag would write the file hundreds of times"
     );
 
     release(cx, field.center());
     let on_disk = store
         .load()
-        .expect("after the release it should already be on disk");
+        .expect("after release it should already be on disk");
     let want = shell.read_with(cx, |s, _| s.settings.clone());
-
     let hexes = |s: &crate::store::settings::Settings| {
         s.appearance
             .colors()
@@ -790,23 +776,20 @@ fn the_new_color_reaches_the_file_only_on_mouse_up(cx: &mut TestAppContext) {
         "the colors on disk do not match the ones in memory"
     );
     assert!(on_disk.appearance.colors().get(ColorSlot::Caret).is_some());
-
     assert!(
         on_disk.appearance.colors[ThemeVariant::OneLight.index()].is_empty(),
-        "the caret color edited under the dark theme leaked into the light one"
+        "the caret color edited under dark leaked into the light variant"
     );
 
     cx.update(|_, app| {
         shell.update(app, |s, cx| s.reset_all_colors(cx));
     });
-    let on_disk = store
-        .load()
-        .expect("the revert should also be written to disk");
+    let on_disk = store.load().expect("an undo should also reach the disk");
     assert!(on_disk.appearance.colors().is_empty());
     assert_eq!(
         shell.read_with(cx, |s, _| s.color_picker.as_ref().map(ColorPicker::slot)),
         None,
-        "after restoring all defaults, the picker overlay should be put away"
+        "after resetting everything to defaults the color picker popover should close"
     );
 
     if let Some(dir) = path.parent() {

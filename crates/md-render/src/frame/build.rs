@@ -56,13 +56,15 @@ pub fn from_assembly(
 
     let mut selection_device = Vec::new();
     if let Some((from, to)) = req.selection {
-        for rect in selection_rects_logical(&assembly, &geom.spans, cx.shaper, cx.env, from, to) {
+        for rect in
+            selection_rects_logical(cx.doc, &assembly, &geom.spans, cx.shaper, cx.env, from, to)
+        {
             let y = snap.snap(rect.origin_y - scroll) + rect.row_y;
             selection_device.push((rect.x, y, rect.width, rect.height.max(0.0)));
         }
     }
 
-    let search = search_highlights_device(&pass, &geom, req.search_query, req.search_skip);
+    let search = search_highlights_device(cx.doc, &pass, &geom, req.search_query, req.search_skip);
 
     let inline_code_device = inline_code_plates_device(&pass, &geom);
 
@@ -76,7 +78,9 @@ pub fn from_assembly(
             block: blk,
             offset: r.end,
         };
-        for rect in selection_rects_logical(&assembly, &geom.spans, cx.shaper, cx.env, c0, c1) {
+        for rect in
+            selection_rects_logical(cx.doc, &assembly, &geom.spans, cx.shaper, cx.env, c0, c1)
+        {
             let y = snap.snap(rect.origin_y - scroll) + rect.row_y;
             ime_device.push((rect.x, y, rect.width, rect.height.max(1.0)));
         }

@@ -1,6 +1,6 @@
 use super::FlowSpine;
-use super::item::{FlowItem, FlowItemId};
-use crate::box_tree::LayoutBoxId;
+use super::item::{FlowItem, FlowItemId, FlowItemKind};
+use crate::box_tree::{BoxTree, LayoutBoxId};
 use crate::flow::HeightState;
 use md_core::Px;
 use std::ops::Range;
@@ -88,6 +88,93 @@ impl FlowSpine {
         let h = super::tree_walk::subtree_height(tree, box_id, avail, heights);
         self.set_height(item, HeightState::Estimated(h));
         true
+    }
+
+    pub fn refresh_deferred_height(
+        &mut self,
+        tree: &crate::box_tree::BoxTree,
+        box_id: LayoutBoxId,
+    ) -> bool {
+        let Some(item) = self.collapsed_of.get(&box_id).copied() else {
+            return false;
+        };
+        let Some(h) = tree.deferred_height(box_id) else {
+            return false;
+        };
+        self.set_height(item, HeightState::Estimated(h));
+        true
+    }
+
+    pub fn refresh_gaps_of(&mut self, tree: &BoxTree, container: LayoutBoxId) -> bool {
+        use super::gap::FlowBoundary;
+        let (Some(open), Some(close)) = (
+            self.open_of.get(&container).copied(),
+            self.close_of.get(&container).copied(),
+        ) else {
+            return false;
+        };
+        let (Some(lo), Some(hi)) = (self.location(open), self.location(close)) else {
+            return false;
+        };
+        if lo >= hi || hi >= self.items.len() {
+            return false;
+        }
+        let kids: Vec<usize> = (lo + 1..hi)
+            .filter(|&pos| match self.items[pos].kind {
+                FlowItemKind::Gap => false,
+                FlowItemKind::ContainerClose { .. } => false,
+                _ => {
+                    let owner = self.child_box_at(pos);
+                    let parent = tree
+                        .nodes
+                        .get(&owner)
+                        .and_then(|n| n.parent)
+                        .or_else(|| tree.deferred(owner).and_then(|d| d.parent));
+                    parent == Some(container)
+                }
+            })
+            .collect();
+        let mut touched = false;
+        for (i, &child) in kids.iter().enumerate() {
+            let Some(gap_pos) = self.gap_before_child(child) else {
+                continue;
+            };
+            let before = if i == 0 {
+                FlowBoundary::Start
+            } else {
+                FlowBoundary::Child(self.child_box_at(kids[i - 1]))
+            };
+            let after = FlowBoundary::Child(self.child_box_at(child));
+            let h = super::gap::gap_height(tree, container, before, after);
+            let id = self.items[gap_pos].id;
+            self.set_height(id, HeightState::Exact(h));
+            touched = true;
+        }
+        if let Some(&last) = kids.last()
+            && matches!(self.items[hi - 1].kind, FlowItemKind::Gap)
+        {
+            let before = FlowBoundary::Child(self.child_box_at(last));
+            let h = super::gap::gap_height(tree, container, before, FlowBoundary::End);
+            let id = self.items[hi - 1].id;
+            self.set_height(id, HeightState::Exact(h));
+            touched = true;
+        }
+        touched
+    }
+
+    fn child_box_at(&self, pos: usize) -> LayoutBoxId {
+        match self.items[pos].kind {
+            FlowItemKind::Content { box_id }
+            | FlowItemKind::Collapsed { box_id }
+            | FlowItemKind::ContainerOpen { box_id }
+            | FlowItemKind::ContainerClose { box_id } => box_id,
+            FlowItemKind::Gap => unreachable!("caller skips gaps"),
+        }
+    }
+
+    fn gap_before_child(&self, child_pos: usize) -> Option<usize> {
+        let pos = child_pos.checked_sub(1)?;
+        matches!(self.items[pos].kind, FlowItemKind::Gap).then_some(pos)
     }
 
     pub fn item_top(&self, id: FlowItemId) -> Option<Px> {

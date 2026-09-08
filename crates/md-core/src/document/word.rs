@@ -1,8 +1,30 @@
-use super::{floor_char_boundary, prev_char_boundary};
+use super::floor_char_boundary;
 use unicode_segmentation::{GraphemeCursor, UnicodeSegmentation};
 
 fn is_word_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
+}
+
+fn cluster_bounds(text: &str, i: usize) -> (usize, usize) {
+    let prev = prev_grapheme_boundary(text, i);
+    let hi = next_grapheme_boundary(text, prev);
+    if hi > i {
+        (prev, hi)
+    } else {
+        (i, next_grapheme_boundary(text, i))
+    }
+}
+
+fn left_cluster(text: &str, i: usize) -> (usize, usize) {
+    let prev = prev_grapheme_boundary(text, i);
+    (prev, next_grapheme_boundary(text, prev))
+}
+
+fn cluster_base(text: &str, bounds: (usize, usize)) -> char {
+    text[bounds.0..bounds.1]
+        .chars()
+        .next()
+        .expect("cluster is non-empty")
 }
 
 pub fn next_word_boundary(text: &str, mut i: usize) -> usize {
@@ -11,63 +33,59 @@ pub fn next_word_boundary(text: &str, mut i: usize) -> usize {
     if i >= len {
         return len;
     }
-    let start = text[i..].chars().next().expect("i < len");
-    if start.is_whitespace() {
-        while let Some(c) = text[i..].chars().next() {
-            if !c.is_whitespace() {
+    let bounds = cluster_bounds(text, i);
+    if cluster_base(text, bounds).is_whitespace() {
+        i = bounds.1;
+        while i < len {
+            let next = next_grapheme_boundary(text, i);
+            if !cluster_base(text, (i, next)).is_whitespace() {
                 break;
             }
-            i += c.len_utf8();
+            i = next;
         }
         return i;
     }
-
-    let word = is_word_char(start);
-    while let Some(c) = text[i..].chars().next() {
-        if c.is_whitespace() || is_word_char(c) != word {
+    let word = is_word_char(cluster_base(text, bounds));
+    i = bounds.1;
+    while i < len {
+        let next = next_grapheme_boundary(text, i);
+        let base = cluster_base(text, (i, next));
+        if base.is_whitespace() || is_word_char(base) != word {
             break;
         }
-        i += c.len_utf8();
+        i = next;
     }
-
-    while let Some(c) = text[i..].chars().next() {
-        if !c.is_whitespace() {
+    while i < len {
+        let next = next_grapheme_boundary(text, i);
+        if !cluster_base(text, (i, next)).is_whitespace() {
             break;
         }
-        i += c.len_utf8();
+        i = next;
     }
     i
 }
 
 pub fn prev_word_boundary(text: &str, mut i: usize) -> usize {
     i = floor_char_boundary(text, i.min(text.len()));
-    if i == 0 {
-        return 0;
-    }
-    i = prev_char_boundary(text, i);
     while i > 0 {
-        let c = text[..i].chars().next_back().expect("i > 0");
-        if !c.is_whitespace() {
+        let bounds = left_cluster(text, i);
+        if !cluster_base(text, bounds).is_whitespace() {
             break;
         }
-        i = prev_char_boundary(text, i);
+        i = bounds.0;
     }
     if i == 0 {
         return 0;
     }
-    let c = text[..i].chars().next_back().expect("i > 0");
-    if c.is_whitespace() {
-        return i;
-    }
-    let word = is_word_char(c);
+    let bounds = left_cluster(text, i);
+    let word = is_word_char(cluster_base(text, bounds));
     while i > 0 {
-        let Some(c) = text[..i].chars().next_back() else {
-            break;
-        };
-        if c.is_whitespace() || is_word_char(c) != word {
+        let bounds = left_cluster(text, i);
+        let base = cluster_base(text, bounds);
+        if base.is_whitespace() || is_word_char(base) != word {
             break;
         }
-        i = prev_char_boundary(text, i);
+        i = bounds.0;
     }
     i
 }
@@ -105,7 +123,6 @@ pub fn word_span(text: &str, offset: usize) -> Option<(usize, usize)> {
         if offset <= start {
             return Some((start, end));
         }
-
         let word = is_word_seg(seg);
         let next_is_word = bounds.peek().map(|(_, next)| is_word_seg(next));
         if word && next_is_word != Some(true) {
@@ -139,26 +156,22 @@ mod tests {
             6,
             "skips hello and the space after it"
         );
-        assert_eq!(
-            next_word_boundary(t, 6),
-            13,
-            "the two spaces are eaten together"
-        );
+        assert_eq!(next_word_boundary(t, 6), 13, "eats both spaces together");
         assert_eq!(next_word_boundary(t, 13), t.len());
         assert_eq!(
             next_word_boundary(t, t.len()),
             t.len(),
-            "does not move at the end"
+            "the end does not move"
         );
 
         assert_eq!(prev_word_boundary(t, t.len()), 13);
         assert_eq!(
             prev_word_boundary(t, 13),
             6,
-            "steps back over the whitespace, then to the word start"
+            "backs over the whitespace first, then to the word start"
         );
         assert_eq!(prev_word_boundary(t, 6), 0);
-        assert_eq!(prev_word_boundary(t, 0), 0, "does not move at the start");
+        assert_eq!(prev_word_boundary(t, 0), 0, "the start does not move");
     }
 
     #[test]
@@ -167,13 +180,32 @@ mod tests {
         assert_eq!(
             next_word_boundary(t, 0),
             1,
-            "the letter run ends before the comma"
+            "the letter run stops before the comma"
         );
-        assert_eq!(next_word_boundary(t, 1), 3, "the two commas form one run");
+        assert_eq!(next_word_boundary(t, 1), 3, "two commas count as one run");
         assert_eq!(prev_word_boundary(t, 3), 1);
-
         let cn = "你好 世界";
         assert_eq!(next_word_boundary(cn, 0), "你好 ".len());
+    }
+
+    #[test]
+    fn word_motion_treats_combining_marks_as_part_of_the_base() {
+        let decomposed = "e\u{301}x word";
+        assert_eq!(next_word_boundary(decomposed, 0), "e\u{301}x ".len());
+        assert_eq!(prev_word_boundary(decomposed, "e\u{301}x ".len()), 0);
+        let precomposed = "éx word";
+        assert_eq!(next_word_boundary(precomposed, 0), "éx ".len());
+        assert_eq!(prev_word_boundary(precomposed, "éx ".len()), 0);
+        assert_eq!(next_word_boundary(decomposed, 1), "e\u{301}x ".len());
+        assert_eq!(
+            prev_word_boundary(decomposed, "e\u{301}x ".len() + 1),
+            "e\u{301}x ".len()
+        );
+        let fam = "👨‍👩‍👧 next";
+        assert_eq!(next_word_boundary(fam, 0), "👨‍👩‍👧 ".len());
+        assert_eq!(prev_word_boundary(fam, fam.len()), "👨‍👩‍👧 ".len());
+        let indic = "क्ष word";
+        assert_eq!(next_word_boundary(indic, 0), "क्ष ".len());
     }
 
     #[test]
@@ -184,11 +216,11 @@ mod tests {
             let p = prev_word_boundary(t, i);
             assert!(
                 t.is_char_boundary(n),
-                "next from {i} lands on {n}, splitting a character"
+                "next landed on {n} from {i}, slicing into a character"
             );
             assert!(
                 t.is_char_boundary(p),
-                "prev from {i} lands on {p}, splitting a character"
+                "prev landed on {p} from {i}, slicing into a character"
             );
         }
     }
@@ -197,11 +229,11 @@ mod tests {
     fn grapheme_motion_keeps_combining_marks_whole() {
         let t = "ae\u{301}b";
         assert_eq!(t.chars().count(), 4);
-        assert_eq!(prev_grapheme_boundary(t, t.len()), 4, "right before b");
+        assert_eq!(prev_grapheme_boundary(t, t.len()), 4, "in front of b");
         assert_eq!(
             prev_grapheme_boundary(t, 4),
             1,
-            "the whole é steps back together, leaving no stray accent"
+            "the whole é backs off together, leaving no lone accent"
         );
         assert_eq!(next_grapheme_boundary(t, 1), 4);
 
@@ -210,10 +242,9 @@ mod tests {
         assert_eq!(
             prev_grapheme_boundary(fam, fam.len()),
             0,
-            "the whole sequence steps back together"
+            "the whole cluster backs off together"
         );
         assert_eq!(next_grapheme_boundary(fam, 0), fam.len());
-
         assert_eq!(prev_grapheme_boundary("", 0), 0);
         assert_eq!(next_grapheme_boundary("", 0), 0);
     }
@@ -314,5 +345,13 @@ mod tests {
         let (lo, hi) = word_span(t, mid).expect("span");
         assert!(t.is_char_boundary(lo) && t.is_char_boundary(hi));
         assert_eq!((lo, hi), (0, t.len()));
+    }
+
+    #[test]
+    fn previous_word_from_after_its_first_char_stays_in_that_word() {
+        assert_eq!(prev_word_boundary("one two", 5), 4);
+        assert_eq!(prev_word_boundary("one two", 6), 4);
+        assert_eq!(prev_word_boundary("one  two", 6), 5);
+        assert_eq!(prev_word_boundary("one two", 4), 0);
     }
 }

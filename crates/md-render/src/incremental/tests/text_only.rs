@@ -53,10 +53,7 @@ fn text_only_edits_leave_islands_and_tables_identical() {
 
     let islands_before = engine.tree.island_boxes();
     let tables_before = tables_of(&engine);
-    assert!(
-        !tables_before.is_empty(),
-        "the fixture must contain a table"
-    );
+    assert!(!tables_before.is_empty(), "the fixture must contain tables");
     let cons_before = Rc::clone(&engine.table_cons);
 
     let leaf = doc.text_leaves()[0];
@@ -128,7 +125,7 @@ fn structural_edits_still_refresh_aux() {
     let changes = doc.take_changes();
     assert!(
         changes.is_structural(),
-        "a break must be a structural change"
+        "Enter should be a structural change"
     );
     engine.apply_changes(&doc, &changes);
 
@@ -169,7 +166,7 @@ fn a_structural_edit_discards_the_solved_constraints() {
     let changes = doc.take_changes();
     assert!(
         changes.is_structural(),
-        "a break must be a structural change"
+        "Enter should be a structural change"
     );
     engine.apply_changes(&doc, &changes);
 
@@ -201,14 +198,14 @@ fn the_next_frame_resolves_the_cleared_constraints_again() {
     engine.apply_changes(&doc, &changes);
     assert!(
         engine.table_cons.is_empty(),
-        "premise: this step must clear the constraints"
+        "premise: this step should have cleared them"
     );
 
     engine.assemble_incremental(ScrollAnchor::top(), 2000.0, &measure, &solver);
 
     assert!(
         !engine.table_cons.is_empty(),
-        "the next frame re-solved no table — if nothing refills after the clear, clearing is wrong"
+        "the next frame re-solved no table at all — after a clear nothing refilled them, so the clear was wrong"
     );
     let want: std::collections::BTreeMap<_, _> = cons_by_value(&engine).into_iter().collect();
     for (id, got) in engine.table_cons.iter() {
@@ -233,7 +230,7 @@ fn an_attrs_change_also_discards_the_constraints() {
     engine.assemble_incremental(ScrollAnchor::top(), 2000.0, &measure, &solver);
     assert!(
         !engine.table_cons.is_empty(),
-        "premise: the first frame must solve that nested table"
+        "premise: the first frame should have solved that nested table"
     );
 
     let leaf = doc.text_leaves()[0];
@@ -248,13 +245,13 @@ fn an_attrs_change_also_discards_the_constraints() {
     let changes = doc.take_changes();
     assert!(
         !changes.is_text_only(),
-        "toggling a task item must not count as text-only, got {:?}",
+        "checking a task item must not be treated as a text-only change, got {:?}",
         changes.changes
     );
     engine.apply_changes(&doc, &changes);
 
     assert!(
         engine.table_cons.is_empty(),
-        "stale column constraints survive an attribute change"
+        "the old column constraints survived the attribute change"
     );
 }

@@ -26,9 +26,7 @@ enum EditOp {
     Undo,
     Redo,
     Move,
-
     Paste(usize),
-
     PasteFragment(usize),
     Table(usize),
 }
@@ -155,18 +153,14 @@ fn text_signature(doc: &md_core::document::Document) -> String {
         if !node.kind.is_text_leaf() {
             continue;
         }
-
         if node.kind == BlockKind::TableCell && cell_beyond_header_width(doc, id) {
             continue;
         }
-
-        let raw = doc.block_source(id).replace("<br>", "\n");
-
-        let lines: Vec<String> = raw
-            .split('\n')
-            .map(|line| line.replace("\\|", "|"))
-            .collect();
-
+        let raw = doc
+            .block_source(id)
+            .replace("<br>", "\n")
+            .replace("&#32;", " ");
+        let lines: Vec<String> = raw.split('\n').map(unescape_punct).collect();
         let truncate_to: Vec<Option<usize>> = table_block_widths(&lines);
         for (index, line) in lines.iter().enumerate() {
             let line = if node.kind == BlockKind::TableCell {
@@ -174,7 +168,6 @@ fn text_signature(doc: &md_core::document::Document) -> String {
             } else {
                 strip_block_prefixes(line)
             };
-
             let columns: Vec<&str> = if line.contains('|') {
                 let mut columns = split_columns(line);
                 if let Some(width) = truncate_to[index] {
@@ -192,30 +185,46 @@ fn text_signature(doc: &md_core::document::Document) -> String {
                 if column.is_empty() {
                     continue;
                 }
-
                 if matches!(column, "-" | "*" | "+" | "#" | ">" | "[ ]" | "[x]" | "[X]") {
                     continue;
                 }
-
                 if column
                     .chars()
                     .all(|c| matches!(c, '*' | '_' | '`' | '~' | '[' | ']' | ' ' | '\t'))
                 {
                     continue;
                 }
-
                 if column.len() >= 3
                     && column.chars().all(|c| matches!(c, '-' | '*' | '_' | ' '))
                     && column.chars().filter(|c| !c.is_whitespace()).count() >= 3
                 {
                     continue;
                 }
-
                 if is_fence_marker_line(column) {
                     continue;
                 }
                 let _ = writeln!(out, "{column}");
             }
+        }
+    }
+    out
+}
+
+fn unescape_punct(line: &str) -> String {
+    if !line.contains('\\') {
+        return line.to_string();
+    }
+    let mut out = String::with_capacity(line.len());
+    let mut chars = line.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\'
+            && let Some(next) = chars.clone().next()
+            && next.is_ascii_punctuation()
+        {
+            out.push(next);
+            chars.next();
+        } else {
+            out.push(c);
         }
     }
     out
@@ -261,6 +270,7 @@ fn table_block_widths(lines: &[String]) -> Vec<Option<usize>> {
             if k > start
                 && is_separator_line(&lines[k])
                 && columns_of(&lines[k - 1]) == columns_of(&lines[k])
+                && !lines[k - 1].starts_with('\t')
             {
                 let width = columns_of(&lines[k]);
                 for slot in &mut out[k + 1..end] {
@@ -509,7 +519,6 @@ fn apply_op(doc: &mut Doc, current: Sel, op: EditOp, rng: &mut Rng) -> Sel {
         }
         EditOp::Table(kind) => {
             let op = table_op(kind, rng);
-
             let base = caret_inside_a_table(doc, rng).unwrap_or(current.head);
             let caret = doc.apply(Sel::collapsed(base), Command::Table(op));
             retarget_selection(doc, Sel::collapsed(caret))
@@ -610,7 +619,6 @@ fn assert_heading_sources_stay_valid(doc: &Doc, context: &str) {
         let first = source.lines().next().unwrap_or("");
         let hashes = first.chars().take_while(|c| *c == '#').count();
         let rest = &first[hashes..];
-
         assert!(
             rest.is_empty() || rest.starts_with(' ') || rest.starts_with('\t'),
             "heading source is not valid ATX: {source:?} display={:?}\n{context}",
@@ -677,12 +685,10 @@ fn assert_growth_stays_bounded(doc: &Doc, base: usize, productive: usize, contex
 #[test]
 fn random_edit_sequences_match_a_cold_engine() {
     let case_start = env_start("MD_TEST_RANDOM_CASE_START");
-
     let cases = env_count("MD_TEST_RANDOM_CASES", 16, 4096);
     let steps = env_count("MD_TEST_RANDOM_STEPS", 256, 1024);
     let trace_progress = std::env::var_os("MD_TEST_RANDOM_TRACE").is_some();
     let env = BoxLayoutEnvironment::default();
-
     let mut table_ops_attempted = 0usize;
     let mut table_ops_booked = 0usize;
 
@@ -702,7 +708,6 @@ fn random_edit_sequences_match_a_cold_engine() {
         let Some(original) = failure else {
             continue;
         };
-
         let failed_step = failure_step(&original).unwrap_or(steps - 1);
         let quiet = std::panic::take_hook();
         std::panic::set_hook(Box::new(|_| {}));
@@ -730,7 +735,6 @@ fn random_edit_sequences_match_a_cold_engine() {
              --- original full-dose failure ---\n{original}"
         );
     }
-
     assert!(
         table_ops_attempted < 9 || table_ops_booked > 0,
         "table ops were attempted {table_ops_attempted} times but none took effect"
@@ -754,7 +758,6 @@ fn run_case(
         let _ = doc.take_changes();
         let growth_base = doc.document.arena.live_count() + doc.document.arena.tombstone_count();
         let mut prev_slots = growth_base;
-
         let mut productive_steps = 0usize;
         let mut hot = IncrementalEngine::new(&doc.document, *env, estimator(), dummy_layout());
         let mut trace = Vec::new();

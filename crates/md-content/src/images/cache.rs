@@ -1,13 +1,15 @@
 use super::raster::decoded_len;
 use super::{
-    DisplayKey, DisplaySlot, ImageCache, MAX_DISPLAY_BYTES, MAX_DISPLAY_ENTRIES, MAX_IN_FLIGHT,
-    MAX_SOURCE_BYTES, SourceKey, SourceSlot, WARM_DISPLAY_EXTRA, WARM_SOURCE_IN_FLIGHT,
+    DisplayKey, DisplaySlot, DisplayToken, ImageCache, MAX_DISPLAY_BYTES, MAX_DISPLAY_ENTRIES,
+    MAX_FAILED_ENTRIES, MAX_IN_FLIGHT, MAX_SOURCE_BYTES, SourceError, SourceKey, SourceSlot,
+    SourceToken, WARM_DISPLAY_EXTRA, WARM_SOURCE_IN_FLIGHT, source_retry_delay,
 };
 use crate::pixels::ReadyImage;
 use gpui::{App, RenderImage};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::Instant;
 
 impl ImageCache {
     pub fn new() -> Self {
@@ -18,6 +20,8 @@ impl ImageCache {
             source_warm: HashSet::new(),
             source_bytes: 0,
             source_inflight: 0,
+            job_seq: 0,
+            failed_lru: VecDeque::new(),
             display: HashMap::new(),
             display_lru: VecDeque::new(),
             display_visible: HashSet::new(),
@@ -42,6 +46,17 @@ impl ImageCache {
         self.source.contains_key(dest)
     }
 
+    pub fn source_retry_due(&self, dest: &str) -> bool {
+        self.source_retry_due_inner(dest, Instant::now())
+    }
+
+    pub(super) fn source_retry_due_inner(&self, dest: &str, now: Instant) -> bool {
+        matches!(
+            self.source.get(dest),
+            Some(SourceSlot::Retryable { retry_at, .. }) if *retry_at <= now
+        )
+    }
+
     #[cfg(test)]
     pub fn intrinsic(&self, dest: &str) -> Option<(u32, u32)> {
         self.sizes.get(dest).copied()
@@ -54,48 +69,63 @@ impl ImageCache {
         }
     }
 
-    pub fn begin_source(&mut self, dest: String) -> bool {
+    pub fn begin_source(&mut self, dest: String) -> Option<SourceToken> {
+        self.begin_source_inner(dest, Instant::now())
+    }
+
+    pub(super) fn begin_source_inner(&mut self, dest: String, now: Instant) -> Option<SourceToken> {
         let key = SourceKey::new(dest);
-        if self.source.contains_key(&key) {
-            return false;
-        }
+        let retrying = match self.source.get(&key) {
+            Some(SourceSlot::Retryable {
+                attempt, retry_at, ..
+            }) if *retry_at <= now => Some(*attempt),
+            _ if self.source.contains_key(&key) => return None,
+            _ => None,
+        };
         let budget = if self.source_warm.contains(&key) {
             WARM_SOURCE_IN_FLIGHT
         } else {
             MAX_IN_FLIGHT
         };
         if self.source_inflight >= budget {
-            return false;
+            return None;
         }
-        self.source.insert(key, SourceSlot::InFlight);
+        let retry = retrying.map_or(0, |attempt| attempt + 1);
+        self.failed_lru.retain(|candidate| candidate != &key);
+        let seq = self.job_seq;
+        self.job_seq = self.job_seq.wrapping_add(1);
+        self.source
+            .insert(key.clone(), SourceSlot::InFlight { retry, seq });
         self.source_inflight += 1;
-        true
+        Some(SourceToken { dest: key.0, seq })
     }
 
     pub fn finish_source(
         &mut self,
-        dest: String,
-        result: Result<(Arc<RenderImage>, u32, u32), crate::Error>,
+        token: SourceToken,
+        result: Result<(Arc<RenderImage>, u32, u32), SourceError>,
         cx: &mut App,
     ) -> bool {
-        self.finish_source_inner(dest, result, Some(cx), MAX_SOURCE_BYTES)
+        self.finish_source_inner(token, result, Some(cx), MAX_SOURCE_BYTES)
     }
 
     pub(super) fn finish_source_inner(
         &mut self,
-        dest: String,
-        result: Result<(Arc<RenderImage>, u32, u32), crate::Error>,
+        token: SourceToken,
+        result: Result<(Arc<RenderImage>, u32, u32), SourceError>,
         cx: Option<&mut App>,
         source_budget: usize,
     ) -> bool {
-        let key = SourceKey::new(dest);
-        let Some(slot) = self.source.get(&key) else {
-            return false;
+        let key = SourceKey::new(token.dest);
+        let attempt = match self.source.get(&key) {
+            Some(SourceSlot::InFlight {
+                retry,
+                seq: slot_seq,
+            }) if *slot_seq == token.seq => *retry,
+            _ => return false,
         };
-        if !matches!(slot, SourceSlot::InFlight) {
-            return false;
-        }
         self.source_inflight = self.source_inflight.saturating_sub(1);
+        let now = Instant::now();
         match result {
             Ok((image, width, height)) if width > 0 && height > 0 => {
                 let n = decoded_len(&image);
@@ -114,6 +144,7 @@ impl ImageCache {
                 self.source_bytes = self.source_bytes.saturating_add(n);
                 self.source.insert(key.clone(), SourceSlot::Ready { image });
                 self.record_source_size(key.clone(), width, height);
+                self.clear_failure_projection(&key);
                 self.touch_source(key);
                 true
             }
@@ -125,9 +156,22 @@ impl ImageCache {
                 self.mark_source_failed(key);
                 true
             }
-            Err(err) => {
+            Err(SourceError::Retryable { err, retry_after }) => {
+                let delay = retry_after.unwrap_or_else(|| source_retry_delay(attempt));
+                let retry_at = now + delay;
+                self.source.insert(
+                    key.clone(),
+                    SourceSlot::Retryable {
+                        err,
+                        attempt,
+                        retry_at,
+                    },
+                );
+                self.mark_source_failed(key);
+                true
+            }
+            Err(SourceError::Fatal(err)) => {
                 self.source.insert(key.clone(), SourceSlot::Failed(err));
-
                 self.mark_source_failed(key);
                 true
             }
@@ -137,7 +181,7 @@ impl ImageCache {
     pub fn display_contains(&self, key: &DisplayKey) -> bool {
         matches!(
             self.display.get(key),
-            Some(DisplaySlot::Ready(_)) | Some(DisplaySlot::InFlight)
+            Some(DisplaySlot::Ready(_)) | Some(DisplaySlot::InFlight { .. })
         )
     }
 
@@ -159,50 +203,56 @@ impl ImageCache {
 
     pub fn source_error(&self, dest: &str) -> Option<&crate::Error> {
         match self.source.get(dest) {
-            Some(SourceSlot::Failed(err) | SourceSlot::OverBudget { err, .. }) => Some(err),
+            Some(
+                SourceSlot::Failed(err)
+                | SourceSlot::OverBudget { err, .. }
+                | SourceSlot::Retryable { err, .. },
+            ) => Some(err),
             _ => None,
         }
     }
 
-    pub fn begin_display(&mut self, key: DisplayKey) -> bool {
+    pub fn begin_display(&mut self, key: DisplayKey) -> Option<DisplayToken> {
         if matches!(
             self.display.get(&key),
-            Some(DisplaySlot::Ready(_) | DisplaySlot::InFlight)
+            Some(DisplaySlot::Ready(_) | DisplaySlot::InFlight { .. })
         ) {
-            return false;
+            return None;
         }
         self.display.remove(&key);
         self.display_lru.retain(|candidate| candidate != &key);
         if self.display_inflight >= MAX_IN_FLIGHT {
-            return false;
+            return None;
         }
-        self.display.insert(key, DisplaySlot::InFlight);
+        let seq = self.job_seq;
+        self.job_seq = self.job_seq.wrapping_add(1);
+        self.display
+            .insert(key.clone(), DisplaySlot::InFlight { seq });
         self.display_inflight += 1;
-        true
+        Some(DisplayToken { key, seq })
     }
 
     pub fn finish_display(
         &mut self,
-        key: DisplayKey,
+        token: DisplayToken,
         result: Result<ReadyImage, crate::Error>,
         cx: &mut App,
     ) -> bool {
-        self.finish_display_inner(key, result, Some(cx))
+        self.finish_display_inner(token, result, Some(cx))
     }
 
     pub(super) fn finish_display_inner(
         &mut self,
-        key: DisplayKey,
+        token: DisplayToken,
         result: Result<ReadyImage, crate::Error>,
         cx: Option<&mut App>,
     ) -> bool {
-        let Some(slot) = self.display.get(&key) else {
-            return false;
-        };
-        if !matches!(slot, DisplaySlot::InFlight) {
-            return false;
+        match self.display.get(&token.key) {
+            Some(DisplaySlot::InFlight { seq: slot_seq }) if *slot_seq == token.seq => {}
+            _ => return false,
         }
         self.display_inflight = self.display_inflight.saturating_sub(1);
+        let key = token.key;
         match result {
             Ok(img) => {
                 self.display_bytes = self.display_bytes.saturating_add(img.bytes);
@@ -252,7 +302,6 @@ impl ImageCache {
         self.source_warm.clear();
         self.source_warm
             .extend(warm_sources.into_iter().map(SourceKey::new));
-
         self.source_warm
             .retain(|key| !self.source_visible.contains(key));
         let ready: Vec<DisplayKey> = self
@@ -264,7 +313,6 @@ impl ImageCache {
         for key in ready {
             self.touch_display(key);
         }
-
         let mut pinned = 0usize;
         let ready_sources: Vec<SourceKey> = self
             .source_visible
@@ -287,7 +335,6 @@ impl ImageCache {
                 let SourceSlot::OverBudget { wanted, .. } = slot else {
                     return None;
                 };
-
                 let working = self.source_visible.contains(key) || self.source_warm.contains(key);
                 (!working || pinned.saturating_add(*wanted) <= source_budget).then(|| key.clone())
             })
@@ -297,7 +344,6 @@ impl ImageCache {
             self.clear_source_projections(&key);
         }
         self.evict_source(0, source_budget, cx.as_deref_mut());
-
         let warm_entries = self
             .display_visible
             .len()
@@ -326,6 +372,7 @@ impl ImageCache {
         self.source_warm.clear();
         self.source_bytes = 0;
         self.source_inflight = 0;
+        self.failed_lru.clear();
         self.display.clear();
         self.display_lru.clear();
         self.display_visible.clear();
@@ -348,8 +395,33 @@ impl ImageCache {
     }
 
     fn mark_source_failed(&mut self, key: SourceKey) {
-        Rc::make_mut(&mut self.failed_src).insert(key);
+        Rc::make_mut(&mut self.failed_src).insert(key.clone());
+        self.failed_lru.retain(|candidate| *candidate != key);
+        self.failed_lru.push_back(key);
+        self.trim_failed_entries();
         self.sizes_gen = self.sizes_gen.wrapping_add(1);
+    }
+
+    fn trim_failed_entries(&mut self) {
+        while self.failed_lru.len() > MAX_FAILED_ENTRIES {
+            let Some(idx) = self.failed_lru.iter().position(|key| {
+                let failed_state = matches!(
+                    self.source.get(key),
+                    Some(
+                        SourceSlot::Failed(_)
+                            | SourceSlot::Retryable { .. }
+                            | SourceSlot::OverBudget { .. }
+                    )
+                );
+                failed_state
+                    && !self.source_visible.contains(key)
+                    && !self.source_warm.contains(key)
+            }) else {
+                break;
+            };
+            let victim = self.failed_lru.remove(idx).expect("failed lru");
+            self.remove_source(&victim, None);
+        }
     }
 
     fn record_source_size(&mut self, key: SourceKey, width: u32, height: u32) {
@@ -360,7 +432,13 @@ impl ImageCache {
     fn clear_source_projections(&mut self, key: &SourceKey) {
         Rc::make_mut(&mut self.sizes).remove(key);
         Rc::make_mut(&mut self.failed_src).remove(key);
+        self.failed_lru.retain(|candidate| candidate != key);
         self.sizes_gen = self.sizes_gen.wrapping_add(1);
+    }
+
+    fn clear_failure_projection(&mut self, key: &SourceKey) {
+        Rc::make_mut(&mut self.failed_src).remove(key);
+        self.failed_lru.retain(|candidate| candidate != key);
     }
 
     fn record_display_ready(&mut self, key: DisplayKey, image: ReadyImage) {
@@ -392,12 +470,18 @@ impl ImageCache {
         }
     }
 
-    fn remove_source(&mut self, key: &SourceKey, mut cx: Option<&mut App>) {
-        if let Some(SourceSlot::Ready { image }) = self.source.remove(key) {
-            self.source_bytes = self.source_bytes.saturating_sub(decoded_len(&image));
-            if let Some(cx) = cx.as_deref_mut() {
-                cx.drop_image(image, None);
+    pub(super) fn remove_source(&mut self, key: &SourceKey, mut cx: Option<&mut App>) {
+        match self.source.remove(key) {
+            Some(SourceSlot::Ready { image }) => {
+                self.source_bytes = self.source_bytes.saturating_sub(decoded_len(&image));
+                if let Some(cx) = cx.as_deref_mut() {
+                    cx.drop_image(image, None);
+                }
             }
+            Some(SourceSlot::InFlight { .. }) => {
+                self.source_inflight = self.source_inflight.saturating_sub(1);
+            }
+            _ => {}
         }
         self.clear_source_projections(key);
 
@@ -418,7 +502,7 @@ impl ImageCache {
                         cx.drop_image(image.image, None);
                     }
                 }
-                Some(DisplaySlot::InFlight) => {
+                Some(DisplaySlot::InFlight { .. }) => {
                     self.display_inflight = self.display_inflight.saturating_sub(1);
                 }
                 None => {}
@@ -433,10 +517,15 @@ impl ImageCache {
         self.source_bytes
     }
 
+    #[cfg(test)]
+    pub(super) fn failed_entry_count(&self) -> usize {
+        self.failed_lru.len()
+    }
+
     fn pick_display_victim(&self) -> Option<usize> {
         let evictable = |key: &DisplayKey| {
             !self.display_visible.contains(key)
-                && !matches!(self.display.get(key), Some(DisplaySlot::InFlight))
+                && !matches!(self.display.get(key), Some(DisplaySlot::InFlight { .. }))
         };
         let warm = |key: &DisplayKey| self.source_warm.contains(key.dest.as_str());
         self.display_lru
@@ -470,7 +559,7 @@ impl ImageCache {
                         cx.drop_image(img.image, None);
                     }
                 }
-                Some(DisplaySlot::InFlight) => unreachable!(),
+                Some(DisplaySlot::InFlight { .. }) => unreachable!(),
                 None => {}
             }
         }
@@ -483,9 +572,15 @@ impl ImageCache {
 
     #[cfg(test)]
     pub(super) fn drop_display_keep_source(&mut self, key: &DisplayKey) {
-        if let Some(DisplaySlot::Ready(img)) = self.display.remove(key) {
-            self.display_bytes = self.display_bytes.saturating_sub(img.bytes);
-            self.clear_display_projection(key);
+        match self.display.remove(key) {
+            Some(DisplaySlot::Ready(img)) => {
+                self.display_bytes = self.display_bytes.saturating_sub(img.bytes);
+                self.clear_display_projection(key);
+            }
+            Some(DisplaySlot::InFlight { .. }) => {
+                self.display_inflight = self.display_inflight.saturating_sub(1);
+            }
+            None => {}
         }
         self.display_lru.retain(|k| k != key);
     }

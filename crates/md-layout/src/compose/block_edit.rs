@@ -84,7 +84,6 @@ pub(super) fn emit_preview(
     if nodes.contains_key(&frame) {
         restyle(nodes, styles, frame, |style| {
             style.margin.bottom = 0.0;
-
             style.padding = code.padding;
         });
         if let Some(f) = nodes.get_mut(&frame) {
@@ -94,19 +93,20 @@ pub(super) fn emit_preview(
     let preview_id = LayoutBoxId::preview(id.index);
     let mut style = theme.style_for(preview_kind);
     style.margin.top = code.margin.top;
-    nodes.insert(
-        preview_id,
+    let text_id = intern.push(snapshot);
+    super::replace_node(
+        nodes,
+        intern,
         BoxNode {
             id: preview_id,
             kind: preview_kind,
             style_id: styles.intern(style),
             parent,
             children: BoxChildren::None,
-            text_id: intern.push(snapshot),
+            text_id,
             extra,
             content_revision,
             content_generation,
-
             edit_source: false,
             type_slot: type_slot_for(theme, doc, id, preview_kind, extra),
         },
@@ -160,7 +160,6 @@ fn detach_preview(
     let frame = LayoutBoxId::frame(block);
     if tree.nodes.contains_key(&frame) {
         let kind = tree.nodes.get(&frame).expect("live frame").kind;
-
         let own = theme.style_for(kind);
         restyle(&mut tree.nodes, &mut tree.styles, frame, |style| {
             style.margin.bottom = own.margin.bottom;
@@ -170,7 +169,6 @@ fn detach_preview(
             f.edit_source = false;
         }
     }
-
     if let Some(id) = doc.live_id(block) {
         tree.set_leaf_text(frame, box_snapshot(doc, id, false));
     }
@@ -192,7 +190,6 @@ fn attach_preview(
     let id = doc.live_id(block)?;
     let frame = LayoutBoxId::frame(block);
     let parent = tree.nodes.get(&frame)?.parent?;
-
     if !child_list_contains(tree, parent, frame) {
         return None;
     }
@@ -206,12 +203,13 @@ fn attach_preview(
         &mut tree.styles,
         &mut tree.intern,
     )?;
-
     tree.set_leaf_text(frame, box_snapshot(doc, id, true));
-    debug_assert!(
-        insert_child_after(tree, parent, frame, preview),
-        "frame was in the child list a moment ago"
-    );
+    if !insert_child_after(tree, parent, frame, preview) {
+        let text = tree.nodes.get(&preview).and_then(|n| n.text_id);
+        tree.nodes.remove(&preview);
+        tree.intern.release(text);
+        return None;
+    }
     Some(PreviewSplice {
         parent,
         before: Some(frame),

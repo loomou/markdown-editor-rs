@@ -12,7 +12,7 @@ fn command_input_updates_document_and_cursor(cx: &mut TestAppContext) {
         editor.update(app, |view, _| {
             view.apply_cmd(Command::Insert { text: "abc".into() });
             view.apply_cmd(Command::SoftBreak);
-            view.apply_cmd(Command::Insert { text: "x".into() });
+            view.apply_cmd(Command::Insert { text: "你".into() });
             let cursor = view.state.cursor;
             (
                 view.state.doc.text(cursor.block).unwrap().to_string(),
@@ -20,17 +20,17 @@ fn command_input_updates_document_and_cursor(cx: &mut TestAppContext) {
             )
         })
     });
-    assert_eq!(text, "abc\nx");
-    assert_eq!(cursor.offset, "abc\nx".len());
+    assert_eq!(text, "abc\n你");
+    assert_eq!(cursor.offset, "abc\n你".len());
 }
 
 #[gpui::test]
 fn editor_ime_ranges_use_utf16_at_the_platform_boundary(cx: &mut TestAppContext) {
-    let (editor, cx) = editor_with_doc("αβ😀x\n", cx);
+    let (editor, cx) = editor_with_doc("你好😀x\n", cx);
     cx.update(|window, app| {
         editor.update(app, |view, cx| {
             let block = view.state.cursor.block;
-            view.state.cursor.offset = "αβ😀".len();
+            view.state.cursor.offset = "你好😀".len();
 
             let selected = EntityInputHandler::selected_text_range(view, false, window, cx)
                 .expect("selection");
@@ -52,8 +52,8 @@ fn editor_ime_ranges_use_utf16_at_the_platform_boundary(cx: &mut TestAppContext)
             );
             assert_eq!(adjusted, None);
 
-            EntityInputHandler::replace_text_in_range(view, Some(1..2), "γ", window, cx);
-            assert_eq!(view.state.doc.text(block), Some("αγ😀x"));
+            EntityInputHandler::replace_text_in_range(view, Some(1..2), "他", window, cx);
+            assert_eq!(view.state.doc.text(block), Some("你他😀x"));
         })
     });
 }
@@ -205,7 +205,6 @@ fn a_click_elsewhere_takes_the_next_ime_commit_with_it(cx: &mut TestAppContext) 
         editor.update(app, |view, cx| {
             let leaves = view.state.doc.text_leaves();
             let (a, b) = (leaves[0], leaves[1]);
-
             view.place_cursor(
                 Cursor {
                     block: a,
@@ -216,7 +215,6 @@ fn a_click_elsewhere_takes_the_next_ime_commit_with_it(cx: &mut TestAppContext) 
             EntityInputHandler::replace_and_mark_text_in_range(view, None, "ni", None, window, cx);
             assert_eq!(view.state.doc.text(a).unwrap(), "abcni");
             assert!(view.state.marked.is_some(), "precondition: should still be composing");
-
 
             view.apply_click_hit(
                 Cursor {
@@ -232,16 +230,11 @@ fn a_click_elsewhere_takes_the_next_ime_commit_with_it(cx: &mut TestAppContext) 
                 },
             );
 
-
             assert_eq!(view.state.marked, None, "the click should interrupt the composition");
             assert_eq!(view.state.doc.text(a).unwrap(), "abc");
             assert_eq!(view.state.cursor.block, b, "the click should drop the caret onto the new block");
 
-
-
-
-
-            EntityInputHandler::replace_text_in_range(view, None, "x", window, cx);
+            EntityInputHandler::replace_text_in_range(view, None, "你", window, cx);
             assert_eq!(
                 view.state.doc.text(b).unwrap(),
                 "xyz",
@@ -290,8 +283,8 @@ fn a_vertical_step_during_ime_interrupts_the_composition(cx: &mut TestAppContext
     });
     assert_eq!(
         marked, None,
-        "a keyed step to another block should interrupt the composition"
+        "an arrow key crossing blocks should interrupt composition"
     );
-    assert_eq!(text_a, "abc", "the composition string should be dropped");
-    assert_ne!(block, a, "the caret should move to the next block");
+    assert_eq!(text_a, "abc", "the composition string should be retired");
+    assert_ne!(block, a, "the caret should have moved to the next block");
 }

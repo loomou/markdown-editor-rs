@@ -45,7 +45,7 @@ pub fn cache_key(dest: &str, source_path: Option<&Path>) -> String {
     }
     match resolve(dest, source_path) {
         Some(Resolved::Remote(u)) => u,
-
+        Some(Resolved::Network(u)) => u,
         Some(Resolved::Local(p)) => p.to_string_lossy().into_owned(),
         Some(Resolved::Data { .. }) => dest.to_string(),
         None => dest.to_string(),

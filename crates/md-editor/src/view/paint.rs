@@ -27,22 +27,16 @@ struct PaintCtx<'a> {
     ox: f32,
     oy: f32,
     theme: &'a DocumentTheme,
-
     paint: &'a md_theme::PaintTokens,
-
     scale: f64,
     math_ready: &'a HashMap<math::MathKey, math::ReadyImage>,
     image_ready: &'a HashMap<images::DisplayKey, images::ReadyImage>,
     failed_math: &'a HashSet<math::MathKey>,
     failed_sources: &'a HashSet<images::SourceKey>,
     well_scroll: &'a HashMap<BlockId, WellScroll>,
-
     code_langs: &'a HashMap<u32, String>,
-
     caret_block: BlockId,
-
     mermaid_theme_fp: u64,
-
     fault: PaintFault,
 }
 

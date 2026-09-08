@@ -1,6 +1,6 @@
 use super::support::{caret, fresh, type_chars};
 use crate::block::BlockKind;
-use crate::document::edit::{Command, Sel, apply};
+use crate::document::edit::{Caret, Command, Sel, apply};
 use crate::document::{FocusBias, editor_options, load_markdown};
 
 fn kind_of(doc: &crate::document::Document, id: crate::document::NodeId) -> Option<BlockKind> {
@@ -313,4 +313,27 @@ fn join_sibling_without_list_ancestor_is_a_noop() {
     assert_eq!(doc.text_of(b).unwrap(), "b");
     assert!(doc.live_id(a).is_some(), "no tombstone");
     assert!(doc.live_id(b).is_some(), "no tombstone");
+}
+
+#[test]
+fn indented_paragraph_reveals_the_complete_inline_construct() {
+    use crate::doc::Doc;
+    let mut doc = Doc::new(load_markdown("**bold** tail\n", editor_options()));
+    let leaf = doc.text_leaves()[0];
+    let _ = doc.apply(
+        Sel {
+            anchor: caret(leaf, 0),
+            head: caret(leaf, 4),
+        },
+        Command::Indent,
+    );
+    doc.retarget_focus(Caret {
+        block: leaf,
+        offset: 3,
+    });
+    assert_eq!(
+        doc.text(leaf),
+        Some("\t**bold** tail"),
+        "revealed text must carry the full delimiters"
+    );
 }

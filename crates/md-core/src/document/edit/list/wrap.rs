@@ -22,7 +22,7 @@ pub(crate) fn wrap_paragraph(
     let before = doc.revision;
     let mut changes = Vec::new();
     if consume > 0 {
-        changes.push(doc.rewrite_text(leaf, 0..consume, "").0);
+        changes.extend(doc.rewrite_text(leaf, 0..consume, "").0);
     }
     let list = doc.alloc_container(BlockKind::List);
     doc.set_extra(

@@ -122,7 +122,6 @@ pub(super) fn paint_artifact(
                 } => {
                     let x = p.x + *px0 as f32 + band_dx;
                     let y0 = y + *paint_y as f32;
-
                     if let Some(line) = fallback {
                         if p.kind == BlockKind::Image {
                             paint_placeholder_slot(

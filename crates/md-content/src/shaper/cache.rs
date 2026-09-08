@@ -36,7 +36,6 @@ pub struct Stats {
 
 struct Entry {
     art: Rc<ShapeArtifact>,
-
     frame: u64,
     bytes: usize,
 }
@@ -122,7 +121,6 @@ impl ShapeCache {
                 return None;
             };
             let cross = e.frame < self.frame.get();
-
             e.frame = self.frame.get();
             (Rc::clone(&e.art), cross)
         };
@@ -264,26 +262,28 @@ mod tests {
     #[test]
     fn misses_counter_covers_cold_lookups_and_env_invalidation() {
         let cache = ShapeCache::new();
-
         cache.begin_frame(0);
 
         assert!(cache.get(&key()).is_none());
         assert_eq!(
             cache.stats().misses,
             1,
-            "a first lookup of a new key is a miss"
+            "a fresh key's first lookup is one miss"
         );
 
         cache.insert(key(), art());
         assert!(cache.get(&key()).is_some());
         let s = cache.stats();
-        assert_eq!(s.misses, 1, "a hit must not count as a miss");
+        assert_eq!(s.misses, 1, "a hit is not counted as a miss again");
         assert_eq!(s.same_frame_hits, 1);
 
         cache.begin_frame(0);
         assert!(cache.get(&key()).is_some());
         let s = cache.stats();
-        assert_eq!(s.cross_frame_hits, 1, "a cross-frame lookup is still a hit");
+        assert_eq!(
+            s.cross_frame_hits, 1,
+            "a cross-frame lookup still counts as a hit"
+        );
         assert_eq!(s.misses, 1);
 
         cache.begin_frame(1);
@@ -292,7 +292,7 @@ mod tests {
         assert_eq!(s.env_invalidations, 1);
         assert_eq!(
             s.misses, 2,
-            "a cold lookup after env invalidation also counts as a miss"
+            "a cold start after the environment was invalidated counts as a miss"
         );
     }
 
@@ -305,18 +305,17 @@ mod tests {
         for i in 1..super::MAX_ENTRIES as u32 {
             cache.insert(key_with_index(i), art());
         }
-
         cache.begin_frame(0);
         cache.insert(key_with_index(super::MAX_ENTRIES as u32), art());
         assert_eq!(
             cache.entry_count(),
             super::LOW_WATER,
-            "overflow did not drop the cache back to the low watermark"
+            "overflowing a batch did not push back to the low watermark"
         );
         assert_eq!(
             cache.stats().evictions as usize,
             super::MAX_ENTRIES + 1 - super::LOW_WATER,
-            "the eviction counter does not match the number actually evicted"
+            "the eviction count does not match the real number of evictions"
         );
         assert!(
             cache.get(&key_with_index(0)).is_none(),
@@ -326,7 +325,7 @@ mod tests {
             cache
                 .get(&key_with_index(super::MAX_ENTRIES as u32))
                 .is_some(),
-            "the newest entry was swept out with the batch"
+            "the newest entry was carried off by the batch"
         );
     }
 
@@ -348,11 +347,11 @@ mod tests {
 
         assert!(
             cache.get(&cold).is_none(),
-            "a cold entry that was never hit should be evicted first"
+            "a cold entry never hit should be evicted first"
         );
         assert!(
             cache.get(&hot).is_some(),
-            "the repeatedly hit hot entry was swept out with the batch"
+            "the hot entry hit repeatedly was carried off by the batch"
         );
     }
 

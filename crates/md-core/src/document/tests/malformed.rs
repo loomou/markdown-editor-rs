@@ -32,16 +32,13 @@ fn malformed_corpus_never_panics() {
         "- \n- \n- \n".into(),
         "[ ] [x] - * + 1. 2) #".into(),
     ];
-
     corpus.push(format!("{}text", "> ".repeat(1000)));
-
     let mut deep_list = String::new();
     for i in 0..500 {
         deep_list.push_str(&" ".repeat(i));
         deep_list.push_str("- item\n");
     }
     corpus.push(deep_list);
-
     corpus.push(format!("{}\n", "x".repeat(1 << 20)));
 
     for text in &corpus {
@@ -100,7 +97,6 @@ fn randomly_corrupted_sources_never_panic() {
             corrupt(&mut text, &mut rng);
         }
         assert_three_hops(&text);
-
         let _ = case;
     }
 }
@@ -135,7 +131,6 @@ fn corrupt(text: &mut String, rng: &mut Rng) {
 fn random_span(text: &str, rng: &mut Rng) -> (usize, usize) {
     let start = floor_char_boundary(text, rng.pick(text.len()));
     let end = (start + 1 + rng.pick(8)).min(text.len());
-
     let end = crate::document::prev_char_boundary(text, end).max(start);
     (start, end)
 }

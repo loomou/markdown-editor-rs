@@ -126,7 +126,7 @@ impl Document {
         if let Some(recorded) = cached {
             return recorded;
         }
-        let fresh = super::raw_constructs(source);
+        let fresh = super::raw_constructs(source, &self.reference_definitions);
         if let Some(leaf) = self
             .arena
             .get(id)

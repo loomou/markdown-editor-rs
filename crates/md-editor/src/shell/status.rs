@@ -16,7 +16,6 @@ pub(super) struct StatusCache {
     identity: u64,
     revision: u64,
     cursor: Cursor,
-
     pub(super) counts: StatusCounts,
 }
 

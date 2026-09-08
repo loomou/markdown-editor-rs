@@ -65,7 +65,6 @@ impl Builder {
             }
             Tag::List(start) => {
                 self.close_implicit(source);
-
                 self.mark_list_loose_before(source, range.start);
                 self.push_container(BlockKind::List);
                 self.list_item_pending = true;
@@ -81,21 +80,26 @@ impl Builder {
             }
             Tag::Item => {
                 self.close_implicit(source);
-
                 if self.list_item_pending {
                     self.list_item_pending = false;
                 } else {
                     self.mark_list_loose_before(source, range.start);
                 }
                 self.push_container(BlockKind::ListItem);
+                let width = item_host_indent(source, range.start);
+                if let Some(frame) = self.stack.last_mut() {
+                    frame.host_indent = Some(super::builder::HostIndent::ContentColumn(width));
+                }
             }
             Tag::FootnoteDefinition(label) => {
                 self.close_implicit(source);
                 self.push_container(BlockKind::FootnoteDefinition);
+                if let Some(frame) = self.stack.last_mut() {
+                    frame.host_indent = Some(super::builder::HostIndent::Relative(4));
+                }
                 let label = self.push_footnote(label.to_string());
                 self.set_extra(self.top().id, NodeExtra::FootnoteLabel { label });
             }
-
             Tag::DefinitionList | Tag::DefinitionListTitle | Tag::DefinitionListDefinition => {
                 unreachable!("definition lists are off; see load()")
             }
@@ -235,6 +239,8 @@ impl Builder {
                 if now <= self.image_display_at {
                     self.push_intern("\u{FFFC}");
                 }
+                let st = self.current_inline();
+                self.merge_image_runs(self.image_display_at, now, st.marks, st.link);
                 self.pop_inline();
             }
             TagEnd::TableCell => {
@@ -309,6 +315,92 @@ impl Builder {
             }
         }
     }
+
+    fn merge_image_runs(&mut self, at: usize, now: usize, marks: InlineMarks, link: Option<u32>) {
+        let Some(leaf) = self.texts.get_mut(self.top().id.text_id()) else {
+            return;
+        };
+        let snap = leaf.snapshot_mut();
+        let in_range = |r: &crate::inline::InlineRun| {
+            r.marks.is_image()
+                && (r.display_range.start as usize) >= at
+                && (r.display_range.end as usize) <= now
+        };
+        let Some(first) = snap.runs.iter().position(&in_range) else {
+            return;
+        };
+        let Some(last) = snap.runs.iter().rposition(&in_range) else {
+            return;
+        };
+        if last == first {
+            return;
+        }
+        let display = snap.runs[first].display_range.start..snap.runs[last].display_range.end;
+        snap.runs.splice(
+            first..=last,
+            std::iter::once(crate::inline::InlineRun {
+                display_range: display,
+                source_range: None,
+                marks,
+                link,
+            }),
+        );
+    }
+}
+
+fn item_host_indent(source: &str, at: usize) -> u16 {
+    let bytes = source.as_bytes();
+    let mut i = at;
+    if i >= bytes.len() {
+        return 0;
+    }
+    let line_start = source[..at].rfind('\n').map(|p| p + 1).unwrap_or(0);
+    let mut col = 0usize;
+    for &b in &bytes[line_start..at] {
+        col = expand_column(col, b);
+    }
+    if matches!(bytes[i], b'-' | b'+' | b'*') {
+        col += 1;
+        i += 1;
+    } else if bytes[i].is_ascii_digit() {
+        while i < bytes.len() && bytes[i].is_ascii_digit() {
+            col += 1;
+            i += 1;
+        }
+        if i < bytes.len() && matches!(bytes[i], b'.' | b')') {
+            col += 1;
+            i += 1;
+        }
+    } else {
+        return 0;
+    }
+    let mut pad = 0usize;
+    while i < bytes.len() && pad < 5 && matches!(bytes[i], b' ' | b'\t') {
+        let step = if bytes[i] == b'\t' {
+            next_tab_stop(col + pad) - (col + pad)
+        } else {
+            1
+        };
+        if pad + step > 5 {
+            break;
+        }
+        pad += step;
+        i += 1;
+    }
+    col += if pad >= 5 { 1 } else { pad };
+    col.min(u16::MAX as usize) as u16
+}
+
+pub(super) fn expand_column(col: usize, byte: u8) -> usize {
+    if byte == b'\t' {
+        next_tab_stop(col)
+    } else {
+        col + 1
+    }
+}
+
+pub(super) fn next_tab_stop(col: usize) -> usize {
+    (col / 4 + 1) * 4
 }
 
 fn standalone_image_source_range(source: &str, range: &Range<usize>) -> (u32, u32) {

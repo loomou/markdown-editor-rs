@@ -1,7 +1,6 @@
 use crate::snapshot::AtomSpan;
 use md_core::Px;
 use md_core::block::BlockId;
-use md_core::doc::Cursor;
 use md_layout::box_tree::{BoxChildren, BoxOwner, BoxRole, BoxTree, LayoutBoxId};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
@@ -73,19 +72,6 @@ pub(crate) fn cmp_box_order(tree: &BoxTree, a: LayoutBoxId, b: LayoutBoxId) -> O
     }
 }
 
-pub(crate) fn cmp_cursor(tree: &BoxTree, a: Cursor, b: Cursor) -> Ordering {
-    let Some(ab) = text_box_id(tree, a.block) else {
-        return a.block.cmp(&b.block).then(a.offset.cmp(&b.offset));
-    };
-    let Some(bb) = text_box_id(tree, b.block) else {
-        return a.block.cmp(&b.block).then(a.offset.cmp(&b.offset));
-    };
-    match cmp_box_order(tree, ab, bb) {
-        Ordering::Equal => a.offset.cmp(&b.offset),
-        order => order,
-    }
-}
-
 pub(crate) fn for_each_visible_text_box(
     tree: &BoxTree,
     spans: &BTreeMap<LayoutBoxId, AtomSpan>,
@@ -104,7 +90,6 @@ pub(crate) fn for_each_visible_text_box(
                     }
                 }
             }
-
             BoxChildren::None
                 if node.kind().is_text_leaf() && id.is_caret_role() && seen.insert(*id) =>
             {

@@ -6,7 +6,7 @@ use super::{GpuiShaper, SCRIPT_SCALE, SUB_DROP, SUPER_RISE};
 use gpui::px;
 use md_core::Px;
 use md_core::block::BlockKind;
-use md_core::inline::InlineRun;
+use md_core::inline::{InlineRun, covering_runs};
 use md_layout::shaper::ShapeIdentity;
 
 impl GpuiShaper {
@@ -25,6 +25,8 @@ impl GpuiShaper {
         if block_kind == BlockKind::Math {
             return self.shape_display_math(text, avail, role, font_size);
         }
+        let covered: Vec<InlineRun> = covering_runs(text.len() as u32, runs);
+        let runs: &[InlineRun] = &covered;
         let mut pending: Vec<Pending> = Vec::new();
         let mut x = 0.0f32;
         let mut bands = Vec::new();
@@ -45,7 +47,6 @@ impl GpuiShaper {
                 .unwrap_or_default();
             let (slot_w, slot_h) = self.image_slot(&dest, avail, false, role);
             let ix = ((avail as f32 - slot_w) * 0.5).max(0.0);
-
             flow.pending.push(Pending::Image {
                 x: ix,
                 dest,
@@ -58,9 +59,11 @@ impl GpuiShaper {
             flow.flush();
         }
         let atoms = line_atoms(text, runs, self.link_dests.as_ref(), self.link_raw.as_ref());
+        let mut last_was_break = false;
         for atom in atoms {
             match atom {
                 Atom::Break { offset } => {
+                    last_was_break = true;
                     if flow.pending.is_empty() && *flow.x == 0.0 {
                         let line = self.shape_slice(
                             text,
@@ -83,6 +86,7 @@ impl GpuiShaper {
                     }
                 }
                 Atom::Text { start, end } => {
+                    last_was_break = false;
                     self.place_text_slice(text, runs, start..end, role.font_size, 0.0, &mut flow);
                 }
                 Atom::Script {
@@ -90,6 +94,7 @@ impl GpuiShaper {
                     end,
                     super_script,
                 } => {
+                    last_was_break = false;
                     let sz = px((font_size * SCRIPT_SCALE).max(1.0));
                     let dy = if super_script {
                         -font_size * SUPER_RISE
@@ -103,8 +108,8 @@ impl GpuiShaper {
                     end,
                     display,
                 } => {
+                    last_was_break = false;
                     let latex = text.get(start..end).unwrap_or("");
-
                     let recorded = crate::math::metric(&self.math_metrics, latex, display);
                     let fallback = if matches!(recorded, Some(None)) {
                         let raw = if display {
@@ -144,6 +149,7 @@ impl GpuiShaper {
                     dest,
                     raw,
                 } => {
+                    last_was_break = false;
                     let failed = !dest.is_empty() && self.image_failed.contains(dest.as_str());
                     let fallback = raw
                         .filter(|_| failed)
@@ -168,6 +174,18 @@ impl GpuiShaper {
                     *flow.x += slot_w;
                 }
             }
+        }
+        if last_was_break && flow.pending.is_empty() && *flow.x == 0.0 {
+            let offset = text.len();
+            let line = self.shape_slice(text, runs, offset..offset, role, role.font_size, None);
+            flow.pending.push(Pending::Text {
+                line: Box::new(line),
+                x: 0.0,
+                start: offset,
+                end: offset,
+                dy: 0.0,
+            });
+            flow.flush();
         }
         flow.flush();
         let mut art = bands_to_artifact(bands, role);

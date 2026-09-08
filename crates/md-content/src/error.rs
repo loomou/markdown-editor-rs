@@ -5,7 +5,6 @@ use md_i18n::Key;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Reason {
     Ours(Key),
-
     Theirs(String),
 }
 
@@ -76,7 +75,6 @@ mod tests {
             "`{shown}` is not what {} says in any language ({table:?})",
             key.debug_name()
         );
-
         assert_ne!(
             Reason::Ours(Key::DiagramEmpty).to_string(),
             Reason::Ours(Key::ImageEmpty).to_string(),

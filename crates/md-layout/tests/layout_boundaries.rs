@@ -205,13 +205,12 @@ fn non_incremental_assembly_solves_rows_not_cells() {
     let doc = load_markdown(TABLE_2X2_MD, editor_options());
     let tree = compose(&doc, &theme());
     let assembly = assemble_tree(tree, Default::default(), &StubMeasure, &FallbackSolver);
-
     assert_eq!(assembly.island_stats.islands_built, 2);
     assert_eq!(assembly.geometries.len(), 2);
     let cells: usize = assembly.geometries.values().map(|g| g.cells.len()).sum();
     assert_eq!(
         cells, 4,
-        "cell geometry is carried along by the row island solve"
+        "the cell geometry rides along with the row island's solve"
     );
 }
 

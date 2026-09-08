@@ -3,31 +3,18 @@ use md_content::gpui_theme::ThemeColorExt;
 use md_theme::AppTokens;
 
 pub const TITLE_BAR_H: f32 = 34.0;
-
 pub const STATUS_BAR_H: f32 = 28.0;
-
 pub const OUTLINE_W: f32 = 220.0;
-
 pub const OUTLINE_HEAD_H: f32 = 32.0;
-
 pub const OUTLINE_ROW_H: f32 = 24.0;
-
 pub const OUTLINE_SB: f32 = 8.0;
-
 pub const OUTLINE_SB_THUMB: f32 = 4.0;
-
 pub const WINCTL_W: f32 = 44.0;
-
 pub const RADIUS: f32 = 6.0;
-
 pub const DLG_W: f32 = 320.0;
-
 pub const DLG_MIN_H: f32 = 168.0;
-
 pub const UI_FONT: &str = md_theme::SYSTEM_UI;
-
 pub const MONO_FONT: &str = md_theme::SYSTEM_MONO;
-
 #[cfg(target_os = "macos")]
 pub const TITLE_LEAD_PAD: f32 = 78.0;
 #[cfg(not(target_os = "macos"))]
@@ -36,37 +23,21 @@ pub const TITLE_LEAD_PAD: f32 = 12.0;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ShellTheme {
     pub editor_bg: Hsla,
-
     pub panel_bg: Hsla,
-
     pub bar_bg: Hsla,
-
     pub hover: Hsla,
-
     pub active: Hsla,
-
     pub border: Hsla,
-
     pub border_variant: Hsla,
-
     pub selected_bg: Hsla,
-
     pub text: Hsla,
-
     pub text_muted: Hsla,
-
     pub text_disabled: Hsla,
-
     pub accent: Hsla,
-
     pub syn_cyan: Hsla,
-
     pub syn_red: Hsla,
-
     pub overlay: Hsla,
-
     pub on_accent: Hsla,
-
     pub close_hover: Hsla,
 }
 
@@ -142,7 +113,7 @@ mod tests {
             let a = ShellTheme::from_app(&theme.app).overlay.a;
             assert!(
                 (a - want).abs() < 1e-6,
-                "{label} overlay alpha: {a} != {want}"
+                "{label} mask opacity: {a} != {want}"
             );
         }
     }

@@ -23,6 +23,7 @@ pub(super) struct PlacedText<'a> {
     pub(super) align: InlineAlign,
     pub(super) inner: Px,
     pub(super) art: &'a ShapeArtifact,
+    pub(super) edit_source: bool,
 }
 
 impl<'a> PlacedText<'a> {
@@ -34,6 +35,7 @@ impl<'a> PlacedText<'a> {
             align: t.align,
             inner: t.content_width,
             art: t.art.as_ref(),
+            edit_source: t.edit_source,
         }
     }
 
@@ -45,6 +47,7 @@ impl<'a> PlacedText<'a> {
             align: c.align,
             inner: c.content_width,
             art: c.art.as_ref(),
+            edit_source: false,
         }
     }
 }

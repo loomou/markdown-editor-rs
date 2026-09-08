@@ -136,7 +136,6 @@ impl IncrementalEngine {
             if self.spine.content_id(id).is_some() {
                 let _ = self.spine.demote_content_to_collapsed(id);
             }
-
             if id.role == BoxRole::Frame
                 && let Some(block) = id.block()
             {
@@ -182,18 +181,15 @@ impl IncrementalEngine {
             else {
                 continue;
             };
-
             let mut leaves = Vec::new();
             self.collect_islands(box_id, &mut leaves);
             for leaf in leaves {
                 let Some(block) = leaf.block() else {
                     continue;
                 };
-
                 let Some(node) = self.tree.nodes().get(&leaf) else {
                     continue;
                 };
-
                 if node.edit_source() {
                     continue;
                 }
@@ -220,14 +216,15 @@ impl IncrementalEngine {
             return sa;
         }
         let mut sa = sa;
-
         for _ in 0..MAX_ANCHOR_CARRY {
             let kind = self.spine.get(sa.item).map(|it| it.kind);
             let Some(kind) = kind else {
                 return sa;
             };
             if let FlowItemKind::Content { box_id } = kind
-                && !self.store.is_fresh(&self.tree, box_id)
+                && !self
+                    .store
+                    .is_fresh(&self.tree, box_id, self.viewport_width())
             {
                 self.materialize_one(box_id, measure, solver);
             }

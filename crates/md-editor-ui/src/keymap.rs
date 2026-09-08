@@ -7,7 +7,6 @@ pub struct Mods {
     pub ctrl: bool,
     pub alt: bool,
     pub shift: bool,
-
     pub platform: bool,
 }
 
@@ -195,11 +194,6 @@ fn display_key(key: &str) -> String {
 
 macro_rules! commands {
     ($( $variant:ident $key:literal $label:ident $win:tt $mac:tt )*) => {
-
-
-
-
-
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
         #[repr(usize)]
         pub enum Cmd { $($variant,)* }
@@ -208,7 +202,6 @@ macro_rules! commands {
             pub const ALL: &'static [Cmd] = &[$(Self::$variant,)*];
 
             pub const COUNT: usize = Self::ALL.len();
-
 
             pub fn key(self) -> &'static str {
                 match self { $(Self::$variant => $key,)* }
@@ -221,25 +214,17 @@ macro_rules! commands {
                 }
             }
 
-
             pub fn label(self) -> Key {
                 match self { $(Self::$variant => Key::$label,)* }
             }
-
 
             pub fn debug_name(self) -> &'static str {
                 match self { $(Self::$variant => stringify!($variant),)* }
             }
 
-
-
-
-
-
             fn index(self) -> usize {
                 self as usize
             }
-
 
             pub fn default_chord(self) -> Option<Chord> {
                 match self {
@@ -267,16 +252,11 @@ macro_rules! default_chord {
 }
 
 commands! {
-
     New         "new"          MenuNew         (Mods::primary(), "n")       (Mods::primary(), "n")
     Open        "open"         MenuOpen        (Mods::primary(), "o")       (Mods::primary(), "o")
     Save        "save"         Save            (Mods::primary(), "s")       (Mods::primary(), "s")
     SaveAs      "save_as"      MenuSaveAs      (Mods::primary_shift(), "s") (Mods::primary_shift(), "s")
     Quit        "quit"         MenuExit        (Mods::primary(), "q")       (Mods::primary(), "q")
-
-
-
-
 
     Undo        "undo"         MenuUndo        (Mods::primary(), "z")       (Mods::primary(), "z")
     Redo        "redo"         MenuRedo        (Mods::primary(), "y")       (Mods::primary_shift(), "z")
@@ -285,22 +265,13 @@ commands! {
     Paste       "paste"        MenuPaste       (Mods::primary(), "v")       (Mods::primary(), "v")
     SelectAll   "select_all"   MenuSelectAll   (Mods::primary(), "a")       (Mods::primary(), "a")
 
-
-
-
-
     Find        "find"         MenuFind        (Mods::primary(), "f")       (Mods::primary(), "f")
     FindNext    "find_next"    CmdFindNext     (Mods::none(), "f3")         (Mods::primary(), "g")
     FindPrev    "find_prev"    CmdFindPrev     (Mods::shift(), "f3")        (Mods::primary_shift(), "g")
 
-
     InsertTable "insert_table" MenuInsertTable (Mods::primary(), "t")       (Mods::primary(), "t")
     TableRowBelow "table_row_below" TableInsertRowBelow
                                                (Mods::primary(), "enter")   (Mods::primary(), "enter")
-
-
-
-
 
     ToggleOutline "toggle_outline" MenuOutline  -                            -
     ToggleTheme   "toggle_theme"   Theme        -                            -
@@ -309,18 +280,14 @@ commands! {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Refusal {
     NeedsModifier,
-
     Reserved(String),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Reach {
     Bare,
-
     WithShift,
-
     WithShiftAndPrimary,
-
     Primary,
 }
 
@@ -358,7 +325,6 @@ impl Reach {
         if self == Reach::WithShiftAndPrimary {
             out.push(primary);
             out.push(Mods::primary_shift());
-
             #[cfg(target_os = "macos")]
             {
                 out.push(Mods {
@@ -435,7 +401,6 @@ impl Keymap {
         if is_printable(&chord.key) && !chord.mods.has_non_shift() {
             return Err(Refusal::NeedsModifier);
         }
-
         let taken = Cmd::ALL
             .iter()
             .copied()
@@ -480,10 +445,9 @@ pub fn table_op_chord_cmd(op: TableOp) -> Option<Cmd> {
 
 #[cfg(test)]
 mod tests {
-    use gpui::{Keystroke, Modifiers};
-
     use super::Cmd;
     use super::{Chord, Keymap, Mods, RESERVED, Refusal, is_printable};
+    use gpui::{Keystroke, Modifiers};
 
     fn keystroke(text: &str) -> Keystroke {
         Keystroke::parse(text).expect("test keystrokes must parse")
@@ -552,11 +516,8 @@ mod tests {
     fn probe_chords_used_in_width_tests_differ_from_factory_display() {
         let cases = [(Cmd::TableRowBelow, "ctrl-f9"), (Cmd::Save, "ctrl-alt-k")];
         for (cmd, probe) in cases {
-            let factory = cmd
-                .default_chord()
-                .expect("must have a default key")
-                .display();
-            let rebound = Chord::parse(probe).expect("must parse").display();
+            let factory = cmd.default_chord().expect("default chord").display();
+            let rebound = Chord::parse(probe).expect("written correctly").display();
             assert_ne!(
                 factory.chars().count(),
                 rebound.chars().count(),
@@ -606,11 +567,7 @@ mod tests {
         let total = keys.len();
         keys.sort_unstable();
         keys.dedup();
-        assert_eq!(
-            keys.len(),
-            total,
-            "two commands share the same on-disk name"
-        );
+        assert_eq!(keys.len(), total, "two commands share an on-disk name");
 
         let mut labels: Vec<&str> = Cmd::ALL.iter().map(|c| c.label().debug_name()).collect();
         labels.sort_unstable();
@@ -630,7 +587,6 @@ mod tests {
             bound,
             "two commands are bound to the same key by default: {chords:?}"
         );
-
         for cmd in Cmd::ALL {
             assert_eq!(Cmd::from_key(cmd.key()), Some(*cmd));
         }
@@ -652,10 +608,9 @@ mod tests {
                 )
             });
         }
-
         assert!(
             km.is_default(),
-            "re-applying the default keys should leave the map at its defaults"
+            "after resetting the defaults it should be default again"
         );
     }
 
@@ -669,15 +624,13 @@ mod tests {
             let k = keystroke(&chord.unparse());
             assert_eq!(km.lookup(&k), Some(*cmd), "{}", chord.unparse());
         }
-
         for cmd in Cmd::ALL.iter().filter(|c| c.default_chord().is_none()) {
             assert!(
                 km.chord_for(*cmd).is_none(),
-                "{} should be unset by default",
+                "{} should ship unset",
                 cmd.key()
             );
         }
-
         assert_eq!(km.lookup(&keystroke("ctrl-alt-shift-f9")), None);
     }
 
@@ -691,7 +644,6 @@ mod tests {
 
         let mut louder = save.clone();
         louder.mods.shift = true;
-
         assert_eq!(km.lookup(&keystroke(&louder.unparse())), Some(Cmd::SaveAs));
 
         let mut noisy = save;
@@ -711,24 +663,23 @@ mod tests {
             .expect("save must have a default key");
         let taken = km
             .set(Cmd::Find, save.clone())
-            .expect("this must be a legal binding");
+            .expect("this is a legal binding");
         assert_eq!(
             taken,
             Some(Cmd::Save),
-            "should name save as the command that was taken"
+            "it should name save as the one taken over"
         );
         assert_eq!(km.chord_for(Cmd::Find), Some(&save));
         assert!(
             km.chord_for(Cmd::Save).is_none(),
-            "the taken command should become unset"
+            "the stolen command should become unset"
         );
-
         assert_eq!(km.lookup(&keystroke(&save.unparse())), Some(Cmd::Find));
 
-        let again = km.set(Cmd::Find, save.clone()).expect("must be legal");
+        let again = km.set(Cmd::Find, save.clone()).expect("legal");
         assert_eq!(
             again, None,
-            "binding back to its own key should not report that someone was taken"
+            "rebinding its own chord should not report a victim"
         );
         assert_eq!(km.chord_for(Cmd::Find), Some(&save));
     }
@@ -784,7 +735,7 @@ mod tests {
             free.push("alt-right");
         }
         for text in free {
-            let chord = Chord::parse(text).expect("must parse");
+            let chord = Chord::parse(text).expect("written correctly");
             assert!(
                 km.set(Cmd::Find, chord).is_ok(),
                 "{text} should be bindable"
@@ -834,7 +785,7 @@ mod tests {
             .collect();
         assert_eq!(
             listed, expected,
-            "the reserved table's rows do not line up with what is written here"
+            "the reserved table's rows do not match what is written here"
         );
         assert_eq!(
             RESERVED.len(),
@@ -844,16 +795,14 @@ mod tests {
 
         for key in bare {
             assert!(refused(Mods::none(), key), "bare {key} should be blocked");
-
-            assert!(allowed(shift, key), "shift-{key} should not be blocked");
+            assert!(allowed(shift, key), "shift-{key} should not be refused");
         }
         for key in with_shift {
             assert!(refused(Mods::none(), key), "bare {key} should be blocked");
             assert!(refused(shift, key), "shift-{key} should be blocked");
-
             assert!(
                 allowed(primary, key),
-                "primary modifier + {key} should not be blocked"
+                "primary modifier + {key} should not be refused"
             );
         }
         for key in with_primary {
@@ -861,26 +810,26 @@ mod tests {
             assert!(refused(shift, key), "shift-{key} should be blocked");
             assert!(
                 refused(primary, key),
-                "primary modifier + {key} should be blocked"
+                "primary modifier + {key} should be refused"
             );
             assert!(
                 refused(primary_shift, key),
-                "primary modifier + shift + {key} should be blocked"
+                "primary modifier + shift + {key} should be refused"
             );
         }
         for key in primary_only {
             assert_eq!(
                 Keymap::default().set(Cmd::Find, Chord::new(Mods::none(), key)),
                 Err(Refusal::NeedsModifier),
-                "bare {key} is printable and should require a modifier"
+                "bare {key} is printable, so it should demand a modifier"
             );
             assert!(
                 refused(primary, key),
-                "primary modifier + {key} should be blocked"
+                "primary modifier + {key} should be refused"
             );
             assert!(
                 allowed(primary_shift, key),
-                "primary modifier + shift + {key} should not be blocked (ordered lists rely on that kind of chord)"
+                "primary modifier + shift + {key} should not be refused (ordered-list style chords)"
             );
         }
 
@@ -907,11 +856,8 @@ mod tests {
         ] {
             assert_eq!(Chord::parse(text), None, "`{text}` should not parse");
         }
-
         assert_eq!(Chord::parse("ctrl-"), None);
-
         assert_eq!(Chord::parse("ctrl-nosuch-"), Chord::parse("ctrl--"));
-
         for text in [
             "ctrl-s",
             "ctrl-alt-z",
@@ -932,15 +878,13 @@ mod tests {
         for key in ["f1", "f9", "f12", "f24", "f35", "escape", "home", "insert"] {
             assert!(!is_printable(key), "{key} should not count as printable");
         }
-
         for key in ["a", "z", "1", "-", "space", "tab", "enter", "["] {
             assert!(is_printable(key), "{key} should count as printable");
         }
-
         assert!(is_printable("ü"));
         assert!(
             is_printable("f36"),
-            "gpui's table stops at f35; above that are key names it has never seen"
+            "gpui's table stops at f35; anything above is an unseen key name"
         );
     }
 
@@ -951,7 +895,7 @@ mod tests {
         assert_eq!(
             km.overrides().count(),
             0,
-            "nothing has been changed, so the list should be empty"
+            "with nothing changed it should be empty"
         );
 
         km.clear(Cmd::Save);
@@ -959,20 +903,19 @@ mod tests {
         assert_eq!(got, vec![(Cmd::Save, None)]);
         assert!(!km.is_default());
 
-        let chord = Chord::parse("ctrl-alt-o").expect("must parse");
-        km.set(Cmd::ToggleOutline, chord.clone())
-            .expect("must be legal");
+        let chord = Chord::parse("ctrl-alt-o").expect("written correctly");
+        km.set(Cmd::ToggleOutline, chord.clone()).expect("legal");
         let got: Vec<_> = km.overrides().map(|(c, ch)| (c, ch.cloned())).collect();
         assert_eq!(
             got,
             vec![(Cmd::Save, None), (Cmd::ToggleOutline, Some(chord))],
-            "should be in Cmd::ALL order"
+            "it should follow the Cmd::ALL order"
         );
 
         km.reset_all();
         assert!(
             km.is_default(),
-            "after restoring the defaults, nothing should remain changed"
+            "after restoring defaults nothing should be overridden"
         );
         assert_eq!(km.overrides().count(), 0);
     }
@@ -990,7 +933,7 @@ mod tests {
         assert_eq!(
             Cmd::COUNT,
             18,
-            "the command table's row count changed; check whether the settings page still fits the rows"
+            "the command table changed length; check whether the settings page still fits"
         );
     }
 
@@ -998,14 +941,14 @@ mod tests {
     fn setting_one_command_leaves_the_others_alone() {
         for cmd in Cmd::ALL {
             let mut km = Keymap::default();
-            let chord = Chord::parse("ctrl-alt-shift-f8").expect("must parse");
-            km.set(*cmd, chord.clone()).expect("must be legal");
+            let chord = Chord::parse("ctrl-alt-shift-f8").expect("written correctly");
+            km.set(*cmd, chord.clone()).expect("legal");
             assert_eq!(km.chord_for(*cmd), Some(&chord), "{}", cmd.key());
             for other in Cmd::ALL.iter().filter(|c| *c != cmd) {
                 assert_eq!(
                     km.chord_for(*other),
                     other.default_chord().as_ref(),
-                    "changing {} also changed {}",
+                    "changing {} moved {}",
                     cmd.key(),
                     other.key()
                 );
@@ -1023,9 +966,8 @@ mod tests {
         assert_eq!(
             Chord::from_keystroke(&blank),
             None,
-            "an empty key name must not produce a chord"
+            "an empty key name must not fabricate a chord"
         );
-
         let with_mods = Keystroke {
             modifiers: Modifiers::from(Mods::primary()),
             key: String::new(),
@@ -1034,18 +976,17 @@ mod tests {
         assert_eq!(
             Chord::from_keystroke(&with_mods),
             None,
-            "an empty key name with modifiers must likewise not produce a chord"
+            "an empty key name with modifiers must not fabricate a chord either"
         );
     }
 
     #[test]
     fn the_table_never_holds_a_duplicate_it_cannot_resolve() {
         let mut km = Keymap::default();
-        let chord = Chord::parse("ctrl-alt-d").expect("must parse");
+        let chord = Chord::parse("ctrl-alt-d").expect("written correctly");
         km.put(Cmd::Save, Some(chord.clone()));
         km.put(Cmd::Find, Some(chord.clone()));
         let k = keystroke(&chord.unparse());
-
         assert_eq!(km.lookup(&k), Some(Cmd::Save));
     }
 }

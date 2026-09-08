@@ -185,7 +185,6 @@ impl EditorView {
                 else {
                     continue;
                 };
-
                 for id in std::iter::once(*parent).chain(inserted.iter().copied()) {
                     if let Some(table) = enclosing_table(&doc.document.arena, id) {
                         touched.push(table);

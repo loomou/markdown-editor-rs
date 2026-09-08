@@ -343,7 +343,6 @@ fn retarget_inline_math_falls_back_to_source_text() {
 
     let _ = doc.retarget_inline_focus(caret(leaf, 3));
     assert_eq!(doc.text_of(leaf).unwrap(), "$a^2$");
-
     assert!(!has_mark(&doc, leaf, InlineMarks::MATH_INLINE));
     assert!(has_mark(&doc, leaf, InlineMarks::SYNTAX));
 }
@@ -419,7 +418,6 @@ fn retarget_image_falls_back_to_source_text() {
     let _ = doc.retarget_inline_focus(caret(leaf, 1));
     assert!(doc.text_of(leaf).unwrap().contains("![x](u)"));
     assert!(!has_mark(&doc, leaf, InlineMarks::IMAGE));
-
     assert!(doc.runs(id).iter().all(|r| r.link.is_none()));
 }
 
@@ -431,14 +429,12 @@ fn arrow_walks_out_of_revealed_empty_alt_image() {
     for source in ["![](u)s\n", "![](u) s\n", "a![](u)s\n"] {
         let mut doc = load_markdown(source, editor_options());
         let leaf = doc.text_leaves()[0];
-
         let enter = doc
             .text_of(leaf)
             .expect("text")
             .find('\u{FFFC}')
             .expect("placeholder");
         let mut at = doc.retarget_inline_focus(caret(leaf, enter));
-
         let want = source.trim_end_matches('\n');
         assert_eq!(doc.text_of(leaf).unwrap(), want, "{source:?}");
 
@@ -457,9 +453,8 @@ fn arrow_walks_out_of_revealed_empty_alt_image() {
             );
             at = out;
             steps += 1;
-            assert!(steps < 32, "{source:?} steps ran away");
+            assert!(steps < 32, "{source:?}: the step count ran away");
         }
-
         assert_eq!(at.offset, doc.text_of(at.block).expect("text").len());
     }
 }
@@ -469,7 +464,6 @@ fn editing_a_second_block_bumps_the_revealed_one() {
     let mut doc = load_markdown("a **b** c\n\ntail\n", editor_options());
     let a = doc.text_leaves()[0];
     let tail = doc.text_leaves()[1];
-
     let _ = apply(
         &mut doc,
         Sel::collapsed(caret(a, 2)),
@@ -490,7 +484,7 @@ fn editing_a_second_block_bumps_the_revealed_one() {
     assert_eq!(
         doc.text_of(a).unwrap(),
         "a xb c",
-        "the projection is restored after the focus is lost"
+        "the projection recovers after losing focus"
     );
     let unfocused_rev = doc
         .live_id(a)
@@ -499,8 +493,7 @@ fn editing_a_second_block_bumps_the_revealed_one() {
         .content_revision;
     assert!(
         unfocused_rev > revealed_rev,
-        "blur must be booked: revealed and unfocused text generations share one \
-         shaping-cache key, and this edit is what keeps them apart \
+        "unfocusing must be booked: revealed and collapsed text share one shaping cache key, and this entry is what splits them \
          (revealed {revealed_rev} -> unfocused {unfocused_rev})"
     );
 }

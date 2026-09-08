@@ -242,7 +242,6 @@ mod tests {
                     lang.key()
                 );
             }
-
             let (head, tail) = save_changes_question_in(lang);
             let whole = format!("{head}题.md{tail}");
             assert!(
@@ -347,7 +346,6 @@ mod tests {
                 "{} 下这一句里没有那条命令的名字（`{want}`）：`{got}`",
                 lang.key()
             );
-
             let other = if lang == Lang::ZhCn {
                 Lang::En
             } else {

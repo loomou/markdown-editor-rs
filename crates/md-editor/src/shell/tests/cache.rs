@@ -98,7 +98,7 @@ fn status_cache_recomputes_when_the_document_changes_despite_the_revision() {
     );
     assert_eq!(
         full, 2,
-        "a changed identity must trigger a full walk even when the revision matches"
+        "with the identity changed it must re-walk the document even at the same revision"
     );
     assert_eq!(
         next,
@@ -240,7 +240,7 @@ fn outline_cache_rebuilds_when_the_document_changes_despite_the_revision(cx: &mu
     });
     assert_eq!(
         builds, 2,
-        "a changed identity must trigger a rebuild even when the revision matches"
+        "with the identity changed it must rebuild even at the same revision"
     );
     assert_eq!(cache.rows[0].label, "Next");
 }

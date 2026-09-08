@@ -85,30 +85,29 @@ fn spec_splits_canvas_surface_cluster_and_line() {
         );
         assert_ne!(
             spec.canvas, spec.surface,
-            "node must not share the canvas color"
+            "nodes must not share a color with the canvas"
         );
         assert_ne!(
             spec.surface, spec.cluster,
-            "subgraph must not share the node color"
+            "subgraphs must not share a color with nodes"
         );
         assert_ne!(
             spec.cluster, spec.canvas,
-            "subgraph must not share the canvas color"
+            "subgraphs must not share a color with the canvas"
         );
         assert_ne!(
             spec.line, spec.subtle,
-            "arrow must not share the disabled-text color"
+            "arrows must not share a color with disabled text"
         );
-
         assert_eq!(
             spec.surface,
             theme.app.panel_bg.to_css_hex(),
-            "node surface must equal the panel slot"
+            "node fill = the panel step"
         );
         assert_eq!(
             spec.cluster,
             theme.app.active.to_css_hex(),
-            "subgraph surface must equal the pressed/track slot"
+            "subgraph fill = the pressed/track step"
         );
     }
 }
@@ -184,7 +183,7 @@ fn series_palette_reaches_pie_slices() {
     for hex in ["#e06c75", "#dfc184", "#e5c07b"] {
         assert!(
             svg.contains(hex),
-            "the pie SVG must contain the series color {hex}"
+            "the pie SVG should carry the series color {hex}"
         );
     }
 }
@@ -222,11 +221,11 @@ fn raster_scale_keeps_small_diagram_layout_native() {
     );
     assert!(
         dpr > spec.dpr + 0.5,
-        "small diagrams need denser pixels for the zoom overlay: dpr={dpr}"
+        "small diagrams must pack extra pixels for the zoom popover, dpr={dpr}"
     );
     assert!(
         dpr <= spec.dpr * 2.0,
-        "document diagrams must pre-bake at most 2×: dpr={dpr}"
+        "document diagrams pre-rasterize at most 2x: dpr={dpr}"
     );
 }
 
@@ -254,7 +253,7 @@ fn raster_scale_downsizes_when_wider_than_slot() {
     let contain = (804.0_f32 / 1600.0).min(420.0 / 900.0);
     assert!(
         (scale / dpr - contain).abs() < 0.02,
-        "large-diagram contain must match the slot: scale={scale} dpr={dpr} contain={contain}"
+        "a large diagram's contain should align to the slot: scale={scale} dpr={dpr} contain={contain}"
     );
 }
 
@@ -296,7 +295,7 @@ fn mixed_flowchart_css_size_stays_near_native() {
     assert!(cw > 80.0 && cw < 160.0, "css_w={cw}");
     assert!(
         ready.px_h as f32 > ch * 1.5 && ready.px_h as f32 <= ch * 2.1,
-        "zooming must use denser pixels than the css raster: px_h={} css_h={ch}",
+        "the raster must use denser pixels than css: px_h={} css_h={ch}",
         ready.px_h
     );
 }
@@ -311,7 +310,7 @@ fn raster_leaves_the_diagram_background_transparent() {
         assert_eq!(
             img.get_pixel(x, y).0[3],
             0,
-            "corner pixel ({x},{y}) must be transparent"
+            "corner pixel ({x},{y}) is opaque"
         );
     }
 }
@@ -435,14 +434,14 @@ fn paint_rect_snaps_position_with_window_dpr_not_raster_dpr() {
 
 #[test]
 fn fail_label_caps_source_bearing_errors_on_char_boundaries() {
-    let message = format!("cannot recognize the diagram type: {}", "é".repeat(10_000));
+    let message = format!("cannot recognize the diagram type: {}", "x".repeat(10_000));
     let label = fail_label(&crate::Error::Mermaid(message.clone().into()));
 
     assert!(label.len() <= FAIL_LABEL_CAP, "{}", label.len());
     assert!(label.is_char_boundary(label.len()));
     assert!(
         message.starts_with(&label),
-        "the label must be a prefix of the original message, never rewritten"
+        "the label must be a prefix of the original message, not a rewrite"
     );
 }
 
@@ -502,23 +501,21 @@ fn warm_entries_outlive_cold_ones() {
     let mut cache = MermaidCache::new();
     fill_mermaid_ready(&mut cache, 24);
     let hot = mermaid_key(23);
-
     let warm = [mermaid_key(0), mermaid_key(1), mermaid_key(2)];
 
     cache.set_working_set_inner([hot], warm, None);
 
     assert!(
         cache.entry_count() < 24,
-        "this test's premise is that eviction actually happened"
+        "this test's premise is that an eviction really happened"
     );
     for key in &warm {
         assert!(
             cache.contains(key),
-            "warm entries must not be evicted while cold entries remain"
+            "a warm entry must not be dropped while cold entries remain"
         );
     }
     assert!(cache.contains(&hot));
-
     assert!(!cache.contains(&mermaid_key(3)));
 }
 
@@ -533,21 +530,21 @@ fn fitted_sizes_survive_bitmap_eviction() {
 
     assert!(
         cache.entry_count() < 24,
-        "this test's premise is that bitmaps were actually evicted"
+        "this test's premise is that the bitmap really got evicted"
     );
     assert!(
         !cache.contains(&mermaid_key(0)),
-        "the first diagram's bitmap should already be gone"
+        "the first image's bitmap should be gone"
     );
     assert_eq!(
         cache.fitted_snapshot().len(),
         before,
-        "bitmap eviction must not take the size projection with it"
+        "evicting the bitmap must not take the size projection with it"
     );
     assert_eq!(
         cache.fitted_snapshot().get(&(0, 1)),
         Some(&(4.0, 4.0)),
-        "the measured size of this block must survive the bitmap's eviction"
+        "even with the bitmap gone, the size measured for this block must stay"
     );
 }
 
@@ -584,7 +581,7 @@ fn byte_pressure_still_spares_the_warm_window() {
     for key in &warm {
         assert!(
             cache.contains(key),
-            "the warm window must stay untouched while bytes are within budget"
+            "the bytes are within budget, so the warm zone must be untouched"
         );
     }
 }
@@ -597,7 +594,7 @@ fn render_svg_pads_the_root_viewbox() {
     assert_eq!(
         (x, y),
         (-super::VIEWBOX_PAD, -super::VIEWBOX_PAD),
-        "flowchart natively starts at (0,0), so the origin proves the pad applied: {x} {y}"
+        "a flowchart natively starts at (0,0), so the origin is the evidence the pad took effect: {x} {y}"
     );
     assert!(w > 0.0 && h > 0.0);
 }
@@ -609,16 +606,16 @@ fn long_labels_render_as_a_single_line_fallback() {
     let svg = super::raster::render_svg(src, &spec).expect("svg");
     assert!(
         svg.contains("annotation blocks"),
-        "label text must be fully present in the SVG"
+        "the label text must fall entirely inside the SVG"
     );
     assert!(
         !svg.contains("foreignObject"),
-        "resvg-safe output must not contain foreignObject"
+        "resvg-safe output must not use foreignObject"
     );
     assert_eq!(
         svg.matches("tspan").count(),
         0,
-        "the resvg-safe fallback must be a single line"
+        "the resvg-safe fallback is single-line"
     );
 }
 
@@ -630,7 +627,7 @@ fn series_palette_reaches_git_branches() {
     for hex in ["#e06c75", "#dfc184"] {
         assert!(
             svg.contains(hex),
-            "the gitGraph SVG must contain the series color {hex}"
+            "the gitGraph SVG should carry the series color {hex}"
         );
     }
 }
@@ -660,15 +657,17 @@ fn prefetch_leaves_room_for_the_visible_diagram() {
     let warm = [mermaid_key(1), mermaid_key(2)];
     cache.set_working_set_inner([hot], warm, None);
 
-    assert!(cache.begin(warm[0]), "the first prefetch must get a slot");
+    assert!(
+        cache.begin(warm[0]),
+        "the first prefetch has a slot of its own"
+    );
     assert!(
         !cache.begin(warm[1]),
-        "once prefetches fill their quota, no new ones may start"
+        "once prefetch uses up its own quota, it opens no more"
     );
     assert!(
         cache.begin(hot),
-        "the on-screen diagram must still begin without waiting for the prefetches"
+        "the on-screen diagram can still start work without waiting for prefetch"
     );
-
     assert!(!cache.begin(mermaid_key(3)));
 }

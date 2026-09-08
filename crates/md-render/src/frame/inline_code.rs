@@ -57,10 +57,8 @@ fn push_code_plates(pass: &Pass<'_>, p: PlacedText<'_>, pad: (Px, Px), out: &mut
         if a >= b {
             continue;
         }
-
         for band in row_bands(shaper, art, a..b, p.align, p.inner) {
             let w = band.width();
-
             if w <= 0.0 {
                 continue;
             }

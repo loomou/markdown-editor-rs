@@ -130,7 +130,6 @@ pub struct EditorState {
     pub selection: Option<(Cursor, Cursor)>,
     pub marked: Option<(BlockId, Range<usize>)>,
     pub scroll: Px,
-
     pub resolved_top: Px,
     pub env: BoxLayoutEnvironment,
 
@@ -148,7 +147,6 @@ pub struct EditorState {
     pub frame_times: std::collections::VecDeque<std::time::Instant>,
 
     pub show_fps: bool,
-
     pub stress_redraw: bool,
 
     pub(crate) last_stable: Option<StableFrame>,
@@ -260,7 +258,6 @@ pub(crate) struct PrepaintState {
 #[derive(Clone, Debug)]
 struct ImagePopover {
     dest: String,
-
     plan: Option<PopoverPlan>,
 }
 
@@ -272,19 +269,15 @@ struct MathPopover {
 #[derive(Clone, Debug)]
 struct MathPopoverPlan {
     plate: (Px, Px, Px, Px),
-
     math_at: (Px, Px),
     key: math::MathKey,
-
     color: ThemeColor,
 }
 
 #[derive(Clone, Debug)]
 struct PopoverPlan {
     plate: (Px, Px, Px, Px),
-
     image_at: (Px, Px),
-
     image_size: (Px, Px),
     key: images::DisplayKey,
 }
@@ -306,7 +299,6 @@ struct SaveState {
     source_disk_state: Option<crate::platform::fs_atomic::DiskState>,
     autosave_epoch: u64,
     autosave_retry: bool,
-
     save_as_retry: Option<std::path::PathBuf>,
     pending_after_save: Option<PendingNav>,
 }
@@ -360,7 +352,6 @@ pub struct EditorView {
     pub(crate) search: SearchState,
 
     mermaid: MermaidCache,
-
     pub(crate) zoom_raster: Option<media_zoom::ZoomRaster>,
     pub(crate) zoom_raster_job: Option<media_zoom::ZoomRasterJob>,
     math: MathCache,
@@ -398,12 +389,9 @@ pub struct EditorView {
 struct DocShapeMaps {
     revision: u64,
     path: Option<std::path::PathBuf>,
-
     links_len: usize,
     link_dests: Rc<HashMap<u32, String>>,
-
     link_raw: Rc<HashMap<u32, (String, String)>>,
-
     data_source_links: Rc<HashMap<String, u32>>,
     block_image_dest: Rc<HashMap<u32, String>>,
     block_code_lang: Rc<HashMap<u32, String>>,

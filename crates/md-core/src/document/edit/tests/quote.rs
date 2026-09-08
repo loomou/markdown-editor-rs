@@ -60,11 +60,10 @@ fn quote_commit_keeps_the_collapsed_map_fresh() {
         .and_then(|n| n.text)
         .and_then(|t| doc.texts.get(t))
         .expect("text");
-
     assert_eq!(
         text.s2d.len(),
         doc.leaf_source(id).len() + 1,
-        "the s2d index range must line up with the leaf source"
+        "the s2d index domain should align with the leaf source"
     );
     assert_eq!(text.s2d.last().copied(), Some(doc.display(id).len()));
     assert_eq!(doc.leaf_source(id), "*a*");

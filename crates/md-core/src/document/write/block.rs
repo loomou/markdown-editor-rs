@@ -1,4 +1,4 @@
-use super::inline::{phrasing_export, trim_end_newlines};
+use super::inline::{escape_leading_fences, paragraph_export, trim_end_newlines};
 use super::{
     MarkdownExport, MarkdownWriter, Prefix, blank_line, push_first_and_rest, write_prefixed,
 };
@@ -12,12 +12,10 @@ enum Step {
         id: NodeId,
         prefix: Prefix,
     },
-
     Flow {
         kids: Vec<NodeId>,
         prefix: Prefix,
     },
-
     List {
         items: Vec<NodeId>,
         prefix: Prefix,
@@ -26,7 +24,6 @@ enum Step {
         start: u64,
         marker: ListMarker,
     },
-
     Item {
         id: NodeId,
         prefix: Prefix,
@@ -34,16 +31,13 @@ enum Step {
         num: u64,
         marker: ListMarker,
     },
-
     Footnote {
         id: NodeId,
         prefix: Prefix,
     },
-
     BlankLine {
         prefix: Prefix,
     },
-
     Newline,
 }
 
@@ -147,7 +141,6 @@ where
     match kind {
         BlockKind::DocRoot => {
             let kids: Vec<NodeId> = doc.children(id).collect();
-
             let kids = match kids.last().copied().filter(|&k| is_blank_paragraph(doc, k)) {
                 Some(_) => kids[..kids.len() - 1].to_vec(),
                 None => kids,
@@ -159,7 +152,10 @@ where
             Ok(())
         }
         BlockKind::DocStart => Ok(()),
-        BlockKind::Paragraph => write_prefixed(out, prefix, phrasing_export(doc, id)),
+        BlockKind::Paragraph => {
+            let body = paragraph_export(doc, id);
+            write_prefixed(out, prefix, &body)
+        }
         BlockKind::Heading(n) => write_prefixed(out, prefix, &heading_line(doc, id, n)),
         BlockKind::MetadataBlock => write_prefixed(out, prefix, doc.leaf_source(id)),
         BlockKind::CodeBlock | BlockKind::Mermaid => write_fence(doc, id, out, prefix),
@@ -244,7 +240,7 @@ where
     }
 }
 
-fn is_blank_paragraph<D: MarkdownExport>(doc: &D, id: NodeId) -> bool {
+pub(super) fn is_blank_paragraph<D: MarkdownExport>(doc: &D, id: NodeId) -> bool {
     doc.kind(id) == Some(BlockKind::Paragraph)
         && matches!(doc.extra(id), NodeExtra::None)
         && doc.display(id).is_empty()
@@ -307,7 +303,7 @@ fn write_list_step(
             num,
             marker,
         });
-        num = num.saturating_add(1);
+        num = num.saturating_add(1).min(999_999_999);
     }
     push_rev(stack, steps);
     Ok(())
@@ -349,7 +345,6 @@ where
         (None, true) => format!("{num}{delimiter} "),
         (None, false) => format!("{bullet} "),
     };
-
     let list_marker_width = if task.is_some() {
         if ordered {
             format!("{num}{delimiter} ").len()
@@ -374,8 +369,10 @@ where
             prefix.write_open(out)?;
             out.write_str(&marker)?;
             let heading;
+            let body;
             let text = if first_kind == Some(BlockKind::Paragraph) {
-                phrasing_export(doc, first)
+                body = paragraph_export(doc, first);
+                body.as_str()
             } else if let Some(BlockKind::Heading(n)) = first_kind {
                 heading = heading_line(doc, first, n);
                 heading.as_str()
@@ -399,7 +396,6 @@ where
         .is_some_and(|list| doc.extra(list).list_loose());
     for rest_id in kids.into_iter().skip(1) {
         steps.push(Step::Newline);
-
         if loose
             || matches!(
                 doc.kind(rest_id),
@@ -437,11 +433,12 @@ fn thematic_break_line<D: MarkdownExport>(doc: &D, id: NodeId) -> String {
 fn heading_line<D: MarkdownExport>(doc: &D, id: NodeId, level: u8) -> String {
     let source = trim_end_newlines(doc.leaf_source(id));
     if source.contains('\n') {
-        return source.to_string();
+        return escape_leading_fences(source);
     }
     let hashes = source.chars().take_while(|c| *c == '#').count();
     if (1..=6).contains(&hashes)
-        && (source.len() == hashes || source.as_bytes().get(hashes) == Some(&b' '))
+        && (source.len() == hashes
+            || matches!(source.as_bytes().get(hashes), Some(&b' ') | Some(&b'\t')))
     {
         return source.to_string();
     }
@@ -489,14 +486,24 @@ where
     } else {
         '`'
     };
-    let mut fence = marker.to_string().repeat(min_len.max(3));
-    while body.contains(&fence) {
-        fence.push(marker);
+    let marker_byte = marker as u8;
+    let mut longest = 0usize;
+    let mut run = 0usize;
+    for &b in body.as_bytes() {
+        if b == marker_byte {
+            run += 1;
+            if run > longest {
+                longest = run;
+            }
+        } else {
+            run = 0;
+        }
     }
+    let fence = marker.to_string().repeat(min_len.max(3).max(longest + 1));
     let open = if lang.is_empty() {
         fence.clone()
     } else {
-        format!("{fence}{lang}")
+        format!("{fence}{}", encode_fence_info(lang, marker))
     };
     write_prefixed(out, prefix, &open)?;
     out.write_str("\n")?;
@@ -505,6 +512,20 @@ where
         out.write_str("\n")?;
     }
     write_prefixed(out, prefix, &fence)
+}
+
+fn encode_fence_info(info: &str, marker: char) -> String {
+    let mut out = String::with_capacity(info.len());
+    for ch in info.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '\\' => out.push_str("&#92;"),
+            '`' if marker == '`' => out.push_str("&#96;"),
+            '~' if marker == '~' => out.push_str("&#126;"),
+            _ => out.push(ch),
+        }
+    }
+    out
 }
 
 fn write_math<D, W>(
@@ -518,7 +539,6 @@ where
     W: fmt::Write,
 {
     let body = doc.display(id);
-
     if doc.extra(id).math_fenced() || body.contains('\n') {
         write_prefixed(out, prefix, "$$")?;
         out.write_str("\n")?;
@@ -545,7 +565,6 @@ where
     if let Some(raw) = doc.raw_block(id) {
         return out.write_str(raw);
     }
-
     let source = doc.leaf_source(id);
     if !source.is_empty() {
         return write_prefixed(out, prefix, source);
@@ -604,11 +623,34 @@ where
     out.write_str("|")?;
     for cell in doc.children(row) {
         out.write_str(" ")?;
-        let text = escape_table_pipes(phrasing_export(doc, cell)).replace('\n', "<br>");
+        let raw = doc.leaf_source(cell);
+        let body = if raw.is_empty() {
+            doc.display(cell)
+        } else {
+            raw
+        };
+        let text = encode_edge_spaces(&escape_table_pipes(body).replace('\n', "<br>"));
         out.write_str(&text)?;
         out.write_str(" |")?;
     }
     Ok(())
+}
+
+fn encode_edge_spaces(s: &str) -> String {
+    let lead = s.len() - s.trim_start_matches(' ').len();
+    let trail = (s.len() - s.trim_end_matches(' ').len()).min(s.len() - lead);
+    if lead == 0 && trail == 0 {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(s.len() + 4 * (lead + trail));
+    for _ in 0..lead {
+        out.push_str("&#32;");
+    }
+    out.push_str(&s[lead..s.len() - trail]);
+    for _ in 0..trail {
+        out.push_str("&#32;");
+    }
+    out
 }
 
 fn escape_table_pipes(source: &str) -> String {
@@ -675,14 +717,13 @@ where
     let body: Vec<NodeId> = doc.children(id).collect();
     prefix.write_open(out)?;
     out.write_str(&line)?;
-
     let rest = prefix.indented(4);
     let mut steps = Vec::with_capacity(body.len() * 3);
     if let Some((first, more)) = body.split_first() {
         if doc.kind(*first) == Some(BlockKind::Paragraph) {
             out.write_char(' ')?;
-            let text = phrasing_export(doc, *first);
-            push_first_and_rest(out, &rest, text)?;
+            let text = paragraph_export(doc, *first);
+            push_first_and_rest(out, &rest, &text)?;
         } else {
             out.write_str("\n")?;
             steps.push(Step::Block {

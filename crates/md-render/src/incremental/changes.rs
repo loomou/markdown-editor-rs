@@ -61,6 +61,7 @@ impl IncrementalEngine {
 
         let mut drop_ids: Vec<LayoutBoxId> = Vec::new();
         let mut splices: Vec<PendingSpineSplice> = Vec::new();
+        let mut cold_parents: Vec<NodeId> = Vec::new();
         if changes.is_structural() {
             for c in &changes.changes {
                 let DocChange::TreeSpliced {
@@ -79,6 +80,9 @@ impl IncrementalEngine {
                     continue;
                 };
                 let parent_box = LayoutBoxId::for_kind(parent_kind, parent.index);
+                if self.box_id_in_tree(parent.index).is_none() {
+                    cold_parents.push(*parent);
+                }
                 let before_box = before.and_then(|n| {
                     doc.arena
                         .get(n)
@@ -132,6 +136,11 @@ impl IncrementalEngine {
                 dirty_row_islands.push(splice.parent);
             }
         }
+        for parent in cold_parents {
+            if self.box_id_in_tree(parent.index).is_none() {
+                self.refresh_deferred_ancestors(doc, parent);
+            }
+        }
         for id in drop_ids {
             self.store.drop_box(id);
         }
@@ -144,6 +153,7 @@ impl IncrementalEngine {
                 DocChange::TextChanged { node, .. } => {
                     let islands = self.islands_of_block(node.index);
                     if islands.is_empty() {
+                        self.refresh_deferred_ancestors(doc, *node);
                         continue;
                     }
                     for island in islands {
@@ -175,11 +185,12 @@ impl IncrementalEngine {
                     for island in ids {
                         self.invalidate_one_island(island, &mut out);
                     }
+                    let tree = Rc::clone(&self.tree);
+                    self.spine.refresh_gaps_of(&tree, id);
                 }
                 _ => {}
             }
         }
-
         if !changes.is_text_only() {
             self.clear_table_cons();
         }
@@ -217,7 +228,11 @@ impl IncrementalEngine {
         index: u32,
         out: &mut Vec<LayoutBoxId>,
     ) -> Option<LayoutBoxId> {
-        let main = self.box_id_in_tree(index);
+        let main = self.box_id_in_tree(index).or_else(|| {
+            let frame = LayoutBoxId::frame(index);
+            (self.spine.content_id(frame).is_some() || self.spine.collapsed_id(frame).is_some())
+                .then_some(frame)
+        });
         if let Some(id) = main {
             self.collect_islands(id, out);
         }
@@ -378,7 +393,6 @@ impl IncrementalEngine {
         };
         while let Some(parent) = self.tree.get(id).parent() {
             id = parent;
-
             let tree = Rc::clone(&self.tree);
             let estimator = self.estimator;
             let store = &self.store;
@@ -386,6 +400,24 @@ impl IncrementalEngine {
                 .refresh_collapsed_height(&tree, id, self.viewport_width(), &|bid, avail| {
                     HeightState::Estimated(store.height_px(&tree, estimator, bid, avail))
                 });
+        }
+    }
+
+    pub(super) fn refresh_deferred_ancestors(&mut self, doc: &Document, node: NodeId) {
+        let mut cur = Some(node);
+        while let Some(id) = cur {
+            let Some((deferred_box, deferred_node)) =
+                md_layout::compose::deferred_ancestor_of(&self.tree, doc, id)
+            else {
+                return;
+            };
+            let tree = Rc::clone(&self.tree);
+            self.spine.refresh_deferred_height(&tree, deferred_box);
+            cur = doc
+                .arena
+                .get(deferred_node)
+                .and_then(|n| n.parent)
+                .filter(|p| *p != deferred_node);
         }
     }
 }

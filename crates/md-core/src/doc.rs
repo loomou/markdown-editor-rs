@@ -69,8 +69,12 @@ impl Doc {
         self.saved_edit = self.edit_gen.wrapping_sub(1);
     }
 
-    fn touch_edit(&mut self, before: u64) {
-        if self.document.revision() != before {
+    fn touch_edit(&mut self, before: u64, delta: Option<&ChangeSet>) {
+        let edited = match delta {
+            Some(delta) => delta.records_edit(),
+            None => self.document.revision() != before,
+        };
+        if edited {
             self.edit_gen = self.edit_gen.saturating_add(1);
         }
     }
@@ -139,7 +143,7 @@ impl Doc {
         let c = self.apply_inner(sel, cmd);
         let delta = self.document.changes_since(change_start, before);
         self.history.after_apply(&self.document, &delta, c);
-        self.touch_edit(before);
+        self.touch_edit(before, Some(&delta));
         c
     }
 
@@ -150,7 +154,7 @@ impl Doc {
         let c = self.apply_inner(sel, cmd);
         let delta = self.document.changes_since(change_start, before);
         self.history.note_compose(&self.document, &delta, c);
-        self.touch_edit(before);
+        self.touch_edit(before, Some(&delta));
         c
     }
 
@@ -162,14 +166,17 @@ impl Doc {
             let delta = self.document.changes_since(change_start, before);
             self.history.note_compose(&self.document, &delta, c);
             let _ = self.history.commit_compose();
-            self.touch_edit(before);
+            self.touch_edit(before, Some(&delta));
             return c;
         }
         self.apply(sel, cmd)
     }
 
     pub fn abort_compose(&mut self) -> Option<Sel> {
-        self.history.abort_compose(&mut self.document)
+        let before = self.document.revision();
+        let sel = self.history.abort_compose(&mut self.document)?;
+        self.touch_edit(before, None);
+        Some(sel)
     }
 
     pub fn commit_compose(&mut self) {
@@ -183,22 +190,22 @@ impl Doc {
     pub fn undo(&mut self) -> Option<Sel> {
         let before = self.document.revision();
         if let Some(sel) = self.history.abort_compose(&mut self.document) {
-            self.touch_edit(before);
+            self.touch_edit(before, None);
             return Some(sel);
         }
         let sel = self.history.undo(&mut self.document)?;
-        self.touch_edit(before);
+        self.touch_edit(before, None);
         Some(sel)
     }
 
     pub fn redo(&mut self) -> Option<Sel> {
         let before = self.document.revision();
         if let Some(sel) = self.history.abort_compose(&mut self.document) {
-            self.touch_edit(before);
+            self.touch_edit(before, None);
             return Some(sel);
         }
         let sel = self.history.redo(&mut self.document)?;
-        self.touch_edit(before);
+        self.touch_edit(before, None);
         Some(sel)
     }
 
@@ -210,17 +217,36 @@ impl Doc {
         self.history.can_redo()
     }
 
+    fn absorb_settle(&mut self, start: usize, before: u64, sel: Sel) {
+        let delta = self.document.changes_since(start, before);
+        self.touch_edit(before, Some(&delta));
+        self.history.absorb_side_effect(&self.document, sel, delta);
+    }
+
     pub fn retarget_focus(&mut self, caret: Cursor) -> Cursor {
-        self.document.retarget_inline_focus(caret)
+        let before = self.document.revision();
+        let start = self.document.pending_changes().changes.len();
+        let c = self.document.retarget_inline_focus(caret);
+        self.absorb_settle(start, before, Sel::collapsed(c));
+        c
     }
 
     pub fn retarget_focus_biased(&mut self, caret: Cursor, bias: FocusBias) -> Cursor {
-        self.document.retarget_inline_focus_biased(caret, bias)
+        let before = self.document.revision();
+        let start = self.document.pending_changes().changes.len();
+        let c = self.document.retarget_inline_focus_biased(caret, bias);
+        self.absorb_settle(start, before, Sel::collapsed(c));
+        c
     }
 
     pub fn retarget_focus_without_block_edit(&mut self, caret: Cursor, bias: FocusBias) -> Cursor {
-        self.document
-            .retarget_inline_focus_without_block_edit(caret, bias)
+        let before = self.document.revision();
+        let start = self.document.pending_changes().changes.len();
+        let c = self
+            .document
+            .retarget_inline_focus_without_block_edit(caret, bias);
+        self.absorb_settle(start, before, Sel::collapsed(c));
+        c
     }
 
     pub fn retarget_focus_range(
@@ -229,8 +255,20 @@ impl Doc {
         head: Cursor,
         bias: FocusBias,
     ) -> (Cursor, Cursor) {
-        self.document
-            .retarget_inline_focus_range(anchor, head, bias)
+        let before = self.document.revision();
+        let start = self.document.pending_changes().changes.len();
+        let out = self
+            .document
+            .retarget_inline_focus_range(anchor, head, bias);
+        self.absorb_settle(
+            start,
+            before,
+            Sel {
+                anchor: out.0,
+                head: out.1,
+            },
+        );
+        out
     }
 
     pub fn collapsed_text(&self, id: BlockId) -> Option<&str> {
@@ -267,6 +305,10 @@ impl Doc {
         self.document.nth_text_leaf_from(from, delta)
     }
 
+    pub fn cmp_reading_order(&self, a: BlockId, b: BlockId) -> std::cmp::Ordering {
+        self.document.cmp_reading_order(a, b)
+    }
+
     pub fn in_table(&self, block: BlockId) -> bool {
         crate::document::in_table(&self.document, block)
     }
@@ -282,7 +324,7 @@ impl Doc {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cursor, Doc};
+    use super::{Cursor, Doc, FocusBias};
     use crate::block::BlockKind;
     use crate::document::{Command, Sel, editor_options, load_markdown};
 
@@ -313,7 +355,7 @@ mod tests {
         assert_ne!(
             a.document.revision(),
             rev_before,
-            "the fixture must really have been edited"
+            "the fixture must really have edited"
         );
     }
 
@@ -375,17 +417,123 @@ mod tests {
         assert_eq!(
             doc.visual_offset(leaf, 2),
             6,
-            "insertion-point semantics: after the closing **"
+            "insertion-point semantics: right after the trailing **"
         );
         assert_eq!(
             doc.visual_range(leaf, 1..2),
             3..4,
-            "range semantics: only the b"
+            "range semantics: just the b"
         );
 
         let plain = Doc::new(load_markdown("ab\n", editor_options()));
         let leaf = plain.text_leaves()[0];
         assert_eq!(plain.visual_range(leaf, 0..2), 0..2);
+    }
+
+    #[test]
+    fn equivalent_text_commands_do_not_dirty_the_document() {
+        for (start, end, replacement) in [(2, 2, ""), (0, 5, "hello")] {
+            let mut doc = Doc::new(load_markdown("hello\n", editor_options()));
+            let leaf = doc.text_leaves()[0];
+            doc.apply(
+                Sel {
+                    anchor: Cursor {
+                        block: leaf,
+                        offset: start,
+                    },
+                    head: Cursor {
+                        block: leaf,
+                        offset: end,
+                    },
+                },
+                Command::Insert {
+                    text: replacement.into(),
+                },
+            );
+            assert_eq!(doc.document.to_markdown(), "hello\n");
+            assert_eq!(
+                doc.edit_gen(),
+                0,
+                "generation must not move: {start}..{end}"
+            );
+            assert!(!doc.is_dirty());
+            assert!(!doc.can_undo());
+        }
+        for cmd in [Command::Outdent, Command::DeleteBackward] {
+            let mut doc = Doc::new(load_markdown("hello\n", editor_options()));
+            let leaf = doc.text_leaves()[0];
+            doc.apply(
+                Sel::collapsed(Cursor {
+                    block: leaf,
+                    offset: 0,
+                }),
+                cmd.clone(),
+            );
+            assert!(!doc.is_dirty(), "{cmd:?}");
+            assert!(!doc.can_undo(), "{cmd:?}");
+        }
+    }
+
+    #[test]
+    fn focus_settle_that_changes_content_advances_the_generation() {
+        for wrapper in 0..4 {
+            let mut doc = Doc::new(load_markdown("![alt](u)\n\ntail\n", editor_options()));
+            let leaves = doc.text_leaves();
+            let image = leaves[0];
+            let _ = doc.retarget_focus(Cursor {
+                block: image,
+                offset: 0,
+            });
+            let end = doc.caret_text(image).unwrap().len();
+            doc.apply(
+                Sel {
+                    anchor: Cursor {
+                        block: image,
+                        offset: 0,
+                    },
+                    head: Cursor {
+                        block: image,
+                        offset: end,
+                    },
+                },
+                Command::Insert { text: "".into() },
+            );
+            let snapshot = doc.document.write_snapshot().to_markdown();
+            let stale = doc.edit_gen();
+            let target = Cursor {
+                block: leaves[1],
+                offset: 0,
+            };
+            match wrapper {
+                0 => {
+                    let _ = doc.retarget_focus(target);
+                }
+                1 => {
+                    let _ = doc.retarget_focus_biased(target, FocusBias::Neutral);
+                }
+                2 => {
+                    let _ = doc.retarget_focus_without_block_edit(target, FocusBias::Neutral);
+                }
+                _ => {
+                    let _ = doc.retarget_focus_range(target, target, FocusBias::Neutral);
+                }
+            }
+            assert_eq!(snapshot, "![]()\n\ntail\n", "wrapper={wrapper}");
+            assert_eq!(doc.document.to_markdown(), "tail\n", "wrapper={wrapper}");
+            assert_eq!(
+                doc.kind(image),
+                Some(BlockKind::Paragraph),
+                "wrapper={wrapper}"
+            );
+            assert_eq!(doc.edit_gen(), stale + 1, "wrapper={wrapper}");
+            doc.mark_saved(stale);
+            assert!(
+                doc.is_dirty(),
+                "old snapshot must not mark the settled doc saved: wrapper={wrapper}"
+            );
+            doc.mark_saved(doc.edit_gen());
+            assert!(!doc.is_dirty(), "wrapper={wrapper}");
+        }
     }
 
     #[test]
@@ -624,5 +772,73 @@ mod tests {
                 "{md:?}"
             );
         }
+    }
+
+    #[test]
+    fn cancelled_composition_rejects_its_in_flight_save() {
+        let mut doc = doc_of("hello\n");
+        let leaf = doc.text_leaves()[0];
+        let _ = doc.apply_marked(
+            Sel::collapsed(Cursor {
+                block: leaf,
+                offset: 5,
+            }),
+            Command::Insert { text: "x".into() },
+        );
+        let saved = doc.document.write_snapshot();
+        let saved_generation = doc.edit_gen();
+        assert!(doc.abort_compose().is_some());
+        assert_ne!(doc.document.to_markdown(), saved.to_markdown());
+        doc.mark_saved(saved_generation);
+        assert!(
+            doc.is_dirty(),
+            "cancelled text differs from the saved snapshot but is marked clean"
+        );
+    }
+
+    #[test]
+    fn editing_reference_label_respects_visual_offset() {
+        let mut doc = doc_of("[label][ref]\n\n[ref]: /target\n");
+        let leaf = doc.first_text_leaf().expect("leaf");
+        let caret = doc.retarget_focus(Cursor {
+            block: leaf,
+            offset: 1,
+        });
+        let _ = doc.apply(Sel::collapsed(caret), Command::Insert { text: "X".into() });
+        let markdown = doc.document.to_markdown();
+        let reloaded = load_markdown(&markdown, editor_options());
+        assert_eq!(
+            reloaded.text_of(reloaded.first_text_leaf().unwrap()),
+            Some("lXabel"),
+            "markdown={markdown:?}"
+        );
+    }
+
+    #[test]
+    fn repeated_edits_in_a_reference_label_keep_the_projected_text() {
+        let mut doc = doc_of("[label][ref]\n\n[ref]: /target\n");
+        let leaf = doc.first_text_leaf().expect("leaf");
+        let one = doc.retarget_focus(Cursor {
+            block: leaf,
+            offset: 1,
+        });
+        let after_x = doc.apply(Sel::collapsed(one), Command::Insert { text: "X".into() });
+        let _ = doc.apply(
+            Sel::collapsed(after_x),
+            Command::Insert { text: "Y".into() },
+        );
+        assert_eq!(
+            doc.collapsed_text(leaf),
+            Some("lXYabel"),
+            "projection degraded to literal source: {:?}",
+            doc.collapsed_text(leaf)
+        );
+        let markdown = doc.document.to_markdown();
+        let reloaded = load_markdown(&markdown, editor_options());
+        assert_eq!(
+            reloaded.text_of(reloaded.first_text_leaf().unwrap()),
+            Some("lXYabel"),
+            "markdown={markdown:?}"
+        );
     }
 }

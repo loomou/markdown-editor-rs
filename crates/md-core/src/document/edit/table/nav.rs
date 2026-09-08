@@ -92,12 +92,14 @@ fn exit_before(doc: &Document, table: NodeId) -> Option<Caret> {
 }
 
 fn first_text_leaf(doc: &Document, id: NodeId) -> Option<NodeId> {
-    if doc.arena.get(id).is_some_and(|n| n.kind.is_text_leaf()) {
-        return Some(id);
-    }
-    for c in kids(doc, id) {
-        if let Some(leaf) = first_text_leaf(doc, c) {
-            return Some(leaf);
+    let mut stack = vec![id];
+    while let Some(cur) = stack.pop() {
+        if doc.arena.get(cur).is_some_and(|n| n.kind.is_text_leaf()) {
+            return Some(cur);
+        }
+        let mut children = kids(doc, cur);
+        for child in children.drain(..).rev() {
+            stack.push(child);
         }
     }
     None

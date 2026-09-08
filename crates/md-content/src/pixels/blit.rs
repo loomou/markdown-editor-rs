@@ -39,11 +39,11 @@ mod tests {
             let (_x, _y, dw, dh) = blit_rect(0.0, 0.0, 60, 30, dpr);
             assert!(
                 (dw * dpr - 60.0).abs() < 1e-4,
-                "width does not round-trip back at dpr={dpr}"
+                "dpr={dpr}: the width does not round-trip"
             );
             assert!(
                 (dh * dpr - 30.0).abs() < 1e-4,
-                "height does not round-trip back at dpr={dpr}"
+                "dpr={dpr}: the height does not round-trip"
             );
         }
         let (_x, _y, dw, dh) = blit_rect(0.0, 0.0, 60, 30, 1.5);
@@ -56,11 +56,11 @@ mod tests {
         let (x, y, dw, dh) = blit_rect(10.3, 7.7, 60, 30, 2.0);
         assert!(
             ((x * 2.0) - (x * 2.0).round()).abs() < 1e-4,
-            "x did not snap"
+            "x was not snapped"
         );
         assert!(
             ((y * 2.0) - (y * 2.0).round()).abs() < 1e-4,
-            "y did not snap"
+            "y was not snapped"
         );
         assert!((dw - 30.0).abs() < 1e-5);
         assert!((dh - 15.0).abs() < 1e-5);

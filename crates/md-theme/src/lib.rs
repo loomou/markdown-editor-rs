@@ -35,7 +35,6 @@ use paint::Palette;
 pub struct DocumentTheme {
     pub edge_scale: f64,
     pub paint: PaintTokens,
-
     pub app: AppTokens,
     pub chrome: ChromeTokens,
     pub type_scale: TypeScale,
@@ -142,7 +141,6 @@ impl DocumentTheme {
             syntax,
         }
     }
-
     pub fn is_dark(&self) -> bool {
         self.paint.canvas.l < 0.5
     }
@@ -311,7 +309,6 @@ mod tests {
         assert_eq!(dark.inline.inline_code.to_css_hex(), "#e06c75");
         assert_eq!(dark.inline.inline_code_fill.to_css_hex(), "#343a45");
         assert_eq!(dark.inline.inline_code_radius, 4.0);
-
         assert_eq!(dark.inline.inline_code_pad_x, 3.0);
         assert_eq!(dark.inline.inline_code_pad_y, 1.0);
         assert!((dark.paint.search_match.a - 0.22).abs() < f32::EPSILON);

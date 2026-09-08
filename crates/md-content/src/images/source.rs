@@ -1,10 +1,16 @@
 use super::raster::native_dims;
-use super::{DataEncoding, MAX_FETCH, MAX_IMAGE_PIXELS, Resolved, SourceLoad};
+use super::{
+    DataEncoding, MAX_FETCH, MAX_IMAGE_PIXELS, MAX_SOURCE_BYTES, Resolved, SOURCE_RETRY_BASE,
+    SOURCE_RETRY_MAX, SourceError, SourceLoad,
+};
 use futures::AsyncReadExt;
-use gpui::{App, Image, ImageFormat, http_client};
+use gpui::{App, Image, ImageFormat, RenderImage, http_client};
 use image::ImageReader;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 pub fn resolve(dest: &str, source_path: Option<&Path>) -> Option<Resolved> {
     let dest = dest.trim();
@@ -26,27 +32,53 @@ pub fn resolve(dest: &str, source_path: Option<&Path>) -> Option<Resolved> {
         return Some(Resolved::Remote(dest.to_string()));
     }
     if starts_with_ascii_case_insensitive(dest, b"file:") {
+        if file_url_has_remote_authority(dest) {
+            return Some(Resolved::Network(dest.to_string()));
+        }
         let path = parse_file_url(dest)?;
-        return Some(Resolved::Local(normalize_local(path)));
+        return Some(Resolved::Local(normalize_local(&path)));
     }
-
     if has_rejected_scheme(dest) {
         return None;
     }
-    let path = PathBuf::from(dest);
-    if path.is_absolute() || looks_like_windows_path(dest) {
-        return Some(Resolved::Local(normalize_local(path)));
+    let dest = percent_decode_local(dest);
+    let path = PathBuf::from(&dest);
+    if path.is_absolute() || looks_like_windows_path(&dest) {
+        return Some(unc_or_local(&dest, &path));
     }
     let parent = source_path.and_then(Path::parent)?;
-    Some(Resolved::Local(normalize_local(parent.join(dest))))
+    let joined = parent.join(&dest);
+    Some(unc_or_local(&joined.to_string_lossy(), &joined))
+}
+
+fn percent_decode_local(dest: &str) -> String {
+    percent_encoding::percent_decode_str(dest)
+        .decode_utf8()
+        .map(|decoded| decoded.into_owned())
+        .unwrap_or_else(|_| dest.to_string())
+}
+
+fn unc_or_local(dest: &str, path: &Path) -> Resolved {
+    if is_unc_target(dest) {
+        Resolved::Network(dest.to_string())
+    } else {
+        Resolved::Local(normalize_local(path))
+    }
 }
 
 pub fn load_source(resolved: Resolved, allow_remote: bool, cx: &mut App) -> SourceLoad {
     match resolved {
-        Resolved::Remote(_) if !allow_remote => Box::pin(async {
-            Err(crate::Error::Image(
+        Resolved::Remote(_) | Resolved::Network(_) if !allow_remote => Box::pin(async {
+            Err(SourceError::Fatal(crate::Error::Image(
                 md_i18n::Key::ImageRemoteDisabled.into(),
-            ))
+            )))
+        }),
+        Resolved::Network(_) => Box::pin(async {
+            Err(SourceError::Fatal(crate::Error::Image(
+                "network filesystem paths are not supported"
+                    .to_owned()
+                    .into(),
+            )))
         }),
         Resolved::Remote(url) => load_remote(url, cx),
         Resolved::Local(path) => load_local(path, cx),
@@ -60,9 +92,12 @@ pub fn load_source(resolved: Resolved, allow_remote: bool, cx: &mut App) -> Sour
 
 fn load_local(path: PathBuf, cx: &mut App) -> SourceLoad {
     if file_too_big(&path) {
-        return Box::pin(async { Err(crate::Error::Image(md_i18n::Key::ImageTooLarge.into())) });
+        return Box::pin(async {
+            Err(SourceError::Fatal(crate::Error::Image(
+                md_i18n::Key::ImageTooLarge.into(),
+            )))
+        });
     }
-
     decode_bytes_from_path(path.clone(), format_from_path(&path), cx)
 }
 
@@ -73,7 +108,7 @@ fn load_remote(url: String, cx: &mut App) -> SourceLoad {
         let mut response = client
             .get(&url, ().into(), true)
             .await
-            .map_err(|e| crate::Error::Image(e.to_string().into()))?;
+            .map_err(|e| SourceError::retryable(crate::Error::Image(e.to_string().into())))?;
         let status = response.status();
         let mut bytes = Vec::new();
         response
@@ -81,25 +116,51 @@ fn load_remote(url: String, cx: &mut App) -> SourceLoad {
             .take(MAX_FETCH as u64 + 1)
             .read_to_end(&mut bytes)
             .await
-            .map_err(|e| crate::Error::Image(e.to_string().into()))?;
+            .map_err(|e| SourceError::retryable(crate::Error::Image(e.to_string().into())))?;
         if !status.is_success() {
-            return Err(crate::Error::Image(
-                format!("unexpected http status for {url}: {status}").into(),
-            ));
+            let err =
+                crate::Error::Image(format!("unexpected http status for {url}: {status}").into());
+            let code = status.as_u16();
+            if status.is_server_error() || code == 429 || code == 408 {
+                let retry_after = parse_retry_after(response.headers());
+                return Err(SourceError::Retryable { err, retry_after });
+            }
+            return Err(SourceError::Fatal(err));
         }
         if bytes.len() > MAX_FETCH {
-            return Err(crate::Error::Image(md_i18n::Key::ImageTooLarge.into()));
+            return Err(SourceError::Fatal(crate::Error::Image(
+                md_i18n::Key::ImageTooLarge.into(),
+            )));
         }
-        let format = detect_format(&bytes)
-            .ok_or_else(|| crate::Error::Image("unsupported image format".to_owned().into()))?;
+        let bytes = decompress_svgz_bounded(bytes)?;
+        let format = detect_format(&bytes).ok_or_else(|| {
+            SourceError::Fatal(crate::Error::Image(
+                "unsupported image format".to_owned().into(),
+            ))
+        })?;
         validate_image_dimensions(format, &bytes)?;
         Image::from_bytes(format, bytes)
             .to_image_data(svg)
-            .map_err(|e| crate::Error::Image(e.to_string().into()))
+            .map_err(|e| SourceError::Fatal(crate::Error::Image(e.to_string().into())))
+            .map(|img| {
+                if format == ImageFormat::Svg {
+                    svg_bgra(img)
+                } else {
+                    img
+                }
+            })
             .and_then(|img| {
-                native_dims(img).ok_or_else(|| crate::Error::Image(md_i18n::Key::ImageEmpty.into()))
+                native_dims(img).ok_or_else(|| {
+                    SourceError::Fatal(crate::Error::Image(md_i18n::Key::ImageEmpty.into()))
+                })
             })
     })
+}
+
+pub(super) fn parse_retry_after(headers: &http_client::http::HeaderMap) -> Option<Duration> {
+    let value = headers.get("Retry-After")?.to_str().ok()?;
+    let secs: u64 = value.trim().parse().ok()?;
+    Some(Duration::from_secs(secs).clamp(SOURCE_RETRY_BASE, SOURCE_RETRY_MAX))
 }
 
 fn decode_bytes_from_path(path: PathBuf, format: Option<ImageFormat>, cx: &mut App) -> SourceLoad {
@@ -107,17 +168,31 @@ fn decode_bytes_from_path(path: PathBuf, format: Option<ImageFormat>, cx: &mut A
     Box::pin(async move {
         let bytes = std::fs::read(&path).map_err(|e| crate::Error::Image(e.to_string().into()))?;
         if bytes.len() > MAX_FETCH {
-            return Err(crate::Error::Image(md_i18n::Key::ImageTooLarge.into()));
+            return Err(SourceError::Fatal(crate::Error::Image(
+                md_i18n::Key::ImageTooLarge.into(),
+            )));
         }
-        let format = format
-            .or_else(|| detect_format(&bytes))
-            .ok_or_else(|| crate::Error::Image("unsupported image format".to_owned().into()))?;
+        let bytes = decompress_svgz_bounded(bytes)?;
+        let format = format.or_else(|| detect_format(&bytes)).ok_or_else(|| {
+            SourceError::Fatal(crate::Error::Image(
+                "unsupported image format".to_owned().into(),
+            ))
+        })?;
         validate_image_dimensions(format, &bytes)?;
         Image::from_bytes(format, bytes)
             .to_image_data(svg)
-            .map_err(|e| crate::Error::Image(e.to_string().into()))
+            .map_err(|e| SourceError::Fatal(crate::Error::Image(e.to_string().into())))
+            .map(|img| {
+                if format == ImageFormat::Svg {
+                    svg_bgra(img)
+                } else {
+                    img
+                }
+            })
             .and_then(|img| {
-                native_dims(img).ok_or_else(|| crate::Error::Image(md_i18n::Key::ImageEmpty.into()))
+                native_dims(img).ok_or_else(|| {
+                    SourceError::Fatal(crate::Error::Image(md_i18n::Key::ImageEmpty.into()))
+                })
             })
     })
 }
@@ -133,16 +208,66 @@ fn decode_data(
         let bytes = decode_data_payload(&payload, encoding)
             .ok_or_else(|| crate::Error::Image(md_i18n::Key::ImageBadPath.into()))?;
         if bytes.len() > MAX_FETCH {
-            return Err(crate::Error::Image(md_i18n::Key::ImageTooLarge.into()));
+            return Err(SourceError::Fatal(crate::Error::Image(
+                md_i18n::Key::ImageTooLarge.into(),
+            )));
         }
+        let bytes = decompress_svgz_bounded(bytes)?;
         validate_image_dimensions(format, &bytes)?;
         Image::from_bytes(format, bytes)
             .to_image_data(svg)
-            .map_err(|e| crate::Error::Image(e.to_string().into()))
+            .map_err(|e| SourceError::Fatal(crate::Error::Image(e.to_string().into())))
+            .map(|img| {
+                if format == ImageFormat::Svg {
+                    svg_bgra(img)
+                } else {
+                    img
+                }
+            })
             .and_then(|img| {
-                native_dims(img).ok_or_else(|| crate::Error::Image(md_i18n::Key::ImageEmpty.into()))
+                native_dims(img).ok_or_else(|| {
+                    SourceError::Fatal(crate::Error::Image(md_i18n::Key::ImageEmpty.into()))
+                })
             })
     })
+}
+
+const MAX_SVG_DECOMPRESSED: usize = MAX_FETCH;
+
+fn decompress_svgz_bounded(bytes: Vec<u8>) -> Result<Vec<u8>, SourceError> {
+    use std::io::Read as _;
+    if !bytes.starts_with(&[0x1f, 0x8b]) {
+        return Ok(bytes);
+    }
+    let mut reader = flate2::read::GzDecoder::new(&bytes[..]).take(MAX_SVG_DECOMPRESSED as u64 + 1);
+    let mut out = Vec::new();
+    reader
+        .read_to_end(&mut out)
+        .map_err(|e| SourceError::Fatal(crate::Error::Image(e.to_string().into())))?;
+    if out.len() > MAX_SVG_DECOMPRESSED {
+        return Err(SourceError::Fatal(crate::Error::Image(
+            md_i18n::Key::ImageTooLarge.into(),
+        )));
+    }
+    Ok(out)
+}
+
+fn svg_bgra(img: Arc<RenderImage>) -> Arc<RenderImage> {
+    let Some(bytes) = img.as_bytes(0) else {
+        return img;
+    };
+    let mut swapped = bytes.to_vec();
+    for pixel in swapped.chunks_exact_mut(4) {
+        pixel.swap(0, 2);
+    }
+    let size = img.size(0);
+    let (w, h) = (size.width.0.max(0) as u32, size.height.0.max(0) as u32);
+    match image::ImageBuffer::from_raw(w, h, swapped) {
+        Some(buffer) => Arc::new(RenderImage::new(smallvec::smallvec![image::Frame::new(
+            buffer,
+        )])),
+        None => img,
+    }
 }
 
 pub(super) fn detect_format(bytes: &[u8]) -> Option<ImageFormat> {
@@ -160,9 +285,20 @@ pub(super) fn detect_format(bytes: &[u8]) -> Option<ImageFormat> {
     if !svg_depth_within_limit(bytes) {
         return None;
     }
-    usvg::Tree::from_data(bytes, &usvg::Options::default())
+    usvg::Tree::from_data(bytes, &svg_parse_options(None))
         .ok()
         .map(|_| ImageFormat::Svg)
+}
+
+fn svg_parse_options(refused: Option<Arc<AtomicBool>>) -> usvg::Options<'static> {
+    let mut opts = usvg::Options::default();
+    opts.image_href_resolver.resolve_string = Box::new(move |_href, _opts| {
+        if let Some(flag) = &refused {
+            flag.store(true, Ordering::Relaxed);
+        }
+        None
+    });
+    opts
 }
 
 const MAX_SVG_DEPTH: usize = 1024;
@@ -244,8 +380,12 @@ pub(super) fn validate_svg_dimensions(bytes: &[u8]) -> Result<(), crate::Error> 
     if !svg_depth_within_limit(bytes) {
         return Err(crate::Error::Image(md_i18n::Key::ImageTooLarge.into()));
     }
-    let tree = usvg::Tree::from_data(bytes, &usvg::Options::default())
+    let refused = Arc::new(AtomicBool::new(false));
+    let tree = usvg::Tree::from_data(bytes, &svg_parse_options(Some(Arc::clone(&refused))))
         .map_err(|e| crate::Error::Image(e.to_string().into()))?;
+    if refused.load(Ordering::Relaxed) {
+        return Err(crate::Error::Image(md_i18n::Key::ImageBadPath.into()));
+    }
     let size = tree.size();
     let pixels = f64::from(size.width()) * f64::from(size.height());
     if pixels > MAX_IMAGE_PIXELS as f64 {
@@ -275,7 +415,108 @@ pub(super) fn validate_image_dimensions(
     if pixels > MAX_IMAGE_PIXELS {
         return Err(crate::Error::Image(md_i18n::Key::ImageTooLarge.into()));
     }
+    validate_decoded_budget(format, bytes, pixels)?;
     Ok(())
+}
+
+const MAX_ANIMATION_FRAMES: u64 = 4096;
+
+const DECODED_BYTES_PER_PIXEL: u64 = 4;
+
+fn validate_decoded_budget(
+    format: ImageFormat,
+    bytes: &[u8],
+    canvas_pixels: u64,
+) -> Result<(), crate::Error> {
+    let frames = match format {
+        ImageFormat::Gif => gif_frame_count(bytes).unwrap_or(u64::MAX),
+        ImageFormat::Webp => webp_frame_count(bytes).unwrap_or(u64::MAX),
+        _ => 1,
+    };
+    if frames > MAX_ANIMATION_FRAMES {
+        return Err(crate::Error::Image(md_i18n::Key::ImageTooLarge.into()));
+    }
+    let decoded = canvas_pixels
+        .saturating_mul(frames)
+        .saturating_mul(DECODED_BYTES_PER_PIXEL);
+    if decoded > MAX_SOURCE_BYTES as u64 {
+        return Err(crate::Error::Image(md_i18n::Key::ImageTooLarge.into()));
+    }
+    Ok(())
+}
+
+pub(super) fn gif_frame_count(bytes: &[u8]) -> Option<u64> {
+    if bytes.len() < 13 || (&bytes[..6] != b"GIF87a" && &bytes[..6] != b"GIF89a") {
+        return None;
+    }
+    let packed = bytes[10];
+    let mut i = 13 + color_table_len(packed);
+    let mut frames = 0u64;
+    while i < bytes.len() {
+        match bytes[i] {
+            b';' => return Some(frames),
+            b'!' => {
+                i = skip_data_sub_blocks(bytes, i + 2)?;
+            }
+            b',' => {
+                if i + 10 > bytes.len() {
+                    return None;
+                }
+                i += 10 + color_table_len(bytes[i + 9]);
+                if i >= bytes.len() {
+                    return None;
+                }
+                i = skip_data_sub_blocks(bytes, i + 1)?;
+                frames += 1;
+            }
+            _ => return None,
+        }
+    }
+    None
+}
+
+fn color_table_len(packed: u8) -> usize {
+    if packed & 0x80 != 0 {
+        3 * (1usize << ((packed & 0x07) + 1))
+    } else {
+        0
+    }
+}
+
+fn skip_data_sub_blocks(bytes: &[u8], mut i: usize) -> Option<usize> {
+    while i < bytes.len() {
+        let len = usize::from(bytes[i]);
+        i += 1 + len;
+        if len == 0 {
+            return Some(i);
+        }
+    }
+    None
+}
+
+pub(super) fn webp_frame_count(bytes: &[u8]) -> Option<u64> {
+    if bytes.len() < 12 || &bytes[..4] != b"RIFF" || &bytes[8..12] != b"WEBP" {
+        return None;
+    }
+    let mut i = 12;
+    let mut frames = 0u64;
+    while i < bytes.len() {
+        if i + 8 > bytes.len() {
+            return None;
+        }
+        let tag = &bytes[i..i + 4];
+        let size =
+            u32::from_le_bytes([bytes[i + 4], bytes[i + 5], bytes[i + 6], bytes[i + 7]]) as usize;
+        let next = i + 8 + size + (size & 1);
+        if next > bytes.len() {
+            return None;
+        }
+        if tag == b"ANMF" {
+            frames += 1;
+        }
+        i = next;
+    }
+    Some(frames.max(1))
 }
 
 fn is_http_url(dest: &str) -> bool {
@@ -297,6 +538,33 @@ fn looks_like_windows_path(dest: &str) -> bool {
         return true;
     }
     b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/')
+}
+
+fn is_unc_target(dest: &str) -> bool {
+    let s = dest.replace('/', "\\");
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        return !rest.is_empty();
+    }
+    if s.starts_with(r"\\?\") || s.starts_with(r"\\.\") {
+        return false;
+    }
+    let Some(rest) = s.strip_prefix(r"\\") else {
+        return false;
+    };
+    !rest.split('\\').next().unwrap_or_default().is_empty()
+}
+
+fn file_url_has_remote_authority(dest: &str) -> bool {
+    let Some(url) = http_client::Url::parse(dest).ok() else {
+        return false;
+    };
+    if url.scheme() != "file" {
+        return false;
+    }
+    match url.host_str() {
+        Some(host) => !host.eq_ignore_ascii_case("localhost"),
+        None => false,
+    }
 }
 
 fn has_rejected_scheme(dest: &str) -> bool {
@@ -322,13 +590,10 @@ fn has_rejected_scheme(dest: &str) -> bool {
     !rest.is_empty()
 }
 
-fn normalize_local(path: PathBuf) -> PathBuf {
-    match path.canonicalize() {
-        Ok(p) => strip_verbatim(p),
-        Err(_) => std::path::absolute(&path)
-            .map(strip_verbatim)
-            .unwrap_or(path),
-    }
+fn normalize_local(path: &Path) -> PathBuf {
+    std::path::absolute(path)
+        .map(strip_verbatim)
+        .unwrap_or_else(|_| path.to_path_buf())
 }
 
 fn strip_verbatim(path: PathBuf) -> PathBuf {
@@ -364,14 +629,14 @@ pub fn is_image_path(path: &Path) -> bool {
 }
 
 pub fn markdown_dest(image: &Path, source_path: Option<&Path>) -> String {
-    let image = normalize_local(image.to_path_buf());
+    let image = normalize_local(image);
     let Some(md) = source_path else {
         return path_to_dest(&image);
     };
     let Some(parent) = md.parent().filter(|p| !p.as_os_str().is_empty()) else {
         return path_to_dest(&image);
     };
-    let parent = normalize_local(parent.to_path_buf());
+    let parent = normalize_local(parent);
     match relative_to(&parent, &image) {
         Some(rel) if !rel.as_os_str().is_empty() => path_to_dest(&rel),
         _ => path_to_dest(&image),

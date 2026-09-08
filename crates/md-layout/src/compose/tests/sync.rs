@@ -248,15 +248,11 @@ fn toggling_one_list_does_not_restyle_its_twin() {
         .filter(|&id| doc.arena.get(id).map(|n| n.kind) == Some(BlockKind::List))
         .map(|id| LayoutBoxId::frame(id.index))
         .collect();
-    assert_eq!(
-        lists.len(),
-        2,
-        "the fixture must contain two parallel lists"
-    );
+    assert_eq!(lists.len(), 2, "the fixture needs two parallel lists");
     assert_eq!(
         tree.get(lists[0]).style_id,
         tree.get(lists[1]).style_id,
-        "the two lists must start out sharing one interned style, or this test cannot prove the aliasing problem"
+        "the two lists start out sharing one resident style, or this case proves nothing about aliasing"
     );
     let untouched_before = *tree.style(lists[1]);
 
@@ -469,5 +465,121 @@ fn insert_row_above_header_retargets_type_slot() {
     assert_eq!(
         tree.nodes.get(&cell_box).map(|n| n.type_slot),
         cold.nodes.get(&cell_box).map(|n| n.type_slot)
+    );
+}
+
+#[test]
+fn deleted_row_leaves_no_orphan_boxes_behind() {
+    use md_core::document::{Caret, Command, Sel, TableOp, apply};
+
+    let mut doc = load_markdown("| a | b |\n| --- | --- |\n| c | d |\n", editor_options());
+    let header = doc
+        .text_leaves()
+        .into_iter()
+        .find(|&id| doc.text_of(id) == Some("a"))
+        .expect("header cell");
+    let layout = layout();
+    let mut tree = compose(&doc, &layout);
+    let _ = doc.take_changes();
+
+    let _ = apply(
+        &mut doc,
+        Sel::collapsed(Caret {
+            block: header,
+            offset: 0,
+        }),
+        Command::Table(TableOp::DeleteRow),
+    );
+    let changes = doc.take_changes();
+    let _ = sync_layout(&mut tree, &doc, &changes, &layout);
+
+    let cold = compose(&doc, &layout);
+    assert_box_sets_match(&tree, &cold);
+}
+
+#[test]
+fn undone_lift_keeps_migrated_boxes_under_their_new_host() {
+    use md_core::doc::Doc;
+    use md_core::document::{Caret, Command, Sel};
+
+    let mut doc = Doc::new(load_markdown(
+        "- a\n  - b\n    - c\n  - d\n",
+        editor_options(),
+    ));
+    let caret = doc
+        .document
+        .text_leaves()
+        .into_iter()
+        .find(|&leaf| doc.text(leaf) == Some("b"))
+        .expect("b paragraph");
+    let layout = layout();
+    let mut tree = compose(&doc.document, &layout);
+    let _ = doc.take_changes();
+
+    let _ = doc.apply(
+        Sel::collapsed(Caret {
+            block: caret,
+            offset: 0,
+        }),
+        Command::Outdent,
+    );
+    let lifted = doc.take_changes();
+    let _ = sync_layout(&mut tree, &doc.document, &lifted, &layout);
+    assert_box_sets_match(&tree, &compose(&doc.document, &layout));
+
+    let _ = doc.undo().expect("undo outdent");
+    let replayed = doc.take_changes();
+    let _ = sync_layout(&mut tree, &doc.document, &replayed, &layout);
+    assert_box_sets_match(&tree, &compose(&doc.document, &layout));
+}
+
+fn assert_box_sets_match(hot: &crate::box_tree::BoxTree, cold: &crate::box_tree::BoxTree) {
+    assert_eq!(
+        hot.nodes.len(),
+        cold.nodes.len(),
+        "hot has {} boxes, cold has {} — residue or over-drop",
+        hot.nodes.len(),
+        cold.nodes.len()
+    );
+    for (id, node) in &cold.nodes {
+        let Some(hot_node) = hot.nodes.get(id) else {
+            panic!("hot tree is missing {id:?} ({:?})", node.kind);
+        };
+        assert_eq!(hot_node.kind, node.kind, "kind drift at {id:?}");
+    }
+}
+
+#[test]
+fn repeated_list_moves_do_not_retain_unowned_text_snapshots() {
+    use md_core::document::{Caret, Command, Sel, apply};
+
+    let mut doc = load_markdown("- a\n- b\n", editor_options());
+    let layout = layout();
+    let mut tree = compose(&doc, &layout);
+    let block = doc.text_leaves()[1];
+    let _ = doc.take_changes();
+    for _ in 0..10 {
+        for command in [Command::Indent, Command::Outdent] {
+            apply(
+                &mut doc,
+                Sel::collapsed(Caret { block, offset: 0 }),
+                command,
+            );
+            let changes = doc.take_changes();
+            assert!(!changes.is_empty());
+            sync_layout(&mut tree, &doc, &changes, &layout);
+        }
+    }
+    let live_texts = tree
+        .nodes()
+        .values()
+        .filter(|node| node.text_id().is_some())
+        .count();
+    let cold = compose(&doc, &layout);
+    assert_eq!(cold.intern().len(), live_texts, "fixture sanity: cold tree");
+    assert_eq!(
+        tree.intern().len(),
+        live_texts,
+        "moved boxes must release the snapshots they replace"
     );
 }

@@ -26,14 +26,13 @@ mod tests {
         assert_eq!(dpr_q(1.0), 4);
         assert_eq!(dpr_q(1.5), 6);
         assert_eq!(dpr_q(2.0), 8);
-
         assert_eq!(dpr_q(0.1), 4);
         assert_eq!(dpr_q(9.0), 16);
         for q in [4u16, 6, 8, 16] {
             assert_eq!(
                 dpr_q(f64::from(dpr_from_q(q))),
                 q,
-                "q={q} did not round-trip"
+                "q={q} does not round-trip"
             );
         }
     }
@@ -46,9 +45,12 @@ mod tests {
                 let device = snapped * dpr;
                 assert!(
                     (device - device.round()).abs() < 1e-3,
-                    "css={css} dpr={dpr} snapped to {device}, which is not a whole pixel"
+                    "css={css} dpr={dpr}: the snapped {device} is not a whole pixel"
                 );
-                assert!(snapped * dpr >= 1.0, "css={css} dpr={dpr} snapped to zero");
+                assert!(
+                    snapped * dpr >= 1.0,
+                    "css={css} dpr={dpr}: snapped down to zero"
+                );
             }
         }
     }

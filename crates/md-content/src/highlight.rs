@@ -182,80 +182,102 @@ fn highlight(canon: &'static str, text: &str) -> Option<Vec<Span>> {
 }
 
 fn config_for(canon: &str) -> Option<HighlightConfiguration> {
-    let (language, name, query) = match canon {
+    let (language, name, base, increments): (_, _, _, &[&str]) = match canon {
         "rust" => (
             tree_sitter_rust::LANGUAGE.into(),
             "rust",
             tree_sitter_rust::HIGHLIGHTS_QUERY,
+            &[],
         ),
         "python" => (
             tree_sitter_python::LANGUAGE.into(),
             "python",
             tree_sitter_python::HIGHLIGHTS_QUERY,
+            &[],
         ),
         "javascript" => (
             tree_sitter_javascript::LANGUAGE.into(),
             "javascript",
             tree_sitter_javascript::HIGHLIGHT_QUERY,
+            &[],
         ),
         "typescript" => (
             tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
             "typescript",
-            tree_sitter_typescript::HIGHLIGHTS_QUERY,
+            tree_sitter_javascript::HIGHLIGHT_QUERY,
+            &[tree_sitter_typescript::HIGHLIGHTS_QUERY],
         ),
         "tsx" => (
             tree_sitter_typescript::LANGUAGE_TSX.into(),
             "tsx",
-            tree_sitter_typescript::HIGHLIGHTS_QUERY,
+            tree_sitter_javascript::HIGHLIGHT_QUERY,
+            &[
+                tree_sitter_javascript::JSX_HIGHLIGHT_QUERY,
+                tree_sitter_typescript::HIGHLIGHTS_QUERY,
+            ],
         ),
         "json" => (
             tree_sitter_json::LANGUAGE.into(),
             "json",
             tree_sitter_json::HIGHLIGHTS_QUERY,
+            &[],
         ),
         "toml" => (
             tree_sitter_toml_ng::LANGUAGE.into(),
             "toml",
             tree_sitter_toml_ng::HIGHLIGHTS_QUERY,
+            &[],
         ),
         "bash" => (
             tree_sitter_bash::LANGUAGE.into(),
             "bash",
             tree_sitter_bash::HIGHLIGHT_QUERY,
+            &[],
         ),
         "go" => (
             tree_sitter_go::LANGUAGE.into(),
             "go",
             tree_sitter_go::HIGHLIGHTS_QUERY,
+            &[],
         ),
         "c" => (
             tree_sitter_c::LANGUAGE.into(),
             "c",
             tree_sitter_c::HIGHLIGHT_QUERY,
+            &[],
         ),
         "cpp" => (
             tree_sitter_cpp::LANGUAGE.into(),
             "cpp",
             tree_sitter_cpp::HIGHLIGHT_QUERY,
+            &[],
         ),
         "html" => (
             tree_sitter_html::LANGUAGE.into(),
             "html",
             tree_sitter_html::HIGHLIGHTS_QUERY,
+            &[],
         ),
         "css" => (
             tree_sitter_css::LANGUAGE.into(),
             "css",
             tree_sitter_css::HIGHLIGHTS_QUERY,
+            &[],
         ),
         "yaml" => (
             tree_sitter_yaml::LANGUAGE.into(),
             "yaml",
             tree_sitter_yaml::HIGHLIGHTS_QUERY,
+            &[],
         ),
         _ => return None,
     };
-    let mut cfg = HighlightConfiguration::new(language, name, query, "", "").ok()?;
+    let mut query = base.to_owned();
+    for increment in increments {
+        query.push('\n');
+        query.push_str(increment);
+    }
+    let mut cfg = HighlightConfiguration::new(language, name, &query, "", "").ok()?;
     cfg.configure(CAPTURES);
     Some(cfg)
 }
@@ -375,6 +397,44 @@ mod tests {
         assert!(got.iter().any(|s| s.role == SyntaxRole::String));
         assert_eq!(got.first().map(|s| s.start), Some(0));
         assert_eq!(got.last().map(|s| s.end), Some(src.len()));
+    }
+
+    #[test]
+    fn typescript_and_tsx_inherit_javascript_highlights() {
+        let src = "const answer = \"hello\"; function twice(n) { return n * 2; }\n";
+        for lang in ["javascript", "typescript", "ts", "tsx"] {
+            let got = spans(lang, src);
+            assert!(
+                got.iter().any(|s| s.role == SyntaxRole::Keyword),
+                "{lang}: JS keywords are not highlighted"
+            );
+            assert!(
+                got.iter().any(|s| s.role == SyntaxRole::String),
+                "{lang}: JS strings are not highlighted"
+            );
+        }
+    }
+
+    #[test]
+    fn typescript_and_tsx_keep_their_own_increments() {
+        let src = "interface Box<T> { value: T; }\n";
+        for lang in ["typescript", "ts", "tsx"] {
+            let got = spans(lang, src);
+            assert!(
+                got.iter().any(|s| s.role == SyntaxRole::TypeName),
+                "{lang}: TS types are not highlighted"
+            );
+        }
+    }
+
+    #[test]
+    fn tsx_includes_jsx_highlights() {
+        let src = "const el = <div className=\"x\">{answer}</div>;\n";
+        let got = spans("tsx", src);
+        assert!(
+            got.iter().any(|s| s.role == SyntaxRole::Function),
+            "tsx: JSX tags are not highlighted (role_for maps tag to Function)"
+        );
     }
 
     #[test]

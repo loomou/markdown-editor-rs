@@ -70,7 +70,6 @@ impl Shell {
         let autosave = settings.autosave;
         let remote_images = settings.remote_images;
         self.settings = settings;
-
         self.color_picker = None;
         self.sync_editor_theme(cx);
         self.sync_editor_keymap(cx);
@@ -96,7 +95,6 @@ impl Shell {
             return None;
         }
         let path = store.path().to_path_buf();
-
         self.settings_mtime = mtime_of(&path);
         Some(path)
     }

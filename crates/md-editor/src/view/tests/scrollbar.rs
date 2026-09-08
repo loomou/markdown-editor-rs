@@ -70,26 +70,19 @@ fn well_bar_shown_when_content_overflows() {
 fn well_scroll_axis_write_leaves_the_other_axis_alone() {
     let s = WellScroll { x: 3.0, y: 7.0 };
     let moved_y = s.with_axis(true, 99.0);
-    assert_eq!(
-        moved_y.y, 99.0,
-        "the vertical axis should have been replaced"
-    );
+    assert_eq!(moved_y.y, 99.0, "the vertical axis should be replaced");
     assert_eq!(
         moved_y.x, 3.0,
-        "writing the vertical axis should not touch the horizontal axis"
+        "a write on the vertical axis must not move the horizontal one"
     );
     let moved_x = s.with_axis(false, 99.0);
-    assert_eq!(
-        moved_x.x, 99.0,
-        "the horizontal axis should have been replaced"
-    );
+    assert_eq!(moved_x.x, 99.0, "the horizontal axis should be replaced");
     assert_eq!(
         moved_x.y, 7.0,
-        "writing the horizontal axis should not touch the vertical axis"
+        "a write on the horizontal axis must not move the vertical one"
     );
     assert_eq!(s.along_axis(true), 7.0);
     assert_eq!(s.along_axis(false), 3.0);
-
     assert_eq!(s.with_axis(true, 42.0).along_axis(true), 42.0);
     assert_eq!(s.with_axis(false, 42.0).along_axis(false), 42.0);
 }
@@ -102,11 +95,7 @@ fn well_bar_axis_pickers_follow_the_bar_direction() {
     assert_eq!(v.thumb_start(), v.thumb_y);
     assert_eq!(v.thumb_len(), v.thumb_h);
     let h = WellBar::horizontal(400.0, 200.0, 0.0, 800.0, &c).expect("x overflow");
-    assert_eq!(
-        h.along(11.0, 22.0),
-        11.0,
-        "the horizontal bar should read x"
-    );
+    assert_eq!(h.along(11.0, 22.0), 11.0, "a horizontal bar should read x");
     assert_eq!(h.thumb_start(), h.thumb_x);
     assert_eq!(h.thumb_len(), h.thumb_w);
 }
@@ -114,7 +103,6 @@ fn well_bar_axis_pickers_follow_the_bar_direction() {
 #[test]
 fn well_bar_on_axis_matches_the_explicit_constructors() {
     let c = chrome();
-
     let hit = WellHit {
         id: 0,
         x: 0.0,

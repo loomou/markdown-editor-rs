@@ -236,23 +236,18 @@ fn long_spine(len: u32) -> FlowSpine {
 fn splice_patches_index_without_full_rebuild() {
     let mut spine = long_spine(900);
     assert_index_matches_scratch(&spine);
-
     let mut next = 5000u32;
     let mut fresh = |h: Px| {
         next += 1;
         content(next, next, h)
     };
-
     spine.splice(300, 0, vec![fresh(11.0), fresh(12.0)]);
     assert_index_matches_scratch(&spine);
-
     spine.splice(250, 20, Vec::new());
     assert_index_matches_scratch(&spine);
-
     let replacement: Vec<FlowItem> = (0..3).map(|_| fresh(3.0)).collect();
     spine.splice(100, 400, replacement);
     assert_index_matches_scratch(&spine);
-
     spine.splice(0, 1, vec![fresh(9.0)]);
     assert_index_matches_scratch(&spine);
     let end = spine.len();
@@ -260,11 +255,9 @@ fn splice_patches_index_without_full_rebuild() {
     assert_index_matches_scratch(&spine);
     spine.splice(spine.len() - 1, 1, Vec::new());
     assert_index_matches_scratch(&spine);
-
     let id = spine.item_at(spine.len() / 2).id;
     spine.set_height(id, HeightState::Exact(41.0));
     assert_index_matches_scratch(&spine);
-
     spine.splice(0, spine.len(), Vec::new());
     assert_eq!(spine.total_height(), 0.0);
     assert_index_matches_scratch(&spine);
@@ -293,14 +286,12 @@ fn repeated_splices_at_one_spot_keep_the_index_compact() {
     let mut spine = long_spine(600);
     assert_chunks_are_occupied(&spine);
     let mut next = 9000u32;
-
     for _ in 0..300 {
         next += 1;
         spine.splice(300, 1, vec![content(next, next, 2.0)]);
         assert_chunks_are_occupied(&spine);
     }
     assert_index_matches_scratch(&spine);
-
     while spine.len() > 4 {
         spine.splice(spine.len() / 2, 3, Vec::new());
         assert_chunks_are_occupied(&spine);
@@ -394,7 +385,6 @@ fn expand_visible_patches_index_without_full_rebuild() {
         "expansion must patch the index, not rebuild it"
     );
     assert_index_matches_scratch(&spine);
-
     assert_eq!(spine.expand_visible(&tree, 0.0, 600.0, &estimate), 0);
     assert_index_matches_scratch(&spine);
 
@@ -409,7 +399,6 @@ fn expand_to_patches_index_without_full_rebuild() {
     let theme = padded_theme();
     let tree = crate::compose::compose(&doc, &theme);
     let mut spine = FlowSpine::flatten(&tree, 800.0, &estimate);
-
     let target = doc
         .text_leaves()
         .into_iter()
@@ -426,7 +415,6 @@ fn expand_to_patches_index_without_full_rebuild() {
     );
     assert!(spine.content_id(target).is_some());
     assert_index_matches_scratch(&spine);
-
     assert!(spine.expand_to(&tree, target, &estimate));
     assert_index_matches_scratch(&spine);
 }
@@ -612,7 +600,6 @@ fn records_stay_on_the_tree_across_flatten_expand_and_splice() {
     assert_records_on_tree(&spine, &tree);
 
     let leaf = doc.text_leaves()[0];
-
     let victim = doc.text_leaves()[1];
     let changes = doc.split_leaf(leaf, 3).0;
     let replaced = crate::compose::sync_layout(&mut tree, &doc, &changes, &theme);
@@ -823,5 +810,250 @@ fn demote_content_keeps_item_id_and_total_height() {
     assert_eq!(spine.location(fid), Some(pos));
     assert!(spine.content_id(box_id).is_none());
     assert_eq!(spine.collapsed_id(box_id), Some(fid));
+    assert_records_on_tree(&spine, &tree);
+}
+
+fn zero_theme() -> crate::compose::LayoutTheme {
+    use crate::style::{BoxDisplay, BoxLayoutStyle, Edges};
+    crate::compose::LayoutTheme::from_resolver(|_| BoxLayoutStyle {
+        display: BoxDisplay::FlowStack,
+        margin: Edges::ZERO,
+        padding: Edges::ZERO,
+        border: Edges::ZERO,
+        gap: 0.0,
+    })
+}
+
+fn constant_height(_id: LayoutBoxId, _avail: Px) -> HeightState {
+    HeightState::Exact(10.0)
+}
+
+fn list_box_of(doc: &md_core::document::Document) -> LayoutBoxId {
+    doc.preorder()
+        .into_iter()
+        .find(|&id| doc.arena.get(id).unwrap().kind == md_core::block::BlockKind::List)
+        .map(|id| LayoutBoxId::frame(id.index))
+        .expect("a list")
+}
+
+#[test]
+fn refreshing_unchanged_loose_list_gaps_preserves_geometry() {
+    let doc = md_core::document::load_markdown("- a\n\n- b\n", md_core::document::editor_options());
+    let tree = crate::compose::compose(&doc, &zero_theme());
+    let list_box = list_box_of(&doc);
+    assert_eq!(
+        tree.style(list_box).gap,
+        20.0,
+        "fixture must be a loose list"
+    );
+    let mut spine = FlowSpine::flatten(&tree, 800.0, &constant_height);
+    let _ = spine.expand_visible(&tree, 0.0, spine.total_height(), &constant_height);
+    let before = spine.total_height();
+    assert!(spine.refresh_gaps_of(&tree, list_box));
+    assert_eq!(
+        spine.total_height(),
+        before,
+        "refresh must be idempotent when all styles and children are unchanged"
+    );
+    assert_index_matches_scratch(&spine);
+}
+
+#[test]
+fn gap_refresh_handles_released_list_items() {
+    let doc =
+        md_core::document::load_markdown("- a\n- b\n- c\n", md_core::document::editor_options());
+    let mut tree = crate::compose::compose(&doc, &zero_theme());
+    let list_box = list_box_of(&doc);
+    let mut spine = FlowSpine::flatten(&tree, 800.0, &constant_height);
+    let _ = spine.expand_visible(&tree, 0.0, 5.0, &constant_height);
+    let targets = spine.next_release_targets(&tree, 0.0, 5.0, None, &[], 8);
+    let released = targets[0];
+    let height = spine.box_item_height(released).expect("item height");
+    crate::compose::defer_composed(&mut tree, released, height);
+    assert!(tree.deferred_height(released).is_some());
+    assert!(
+        spine.refresh_gaps_of(&tree, list_box),
+        "valid cold children must still allow gap refresh"
+    );
+    assert_index_matches_scratch(&spine);
+}
+
+#[test]
+fn failed_expansion_preserves_the_live_collapsed_item() {
+    let doc = md_core::document::load_markdown("a\n\nb\n", md_core::document::editor_options());
+    let tree = crate::compose::compose_window(
+        &doc,
+        &zero_theme(),
+        crate::compose::ComposeWindow {
+            top: 0.0,
+            bottom: 10.0,
+            avail_width: 800.0,
+        },
+        &crate::compose::LeafMetrics {
+            line_height: 20.0,
+            em_width: 16.0,
+            heading1_mult: 1.0,
+            heading_mult: 1.0,
+            table_row_mult: 1.2,
+            mermaid_max_height: 420.0,
+            image_placeholder_height: 80.0,
+            code_max_height: 420.0,
+            math_max_height: 420.0,
+            image_max_height: 720.0,
+        },
+    );
+    let target = LayoutBoxId::frame(doc.text_leaves()[1]);
+    assert!(tree.deferred_height(target).is_some());
+    let mut spine = FlowSpine::flatten(&tree, 800.0, &constant_height);
+    let original = spine
+        .collapsed_id(target)
+        .expect("a pending collapsed item");
+    let len = spine.len();
+    assert!(!spine.expand_to(&tree, target, &constant_height));
+    assert_eq!(
+        spine.collapsed_id(target),
+        Some(original),
+        "an unsuccessful expansion must preserve the pending collapsed item"
+    );
+    assert!(spine.get(original).is_some());
+    assert_eq!(spine.len(), len);
+    assert_index_matches_scratch(&spine);
+}
+
+#[test]
+fn expand_to_handles_an_unrelated_deferred_sibling() {
+    let doc =
+        md_core::document::load_markdown("> a\n>\n> b\n", md_core::document::editor_options());
+    let mut tree = crate::compose::compose(&doc, &zero_theme());
+    let leaves = doc.text_leaves();
+    let first = LayoutBoxId::frame(leaves[0]);
+    let second = LayoutBoxId::frame(leaves[1]);
+    let mut spine = FlowSpine::flatten(&tree, 800.0, &constant_height);
+    let _ = spine.expand_visible(&tree, 0.0, 100.0, &constant_height);
+    let height = spine.demote_content_to_collapsed(second).expect("demote");
+    crate::compose::defer_composed(&mut tree, second, height);
+    assert_eq!(spine.collapse_far(&tree, 1_000.0, 1_010.0, None, &[]), 1);
+    assert!(tree.nodes.contains_key(&first));
+    assert!(tree.deferred_height(second).is_some());
+    assert!(
+        spine.expand_to(&tree, first, &constant_height),
+        "expanding a composed target must tolerate cold siblings"
+    );
+    assert_index_matches_scratch(&spine);
+    assert!(spine.content_id(first).is_some());
+    assert!(spine.collapsed_id(second).is_some());
+}
+
+fn edited_image_doc() -> md_core::document::Document {
+    let mut doc = md_core::doc::Doc::new(md_core::document::load_markdown(
+        "before\n\n![a](u)\n\nafter\n",
+        md_core::document::editor_options(),
+    ));
+    let block = doc
+        .document
+        .text_leaves()
+        .into_iter()
+        .find(|&b| doc.document.kind(b) == Some(md_core::block::BlockKind::Image))
+        .expect("an image");
+    let _ = doc.retarget_focus(md_core::doc::Cursor { block, offset: 0 });
+    assert_eq!(doc.block_edit(), Some(block));
+    doc.document
+}
+
+fn preview_count(spine: &FlowSpine, preview: LayoutBoxId) -> usize {
+    (0..spine.len())
+        .filter(|&p| {
+            matches!(spine.item_at(p).kind, FlowItemKind::Content { box_id } if box_id == preview)
+        })
+        .count()
+}
+
+#[test]
+fn released_preview_is_expanded_once() {
+    let doc = edited_image_doc();
+    let mut tree = crate::compose::compose(&doc, &padded_theme());
+    let mut spine = FlowSpine::flatten(&tree, 800.0, &constant_height);
+    let frame = LayoutBoxId::frame(
+        doc.text_leaves()
+            .into_iter()
+            .find(|&b| doc.kind(b) == Some(md_core::block::BlockKind::Image))
+            .expect("an image"),
+    );
+    let preview = LayoutBoxId::preview(frame.block().expect("owned by a block"));
+    let total = spine.total_height();
+    assert_eq!(preview_count(&spine, preview), 1);
+    let height = spine
+        .demote_content_to_collapsed(frame)
+        .expect("demote frame");
+    spine
+        .demote_content_to_collapsed(preview)
+        .expect("demote preview");
+    crate::compose::defer_composed(&mut tree, frame, height);
+    crate::compose::compose_into(&mut tree, &doc, &padded_theme(), frame);
+    let _ = spine.expand_visible(&tree, 0.0, 10_000.0, &constant_height);
+    assert_eq!(preview_count(&spine, preview), 1);
+    assert_eq!(spine.total_height(), total);
+    assert_index_matches_scratch(&spine);
+    assert_records_on_tree(&spine, &tree);
+}
+
+#[test]
+fn cold_edited_image_expansion_matches_full_geometry() {
+    let doc = edited_image_doc();
+    let metrics = crate::compose::LeafMetrics {
+        line_height: 20.0,
+        em_width: 16.0,
+        heading1_mult: 1.0,
+        heading_mult: 1.0,
+        table_row_mult: 1.2,
+        mermaid_max_height: 420.0,
+        image_placeholder_height: 80.0,
+        code_max_height: 420.0,
+        math_max_height: 420.0,
+        image_max_height: 720.0,
+    };
+    let mut tree = crate::compose::compose_window(
+        &doc,
+        &padded_theme(),
+        crate::compose::ComposeWindow {
+            top: 0.0,
+            bottom: 1.0,
+            avail_width: 800.0,
+        },
+        &metrics,
+    );
+    let frame = LayoutBoxId::frame(
+        doc.text_leaves()
+            .into_iter()
+            .find(|&b| doc.kind(b) == Some(md_core::block::BlockKind::Image))
+            .expect("an image"),
+    );
+    let preview = LayoutBoxId::preview(frame.block().expect("owned by a block"));
+    assert!(tree.deferred_height(frame).is_some());
+    let mut spine = FlowSpine::flatten(&tree, 800.0, &constant_height);
+    crate::compose::compose_into(&mut tree, &doc, &padded_theme(), frame);
+    let remaining: Vec<LayoutBoxId> = doc
+        .text_leaves()
+        .into_iter()
+        .map(LayoutBoxId::frame)
+        .filter(|b| tree.deferred_height(*b).is_some())
+        .collect();
+    for id in remaining {
+        crate::compose::compose_into(&mut tree, &doc, &padded_theme(), id);
+    }
+    let _ = spine.expand_visible(&tree, 0.0, 10_000.0, &constant_height);
+    let full = FlowSpine::flatten(&tree, 800.0, &constant_height);
+    assert_eq!(preview_count(&spine, preview), 1);
+    assert_eq!(spine.total_height(), full.total_height());
+    let expanded = spine
+        .content_id(preview)
+        .and_then(|id| spine.item_top(id))
+        .expect("a preview item");
+    let cold = full
+        .content_id(preview)
+        .and_then(|id| full.item_top(id))
+        .expect("a preview item");
+    assert_eq!(expanded, cold, "preview top must match a full flatten");
+    assert_index_matches_scratch(&spine);
     assert_records_on_tree(&spine, &tree);
 }

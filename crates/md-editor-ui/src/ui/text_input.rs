@@ -77,23 +77,19 @@ fn apply_text_input(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Deletion {
     Backward,
-
     Forward,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Step {
     Grapheme,
-
     Word,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyOutcome {
     Ignored,
-
     Moved,
-
     Edited,
 }
 
@@ -101,15 +97,11 @@ pub enum KeyOutcome {
 pub struct InputStyle {
     pub font: Font,
     pub font_size: Pixels,
-
     pub line_height: Pixels,
     pub text: Hsla,
-
     pub placeholder_color: Hsla,
-
     pub placeholder: SharedString,
     pub selection: Hsla,
-
     pub ime: Hsla,
     pub caret: Hsla,
     pub caret_width: Px,
@@ -118,33 +110,22 @@ pub struct InputStyle {
 pub trait TextInputHost: EntityInputHandler {
     fn input(&self) -> Option<&TextInput>;
     fn input_mut(&mut self) -> Option<&mut TextInput>;
-
     fn input_focus(&self) -> FocusHandle;
     fn caret_live(&self, window: &Window) -> bool;
 }
 
 pub struct TextInput {
     text: String,
-
     selection: Range<usize>,
-
     reversed: bool,
-
     marked: Option<Range<usize>>,
-
     shaped: Option<ShapedLine>,
     bounds: Option<Bounds<Pixels>>,
-
     ime_caret: Option<(Px, Px, Px, Px)>,
-
     selecting: bool,
-
     scroll_x: Pixels,
-
     filter: Option<fn(&str) -> String>,
-
     max_len: Option<usize>,
-
     pub(crate) blink: Blink,
 }
 
@@ -282,7 +263,6 @@ impl TextInput {
         let (Some(bounds), Some(line)) = (self.bounds.as_ref(), self.shaped.as_ref()) else {
             return 0;
         };
-
         let text_left = bounds.left() + self.scroll_x;
         if position.x <= text_left {
             return 0;
@@ -305,7 +285,6 @@ impl TextInput {
         if line_w <= field_w {
             return px(0.);
         }
-
         const EDGE: f32 = 2.0;
         let max_scroll = line_w - field_w;
         let mut at = prev;
@@ -390,7 +369,6 @@ impl TextInput {
             Some(f) => f(text),
             None => text.to_string(),
         };
-
         let text = match self.max_len {
             Some(max) => {
                 let start = floor_char_boundary(&self.text, range.start.min(self.text.len()));
@@ -475,7 +453,6 @@ impl TextInput {
                 }
                 "c" => {
                     self.copy(cx);
-
                     return KeyOutcome::Moved;
                 }
                 "x" => return outcome(self.cut(cx)),
@@ -483,7 +460,6 @@ impl TextInput {
                 _ => {}
             }
         }
-
         #[cfg(target_os = "macos")]
         if primary {
             match key {
@@ -508,7 +484,6 @@ impl TextInput {
                 _ => {}
             }
         }
-
         let step = if crate::ui::chord::word_mod_down(m) {
             Step::Word
         } else {
@@ -546,7 +521,6 @@ impl TextInput {
                 self.move_or_extend(self.text.len(), shift);
                 KeyOutcome::Moved
             }
-
             "backspace" => outcome(self.delete_by(Deletion::Backward, step)),
             "delete" => outcome(self.delete_by(Deletion::Forward, step)),
             _ => KeyOutcome::Ignored,
@@ -643,19 +617,13 @@ impl<V: TextInputHost> IntoElement for TextInputElement<V> {
 
 pub struct InputVisuals {
     line: Option<ShapedLine>,
-
     placeholder: bool,
-
     marked: Option<PaintQuad>,
     selection: Option<PaintQuad>,
     caret: Option<PaintQuad>,
-
     row_origin: Point<Pixels>,
-
     row_h: Pixels,
-
     scroll_x: Pixels,
-
     ime_caret: (Px, Px, Px, Px),
 }
 
@@ -724,7 +692,6 @@ impl<V: TextInputHost> Element for TextInputElement<V> {
             return InputVisuals::absent();
         };
         let scale = window.scale_factor();
-
         let row_h = snap_px(st.line_height, scale);
         let row_origin = point(
             bounds.left(),
@@ -751,7 +718,6 @@ impl<V: TextInputHost> Element for TextInputElement<V> {
         let line = window
             .text_system()
             .shape_line(display, st.font_size, &[run], None);
-
         let caret_in_text = if placeholder {
             px(0.)
         } else {
@@ -762,10 +728,8 @@ impl<V: TextInputHost> Element for TextInputElement<V> {
         } else {
             TextInput::scrolled(scroll_x, caret_in_text, line.width, bounds.size.width)
         };
-
         let scroll_x = snap_px(scroll_x, scale);
         let row_origin = point(row_origin.x + scroll_x, row_origin.y);
-
         let caret_x = if placeholder {
             px(0.)
         } else {
@@ -802,7 +766,6 @@ impl<V: TextInputHost> Element for TextInputElement<V> {
             row_origin,
             row_h,
             scroll_x,
-
             ime_caret: (
                 f32::from(caret_x + scroll_x) as Px,
                 f32::from(row_origin.y - bounds.top()) as Px,
@@ -833,7 +796,6 @@ impl<V: TextInputHost> Element for TextInputElement<V> {
                 host.input().is_some_and(|i| i.blink.visible()),
             )
         };
-
         window.handle_input(
             &focus,
             ElementInputHandler::new(bounds, self.host.clone()),
@@ -846,14 +808,12 @@ impl<V: TextInputHost> Element for TextInputElement<V> {
             window.paint_quad(quad);
         }
         let _ = line.paint(st.row_origin, st.row_h, window, cx);
-
         if live
             && blink_visible
             && let Some(caret) = st.caret.take()
         {
             window.paint_quad(caret);
         }
-
         let shaped = (!st.placeholder).then_some(line);
         let ime_caret = st.ime_caret;
         let scroll_x = st.scroll_x;
@@ -862,9 +822,7 @@ impl<V: TextInputHost> Element for TextInputElement<V> {
                 input.shaped = shaped;
                 input.bounds = Some(bounds);
                 input.ime_caret = Some(ime_caret);
-
                 input.scroll_x = scroll_x;
-
                 input.blink.set_live(live);
             }
         });
@@ -912,12 +870,11 @@ mod tests {
         assert_eq!(
             i.offset_to_utf16(5),
             3,
-            "a surrogate pair counts as two code units"
+            "a surrogate pair counts as two units"
         );
         assert_eq!(i.offset_to_utf16(6), 4);
         assert_eq!(i.offset_from_utf16(3), 5);
         assert_eq!(i.offset_from_utf16(4), 6);
-
         assert_eq!(i.offset_from_utf16(2), 5);
         assert_eq!(i.range_to_utf16(&(1..5)), 1..3);
         assert_eq!(i.range_from_utf16(&(1..3)), 1..5);
@@ -930,14 +887,14 @@ mod tests {
         assert_eq!(i.text_for_utf16(1..3, &mut adjusted), "😀");
         assert_eq!(
             adjusted, None,
-            "exactly on a boundary there is nothing to report"
+            "landing exactly on the boundary needs no report"
         );
         let mut adjusted = None;
         assert_eq!(i.text_for_utf16(1..2, &mut adjusted), "😀");
         assert_eq!(
             adjusted,
             Some(1..3),
-            "asked for half a surrogate pair, got the whole"
+            "half a surrogate pair was asked for but the whole was returned"
         );
     }
 
@@ -973,14 +930,14 @@ mod tests {
         let mut i = TextInput::default();
         assert!(
             !i.replace(0..0, "ni", InputMark::Marked),
-            "mid-composition nothing commits"
+            "mid-composition must not commit"
         );
         assert_eq!(i.text(), "ni");
         assert_eq!(i.marked(), Some(0..2));
         assert!(i.composing());
         assert!(
             i.replace(0..2, "你", InputMark::Plain),
-            "only the confirming edit commits"
+            "only the confirm keystroke commits it"
         );
         assert_eq!(i.text(), "你");
         assert_eq!(i.marked(), None);
@@ -990,14 +947,13 @@ mod tests {
     #[test]
     fn deleting_eats_the_mark_then_the_selection_then_one_char() {
         let mut i = input("a😀b");
-
         i.replace(5..5, "ni", InputMark::Marked);
         assert_eq!(i.text(), "a😀nib");
         assert!(i.delete_by(Deletion::Backward, Step::Grapheme));
         assert_eq!(
             i.text(),
             "a😀b",
-            "the composing run is eaten whole, not one letter"
+            "the marked range is eaten whole, not one letter back"
         );
 
         let mut i = input("hello");
@@ -1007,14 +963,13 @@ mod tests {
         assert_eq!(
             i.text(),
             "ho",
-            "with a selection, either delete eats the selection"
+            "with a selection, both forward and backward delete eat the selection"
         );
         assert_eq!(i.caret(), 1);
 
         let mut i = input("a😀");
         assert!(i.delete_by(Deletion::Backward, Step::Grapheme));
         assert_eq!(i.text(), "a");
-
         assert!(
             !i.delete_by(Deletion::Forward, Step::Grapheme),
             "caret at the end, forward delete has nothing to do"
@@ -1038,7 +993,6 @@ mod tests {
         );
         i.extend_to(9999);
         assert_eq!(i.selection(), 0..6, "past the end it clamps to the end");
-
         i.collapse_to(6);
         i.extend_to(1);
         assert_eq!(i.selection(), 1..6);
@@ -1101,7 +1055,7 @@ mod tests {
             assert_eq!(
                 i.selection(),
                 0..1,
-                "Shift+right extends instead of collapsing"
+                "Shift+Right extends instead of collapsing"
             );
 
             assert_eq!(i.nav_key("a", &primary(), cx), KeyOutcome::Moved);
@@ -1113,7 +1067,7 @@ mod tests {
             assert_eq!(
                 i.nav_key("f", &primary(), cx),
                 KeyOutcome::Ignored,
-                "Ctrl+F is up to the host"
+                "Ctrl+F is the host's business"
             );
         });
     }
@@ -1193,7 +1147,7 @@ mod tests {
             assert_eq!(
                 i.text(),
                 "world",
-                "⌘⌫ deletes the whole stretch before the caret"
+                "⌘⌫ deletes the whole run before the caret"
             );
             assert_eq!(i.caret(), 0);
 
@@ -1201,7 +1155,7 @@ mod tests {
             assert_eq!(
                 i.nav_key("backspace", &primary(), cx),
                 KeyOutcome::Moved,
-                "already at the start: handled, but the text is unchanged"
+                "already at the start: counts as handled but must not change the text"
             );
 
             let mut i = input("hello world");
@@ -1211,7 +1165,7 @@ mod tests {
             assert_eq!(
                 i.text(),
                 " world",
-                "with a selection only the selection is eaten"
+                "with a selection it only eats the selection"
             );
         });
     }
@@ -1225,7 +1179,7 @@ mod tests {
             assert_eq!(
                 i.nav_key("c", &primary(), cx),
                 KeyOutcome::Moved,
-                "copying does not change the text"
+                "copy must not change the text"
             );
             assert_eq!(i.text(), "hello world");
             assert_eq!(
@@ -1281,20 +1235,18 @@ mod tests {
     #[test]
     fn double_click_takes_a_word_and_triple_takes_the_lot() {
         let mut i = input("hello world");
-
         i.mouse_down(point(px(0.), px(0.)), 2, false);
         assert_eq!(
             i.selection(),
             0..5,
-            "double-click selects the word at the caret"
+            "a double click selects the word under the caret"
         );
         i.mouse_down(point(px(0.), px(0.)), 3, false);
         assert_eq!(
             i.selection(),
             0..i.text().len(),
-            "triple-click selects everything"
+            "a triple click selects everything"
         );
-
         let mut e = TextInput::default();
         e.mouse_down(point(px(0.), px(0.)), 2, false);
         assert_eq!(e.selection(), 0..0);
@@ -1303,7 +1255,6 @@ mod tests {
     #[test]
     fn a_long_value_scrolls_to_keep_the_caret_in_view() {
         let field = px(140.);
-
         assert_eq!(
             TextInput::scrolled(px(0.), px(30.), px(100.), field),
             px(0.)
@@ -1311,14 +1262,14 @@ mod tests {
         assert_eq!(
             TextInput::scrolled(px(-50.), px(30.), px(100.), field),
             px(0.),
-            "when the text shrinks to fit, earlier scrolling resets to zero"
+            "once the text shrinks to fit, any earlier scroll must reset to zero"
         );
 
         let at = TextInput::scrolled(px(0.), px(260.), px(260.), field);
-        assert!(at < px(0.), "should scroll left, measured {at:?}");
+        assert!(at < px(0.), "it should scroll left; measured {at:?}");
         assert!(
             f32::from(px(260.) + at) <= f32::from(field),
-            "the caret is still outside the field after scrolling: {at:?}"
+            "after scrolling the caret is still outside the field: {at:?}"
         );
 
         let clamped = TextInput::scrolled(px(-9999.), px(260.), px(260.), field);
@@ -1331,7 +1282,7 @@ mod tests {
         let back = TextInput::scrolled(px(-120.), px(0.), px(260.), field);
         assert!(
             f32::from(back).abs() < 3.0,
-            "caret back at the line start should scroll back, measured {back:?}"
+            "with the caret back at the row start it should scroll back; measured {back:?}"
         );
     }
 
@@ -1341,7 +1292,7 @@ mod tests {
         assert_eq!(
             row_offset(px(10.), px(16.)),
             px(0.),
-            "a row taller than the field must not get a negative offset; that would push the text out of the field"
+            "when the text shrinks to fit, earlier scrolling resets to zero"
         );
     }
 
@@ -1351,12 +1302,12 @@ mod tests {
         assert_eq!(
             snap_px(px(13.37), 2.0),
             px(13.5),
-            "at 2x half a logical pixel is an exact pixel"
+            "at 2x, half a logical pixel is a whole pixel"
         );
         assert_eq!(
             snap_px(px(5.), 0.0),
             px(5.),
-            "without a scale factor the value is returned as is"
+            "without a scale it should return as-is"
         );
     }
 }

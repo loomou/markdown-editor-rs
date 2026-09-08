@@ -32,25 +32,20 @@ pub(crate) fn try_commit_task(doc: &mut Document, caret: Caret) -> Option<Caret>
     if doc.arena.get(item).and_then(|n| n.first_child) != Some(path.leaf) {
         return None;
     }
-    let display = doc.display(path.leaf);
-    let checked = if display.starts_with("[ ] ") {
+    let source = doc.leaf_source(path.leaf);
+    let checked = if source.starts_with("[ ] ") {
         false
-    } else if display.starts_with("[x] ") || display.starts_with("[X] ") {
+    } else if source.starts_with("[x] ") || source.starts_with("[X] ") {
         true
     } else {
         return None;
     };
     let before = doc.revision;
     let old_extra = doc.extra(item);
-    let (change, _) = doc.rewrite_text(path.leaf, 0..4, "");
+    let (mut changes, _) = doc.rewrite_text(path.leaf, 0..4, "");
     doc.set_extra(item, NodeExtra::TaskItem { checked });
-    let _ = doc.commit(
-        before,
-        vec![
-            change,
-            doc.attrs_change(item, BlockKind::ListItem, old_extra),
-        ],
-    );
+    changes.push(doc.attrs_change(item, BlockKind::ListItem, old_extra));
+    let _ = doc.commit(before, changes);
     Some(Caret {
         block: path.leaf.index,
         offset: 0,
@@ -65,6 +60,14 @@ pub(crate) fn marker_spec(s: &str) -> Option<(bool, Option<bool>)> {
 pub(crate) fn marker_prefix_spec(s: &str) -> Option<(usize, bool, Option<bool>)> {
     for (marker, ordered, task) in [
         ("- [ ] ", false, Some(false)),
+        ("- [x] ", false, Some(true)),
+        ("- [X] ", false, Some(true)),
+        ("+ [ ] ", false, Some(false)),
+        ("+ [x] ", false, Some(true)),
+        ("+ [X] ", false, Some(true)),
+        ("* [ ] ", false, Some(false)),
+        ("* [x] ", false, Some(true)),
+        ("* [X] ", false, Some(true)),
         ("- ", false, None),
         ("+ ", false, None),
         ("* ", false, None),

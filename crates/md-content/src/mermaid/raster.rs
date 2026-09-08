@@ -50,7 +50,6 @@ pub fn raster_svg(
 pub fn render_sealed(source: &str, spec: &RasterSpec) -> Result<ResvgCompatibleSvg, crate::Error> {
     let src = strip_init(source);
     let theme = presentation(spec);
-
     let pipeline = pipeline();
     RENDERER.with(|slot| {
         let mut slot = slot.borrow_mut();

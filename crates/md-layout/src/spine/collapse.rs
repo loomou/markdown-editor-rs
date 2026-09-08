@@ -78,7 +78,6 @@ impl FlowSpine {
             {
                 continue;
             }
-
             if !matches!(box_id.role, BoxRole::Frame | BoxRole::Cell) {
                 continue;
             }
@@ -86,14 +85,14 @@ impl FlowSpine {
                 let Some(pos) = self.location(fid) else {
                     continue;
                 };
-                if self.span_is_unprotected(pos..pos + 1, &ctx) {
+                if self.release_unit_is_unprotected(box_id, pos, &ctx) {
                     collapsed.push((pos, box_id));
                 }
             } else if let Some(&fid) = self.content_of.get(&box_id) {
                 let Some(pos) = self.location(fid) else {
                     continue;
                 };
-                if self.span_is_unprotected(pos..pos + 1, &ctx) {
+                if self.release_unit_is_unprotected(box_id, pos, &ctx) {
                     content.push((pos, box_id));
                 }
             }
@@ -160,10 +159,31 @@ impl FlowSpine {
         best.map(|(_, _, id)| id)
     }
 
+    fn release_unit_is_unprotected(
+        &self,
+        host: LayoutBoxId,
+        pos: usize,
+        ctx: &CollapseFar<'_>,
+    ) -> bool {
+        if host.role != BoxRole::Frame {
+            return self.span_is_unprotected(pos..pos + 1, ctx);
+        }
+        let Some(block) = host.block() else {
+            return self.span_is_unprotected(pos..pos + 1, ctx);
+        };
+        let preview = LayoutBoxId::preview(block);
+        if ctx.keep_boxes.contains(&preview) {
+            return false;
+        }
+        let Some(ppos) = self.spine_pos(preview) else {
+            return self.span_is_unprotected(pos..pos + 1, ctx);
+        };
+        self.span_is_unprotected(pos..pos + 1, ctx) && self.span_is_unprotected(ppos..ppos + 1, ctx)
+    }
+
     fn span_is_unprotected(&self, range: Range<usize>, ctx: &CollapseFar<'_>) -> bool {
         let top = self.fenwick.prefix(range.start);
         let bot = self.fenwick.prefix(range.end);
-
         if bot > ctx.protect_lo && top <= ctx.protect_hi {
             return false;
         }

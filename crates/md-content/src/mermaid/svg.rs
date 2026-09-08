@@ -108,7 +108,6 @@ fn root_length(svg: &str, name: &str) -> Option<f32> {
 
 const ZOOM_TARGET_CSS: f32 = 1600.0;
 const ZOOM_EXTRA_MAX: f32 = 2.0;
-
 pub const MAX_RASTER_PIXELS: f64 = 8.0 * 1024.0 * 1024.0;
 
 struct RasterFit {
@@ -124,7 +123,6 @@ fn raster_fit(svg: &str, spec: &RasterSpec) -> RasterFit {
                 let max_dpr = (MAX_RASTER_PIXELS / (f64::from(w) * f64::from(h))).sqrt() as f32;
                 requested_dpr.min(max_dpr).max(f32::MIN_POSITIVE)
             }
-
             _ => 0.25,
         };
         return RasterFit {

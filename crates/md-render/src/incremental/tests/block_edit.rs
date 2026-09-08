@@ -75,10 +75,8 @@ fn caret_in_block_attaches_preview_box() {
         assert!(engine.sync_block_edit(&doc), "{kind:?}");
 
         assert!(engine.tree.nodes().contains_key(&preview), "{kind:?}");
-
         assert!(engine.tree.get(LayoutBoxId::frame(block)).edit_source());
         assert!(!engine.tree.get(preview).edit_source());
-
         assert!(engine.spine.content_id(preview).is_some(), "{kind:?}");
 
         assert!(!engine.sync_block_edit(&doc), "{kind:?}");

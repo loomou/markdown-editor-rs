@@ -182,7 +182,6 @@ fn the_menu_bar_paints_the_words_that_the_key_table_holds(cx: &mut TestAppContex
 fn the_menu_shows_the_key_the_table_holds(cx: &mut TestAppContext) {
     let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
     stop_blink(&shell, cx);
-
     cx.update(|_, app| {
         shell.update(app, |s, cx| {
             s.settings.keymap.clear(Cmd::Save);
@@ -196,7 +195,7 @@ fn the_menu_shows_the_key_the_table_holds(cx: &mut TestAppContext) {
     for cmd in [Cmd::New, Cmd::Open, Cmd::SaveAs, Cmd::Quit] {
         let chord = cmd
             .default_chord()
-            .expect("these four should come with a default chord")
+            .expect("these four ship with a default key")
             .display();
         let selector: &'static str = match cmd {
             Cmd::New => "menukb:MenuNew",
@@ -237,7 +236,7 @@ fn every_menu_label_has_a_chinese_form_too() {
         .collect();
     assert!(
         keys.len() > 15,
-        "precondition: the menu should have over a dozen items, found {}",
+        "precondition: the menu should have a dozen-plus entries, {}",
         keys.len()
     );
     for key in keys {
@@ -245,7 +244,7 @@ fn every_menu_label_has_a_chinese_form_too() {
         assert_ne!(
             zh,
             en,
-            "{} is the same in Chinese and English, so it looks untranslated",
+            "{} is the same in Chinese and English, as if untranslated",
             key.debug_name()
         );
     }

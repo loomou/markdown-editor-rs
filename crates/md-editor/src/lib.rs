@@ -2,7 +2,6 @@ pub mod app;
 pub mod app_icon;
 
 pub mod shell;
-
 pub mod view;
 
 pub use md_editor_ui::{error, keymap, platform, store, ui};

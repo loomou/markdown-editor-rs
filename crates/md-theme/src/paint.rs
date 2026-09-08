@@ -159,13 +159,11 @@ pub(crate) struct Palette {
     pub warn: ThemeColor,
     pub scrollbar_track: ThemeColor,
     pub scrollbar_thumb: ThemeColor,
-
     pub panel_bg: ThemeColor,
     pub active: ThemeColor,
     pub cyan: ThemeColor,
     pub overlay: ThemeColor,
     pub on_accent: ThemeColor,
-
     pub close_hover: ThemeColor,
 }
 
@@ -196,7 +194,6 @@ impl Palette {
             warn: WARN,
             scrollbar_track: ThemeColor::new(0.611, 0.13, 0.91, 0.45),
             scrollbar_thumb: ThemeColor::new(0.611, 0.09, 0.46, 0.62),
-
             panel_bg: SLATE_300,
             active: SLATE_200,
             cyan: cyan(),
@@ -253,7 +250,6 @@ impl Palette {
             panel_bg: rgb(0x2f343e),
             active: rgb(0x454a56),
             cyan: cyan(),
-
             overlay: ThemeColor {
                 a: 0x8c as f32 / 255.0,
                 ..rgb(0x0a0c10)
@@ -310,7 +306,6 @@ impl Palette {
             panel_bg: rgb(0xebebec),
             active: rgb(0xcacaca),
             cyan: rgb(0x3882b7),
-
             overlay: ThemeColor {
                 a: 0x59 as f32 / 255.0,
                 ..rgb(0x282a30)
@@ -325,7 +320,6 @@ pub struct PaintTokens {
     pub canvas: ThemeColor,
     pub caret: ThemeColor,
     pub caret_width: f64,
-
     pub caret_blink_ms: f64,
     pub selection: ThemeColor,
     pub ime: ThemeColor,
@@ -375,11 +369,9 @@ impl PaintTokens {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ChromeTokens {
     pub scrollbar_track: ThemeColor,
-
     pub scrollbar_thumb: ThemeColor,
     pub status_font: &'static str,
     pub status_size_px: f32,
-
     pub status_line_height_em: f32,
     pub scrollbar_hit: f64,
     pub scrollbar_thumb_w: f64,
@@ -461,12 +453,12 @@ mod tests {
             assert_eq!(
                 once.to_css_hex(),
                 c.to_css_hex(),
-                "the on-screen color must be the same"
+                "the same color on screen"
             );
             let twice = ThemeColor::from_css_hex(&once.to_css_hex()).expect("recognized");
             assert_eq!(
                 twice, once,
-                "the second round trip still moved: {once:?} -> {twice:?}"
+                "the second round trip is still moving: {once:?} -> {twice:?}"
             );
         }
     }
@@ -513,10 +505,9 @@ mod tests {
             assert_eq!(
                 ThemeColor::from_css_hex(bad),
                 None,
-                "{bad:?} should not be recognized"
+                "{bad:?} should not be accepted"
             );
         }
-
         assert_eq!(
             ThemeColor::from_css_hex("  #282c33 ").map(ThemeColor::to_css_hex),
             Some("#282c33".to_string())

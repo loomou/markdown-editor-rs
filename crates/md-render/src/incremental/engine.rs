@@ -35,7 +35,6 @@ pub struct DeferredSettlement {
 pub struct IncrementalEngine {
     pub(crate) tree: Rc<BoxTree>,
     env: BoxLayoutEnvironment,
-
     pub(crate) table_cons: Rc<BTreeMap<LayoutBoxId, TableColumnConstraintSet>>,
     pub(crate) store: MaterializedStore,
     pub(crate) estimator: Estimator,
@@ -250,6 +249,9 @@ impl IncrementalEngine {
         };
         let rows = rows.clone();
         for row in rows {
+            if !self.tree.nodes().contains_key(&row) {
+                continue;
+            }
             self.store.invalidate(row);
             let h = self.estimate_island(row);
             self.set_content_height(row, HeightState::Estimated(h));

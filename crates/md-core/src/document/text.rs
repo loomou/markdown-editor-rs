@@ -36,7 +36,6 @@ pub struct LeafText {
     pub source: LeafSource,
     pub(crate) snapshot: Arc<LeafSnapshot>,
     pub s2d: Vec<usize>,
-
     pub(crate) constructs: Option<Vec<super::focus::RawConstruct>>,
     pub revision: u64,
 }
@@ -116,19 +115,33 @@ impl LeafText {
     }
 
     pub(crate) fn trim_trailing_newline(&mut self) {
-        if !self.display().ends_with('\n') {
-            return;
+        if self.display().ends_with('\n') {
+            self.pop_trailing_char();
         }
+    }
+
+    pub(crate) fn trim_trailing_whitespace(&mut self) {
+        while self.display().ends_with([' ', '\t', '\n', '\r']) {
+            self.pop_trailing_char();
+        }
+    }
+
+    fn pop_trailing_char(&mut self) {
         let old_len = self.display().len();
-        let newline_at = old_len - 1;
+        let Some(_) = self.snapshot_mut().display.pop() else {
+            return;
+        };
+        let at = self.display().len();
+        let popped = (old_len - at) as u32;
         {
             let snapshot = self.snapshot_mut();
-            snapshot.display.pop();
-            let newline_at = newline_at as u32;
             if let Some(index) = snapshot.runs.iter().position(|run| {
-                run.display_range.start <= newline_at && newline_at < run.display_range.end
+                (run.display_range.start as usize) <= at && at < run.display_range.end as usize
             }) {
-                snapshot.runs[index].display_range.end = newline_at;
+                snapshot.runs[index].display_range.end = at as u32;
+                if let Some(sr) = &mut snapshot.runs[index].source_range {
+                    sr.end = sr.end.saturating_sub(popped);
+                }
                 if snapshot.runs[index].display_range.is_empty() {
                     snapshot.runs.remove(index);
                 }
@@ -141,14 +154,14 @@ impl LeafText {
                 TextPiece::Source(range) | TextPiece::Intern(range) => range.len(),
                 TextPiece::Owned => old_len.saturating_sub(display_at),
             };
-            let owns = newline_at < display_at.saturating_add(len);
+            let owns = at < display_at.saturating_add(len);
             display_at = display_at.saturating_add(len);
             owns.then_some(index)
         });
         if let Some(piece) = owner.and_then(|index| self.pieces.get_mut(index)) {
             match piece {
                 TextPiece::Source(r) | TextPiece::Intern(r) => {
-                    r.end = r.end.saturating_sub(1);
+                    r.end = r.end.saturating_sub(popped);
                 }
                 TextPiece::Owned => {}
             }
@@ -204,7 +217,7 @@ impl LeafText {
                 && last.display_range.end == r.display_range.start
                 && last.marks == r.marks
                 && last.link == r.link
-                && !r.marks.is_math()
+                && !r.marks.is_atomic()
             {
                 last.display_range.end = r.display_range.end;
                 if last.source_range != r.source_range {
@@ -380,7 +393,6 @@ const TEXT_NONE: u32 = u32::MAX;
 #[derive(Clone, Debug)]
 pub struct TextStore {
     index: Vec<u32>,
-
     dense: Vec<LeafText>,
     free: Vec<u32>,
 }

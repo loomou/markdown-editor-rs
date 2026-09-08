@@ -101,8 +101,11 @@ pub(super) fn delete_forward(doc: &mut Document, sel: Sel) -> Caret {
         return at;
     }
     let end = next_grapheme_boundary(text, at.offset);
-    let _ = doc.replace_text(at.block, at.offset..end, "");
-    at
+    let (_, offset) = doc.replace_text_with_caret(at.block, at.offset..end, "");
+    Caret {
+        block: at.block,
+        offset,
+    }
 }
 
 fn delete_following_thematic_break(doc: &mut Document, current: crate::document::NodeId) -> bool {

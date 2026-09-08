@@ -71,9 +71,7 @@ impl Shell {
                         move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
                             this.update(cx, |shell, cx| {
                                 shell.show_settings = !shell.show_settings;
-
                                 shell.color_picker = None;
-
                                 shell.cancel_recording(window, cx);
                                 cx.notify();
                             });

@@ -68,13 +68,28 @@ fn list_depth(doc: &Document, list: NodeId) -> usize {
     depth
 }
 
-fn subtree_has_text(doc: &Document, id: NodeId) -> bool {
+fn subtree_has_content(doc: &Document, id: NodeId) -> bool {
     let mut stack = vec![id];
     while let Some(id) = stack.pop() {
         let Some(node) = doc.arena.get(id) else {
             continue;
         };
         if node.kind.is_text_leaf() && !doc.display(id).is_empty() {
+            return true;
+        }
+        if node.kind == BlockKind::Image && !doc.leaf_source(id).is_empty() {
+            return true;
+        }
+        if matches!(
+            node.kind,
+            BlockKind::ThematicBreak | BlockKind::CodeBlock | BlockKind::Math | BlockKind::Mermaid
+        ) {
+            return true;
+        }
+        if node.kind == BlockKind::Table {
+            return true;
+        }
+        if node.kind == BlockKind::BlockQuote {
             return true;
         }
         let mut child = node.last_child;
@@ -107,7 +122,7 @@ fn collapse_one_list(
     drop_empty_items: bool,
     changes: &mut Vec<DocChange>,
 ) -> Caret {
-    if !subtree_has_text(doc, list) {
+    if !subtree_has_content(doc, list) {
         let keep = doc
             .live_id(caret.block)
             .filter(|&id| is_under(doc, id, list))
@@ -130,13 +145,13 @@ fn collapse_one_list(
         .and_then(|p| p.item);
     let mut caret = caret;
     for &item in &items {
-        if Some(item) == survivor_item || subtree_has_text(doc, item) {
+        if Some(item) == survivor_item || subtree_has_content(doc, item) {
             continue;
         }
         drop_empty_item(doc, item, changes);
     }
     if let Some(item) = survivor_item.filter(|&id| doc.arena.get(id).is_some())
-        && !subtree_has_text(doc, item)
+        && !subtree_has_content(doc, item)
     {
         let next = doc
             .arena

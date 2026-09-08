@@ -59,7 +59,6 @@ fn raster_png_matches_ceil_em() {
     let color = DocumentTheme::formal()
         .type_role(BlockKind::Paragraph)
         .color;
-
     for display in [false, true] {
         for latex in ["x^2+y^2", "\\sum_{i=1}^{N} \\frac{1}{i}"] {
             let spec = RasterSpec {
@@ -72,16 +71,8 @@ fn raster_png_matches_ceil_em() {
             let img = out.image.expect("png");
             let w = (out.em.css_width(16.0) * 1.5).ceil() as u32;
             let h = (out.em.css_height(16.0) * 1.5).ceil() as u32;
-            assert_eq!(
-                img.px_w,
-                w.max(1),
-                "{latex} display={display} width mismatch"
-            );
-            assert_eq!(
-                img.px_h,
-                h.max(1),
-                "{latex} display={display} height mismatch"
-            );
+            assert_eq!(img.px_w, w.max(1), "{latex} display={display} width");
+            assert_eq!(img.px_h, h.max(1), "{latex} display={display} height");
         }
     }
 }
@@ -120,7 +111,6 @@ fn raster_gives_up_on_unparsable_latex() {
         dpr: 1.0,
         color,
     };
-
     assert!(raster("a^", &spec).is_err());
     assert!(raster("x_", &spec).is_err());
     assert!(raster("a^2", &spec).is_ok());
@@ -222,7 +212,6 @@ fn failed_formula_slots_obey_the_entry_limit() {
         ));
     }
     assert_eq!(cache.entry_count(), MAX_ENTRIES);
-
     assert_eq!(cache.metrics_snapshot().len(), MAX_ENTRIES + 8);
 }
 
@@ -238,15 +227,15 @@ fn box_size_lands_on_whole_device_pixels() {
         let h = em.box_height(16.0, dpr) * dpr;
         assert!(
             (w - w.round()).abs() < 1e-3,
-            "dpr={dpr} box width {w} is not a whole pixel"
+            "dpr={dpr}: the box width {w} is not a whole pixel"
         );
         assert!(
             (h - h.round()).abs() < 1e-3,
-            "dpr={dpr} box height {h} is not a whole pixel"
+            "dpr={dpr}: the box height {h} is not a whole pixel"
         );
         assert!(
             w >= em.css_width(16.0) * dpr - 1e-3,
-            "dpr={dpr} box is narrower than the formula"
+            "dpr={dpr}: the box is narrower than the formula"
         );
     }
 }
@@ -326,7 +315,6 @@ fn warm_entries_outlive_cold_ones() {
     fill_math_ready(&mut cache, OVER_LIMIT);
     let color = math_color();
     let hot = key_for(&format!("f{}", OVER_LIMIT - 1), false, 16.0, color, 1.0);
-
     let warm: Vec<_> = (0..3)
         .map(|i| key_for(&format!("f{i}"), false, 16.0, color, 1.0))
         .collect();
@@ -335,16 +323,15 @@ fn warm_entries_outlive_cold_ones() {
 
     assert!(
         cache.entry_count() < OVER_LIMIT,
-        "this test's premise is that eviction actually happened"
+        "this test's premise is that an eviction really happened"
     );
     for key in &warm {
         assert!(
             cache.contains(key),
-            "warm entries must not be evicted while cold entries remain"
+            "a warm entry must not be dropped while cold entries remain"
         );
     }
     assert!(cache.contains(&hot));
-
     assert!(!cache.contains(&key_for("f3", false, 16.0, color, 1.0)));
 }
 
@@ -366,17 +353,17 @@ fn metrics_survive_bitmap_eviction() {
 
     assert!(
         cache.entry_count() < OVER_LIMIT,
-        "this test's premise is that bitmaps were actually evicted"
+        "this test's premise is that the bitmap was really evicted"
     );
     assert_eq!(
         cache.metrics_snapshot().len(),
         before,
-        "bitmap eviction must not take the metrics with it"
+        "evicting the bitmap must not take the metrics with it"
     );
     assert_eq!(
         cache.metrics_gen(),
         gen_before,
-        "bitmap eviction must not advance the metrics generation, or it would trigger a needless whole-document relayout"
+        "evicting the bitmap must not advance the metrics generation, or it would trigger a needless whole-document relayout"
     );
 }
 
@@ -393,6 +380,76 @@ fn metrics_obey_their_own_entry_limit() {
 }
 
 #[test]
+fn hot_ready_formula_keeps_its_metrics_under_fifo_pressure() {
+    let mut cache = MathCache::new();
+    let color = math_color();
+
+    let pinned = key_for("pinned", false, 16.0, color, 1.0);
+    assert!(cache.begin(pinned.clone()));
+    assert!(cache.finish_inner(pinned, Ok(dummy_out(dummy_ready())), None));
+    cache.set_working_set_inner(
+        [key_for("pinned", false, 16.0, color, 1.0)],
+        std::iter::empty(),
+        None,
+    );
+
+    for i in 0..MAX_METRIC_ENTRIES {
+        let key = key_for(&format!("other-{i}"), false, 16.0, color, 1.0);
+        assert!(cache.begin(key.clone()));
+        assert!(cache.finish_inner(key, Ok(dummy_out(dummy_ready())), None));
+    }
+    let metrics = cache.metrics_snapshot();
+    assert!(
+        metric(&metrics, "pinned", false).is_some(),
+        "for a formula whose bitmap is still Ready, the metrics must survive"
+    );
+    assert!(
+        metric(&metrics, "other-0", false).is_none(),
+        "old metrics whose bitmap was long evicted still get dropped; the cap holds"
+    );
+}
+
+#[test]
+fn failed_formula_keeps_its_none_metric_under_fifo_pressure() {
+    let mut cache = MathCache::new();
+    let color = math_color();
+
+    let broken = key_for("a^", false, 16.0, color, 1.0);
+    assert!(cache.begin(broken.clone()));
+    assert!(cache.finish_inner(
+        broken,
+        Err(crate::Error::Math("parse".to_string().into())),
+        None,
+    ));
+    cache.set_working_set_inner(
+        [key_for("a^", false, 16.0, color, 1.0)],
+        std::iter::empty(),
+        None,
+    );
+
+    for i in 0..MAX_METRIC_ENTRIES {
+        let key = key_for(&format!("other-{i}"), false, 16.0, color, 1.0);
+        assert!(cache.begin(key.clone()));
+        assert!(cache.finish_inner(key, Ok(dummy_out(dummy_ready())), None));
+    }
+    let metrics = cache.metrics_snapshot();
+    assert!(
+        matches!(metric(&metrics, "a^", false), Some(None)),
+        "a still-alive Failed slot must keep its `None` metrics"
+    );
+    let gen_after = cache.metrics_gen();
+    assert!(
+        !cache.record_failure(&key_for("a^", false, 16.0, color, 1.0)),
+        "the metrics survive, so repeated failure must be idempotent"
+    );
+    assert_eq!(
+        cache.metrics_gen(),
+        gen_after,
+        "idempotent booking must not advance the generation"
+    );
+}
+
+#[test]
 fn bytes_are_bounded_by_the_hard_budget_only() {
     let mut cache = MathCache::new();
     let color = math_color();
@@ -405,7 +462,6 @@ fn bytes_are_bounded_by_the_hard_budget_only() {
         img.bytes = each;
         assert!(cache.finish_inner(key, Ok(dummy_out(img)), None));
     }
-
     assert!(cache.byte_count() <= MAX_BYTES);
     cache.set_working_set_inner(
         std::iter::empty::<super::MathKey>(),
@@ -413,6 +469,5 @@ fn bytes_are_bounded_by_the_hard_budget_only() {
         None,
     );
     assert!(cache.byte_count() <= MAX_BYTES);
-
     assert!(cache.entry_count() <= WARM_EXTRA_ENTRIES);
 }

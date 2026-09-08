@@ -3,13 +3,9 @@ use md_core::Px;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Slider {
     pub track_start: Px,
-
     pub track_len: Px,
-
     pub thumb_start: Px,
-
     pub thumb_len: Px,
-
     pub max_scroll: Px,
 }
 
@@ -33,7 +29,6 @@ impl Slider {
         if track_len <= 0.0 {
             return None;
         }
-
         let thumb_len = (view / content * track_len).clamp(min_thumb.min(track_len), track_len);
         let max_scroll = content - view;
         let t = (scroll.clamp(0.0, max_scroll) / max_scroll).clamp(0.0, 1.0);
@@ -58,11 +53,8 @@ pub fn scroll_at(pointer: Px, grab: Px, track_start: Px, travel: Px, max_scroll:
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Gutter {
     pub start: Px,
-
     pub len: Px,
-
     pub thumb_start: Px,
-
     pub thumb_len: Px,
 }
 
@@ -116,7 +108,6 @@ mod tests {
             (bottom.thumb_start + bottom.thumb_len - (bottom.track_start + bottom.track_len)).abs()
                 < 1e-9
         );
-
         let past = Slider::new(200.0, 800.0, 9_000.0, 4.0, 32.0).expect("past the bottom");
         assert_eq!(past.thumb_start, bottom.thumb_start);
     }
@@ -132,7 +123,6 @@ mod tests {
     #[test]
     fn the_pointer_maps_back_to_the_scroll_it_came_from() {
         let s = Slider::new(200.0, 800.0, 150.0, 4.0, 32.0).expect("overflow");
-
         let back = |pointer: Px, grab: Px| {
             scroll_at(
                 pointer,
@@ -162,7 +152,6 @@ mod tests {
         assert!((g.len - 14.0).abs() < 1e-9);
         assert!((g.thumb_len - 6.0).abs() < 1e-9);
         assert!((g.thumb_start - (800.0 - 14.0 + 4.0)).abs() < 1e-9);
-
         let tight = Gutter::new(4.0, 14.0, 6.0).expect("narrow");
         assert!((tight.start - 0.0).abs() < 1e-9);
         assert!((tight.len - 4.0).abs() < 1e-9);

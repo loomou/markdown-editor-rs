@@ -111,7 +111,7 @@ fn link_dests_grow_by_append_and_match_a_full_rebuild() {
 
     let leaf = first_of(&doc, BlockKind::Paragraph);
     for i in 0..5 {
-        type_at(&mut doc, leaf, if i % 2 == 0 { "X" } else { "Y" });
+        type_at(&mut doc, leaf, &format!("[t{i}](https://t/{i}) "));
         maps.sync(&doc);
         assert_eq!(
             maps.link_dests.len(),
@@ -121,7 +121,7 @@ fn link_dests_grow_by_append_and_match_a_full_rebuild() {
     }
     assert!(
         doc.document.links.len() > start,
-        "typing must grow the links table, or this case tests nothing"
+        "inserting a new link should grow the links table, or this case tests nothing"
     );
 
     let mut full = HashMap::new();
@@ -205,7 +205,7 @@ fn changing_the_source_path_recomputes_every_link() {
     let second = maps.link_dests.get(&0).cloned().expect("one link");
     assert_ne!(
         first, second,
-        "changing the source directory must change the relative-link keys"
+        "after the source file's directory changed, the relative link's key should change with it"
     );
 
     let mut full = HashMap::new();
@@ -223,10 +223,10 @@ fn appending_does_not_clone_the_whole_table() {
     let (mut doc, mut maps) = synced("see [a](https://e/1)\n");
     let before = maps.link_dests.clone();
     let leaf = first_of(&doc, BlockKind::Paragraph);
-    type_at(&mut doc, leaf, "X");
+    type_at(&mut doc, leaf, "[n](https://e/2) ");
     let grew = doc.document.links.len() > before.len();
     drop(before);
-    assert!(grew, "typing must grow the links table");
+    assert!(grew, "inserting a new link should grow the links table");
 
     let ptr = std::rc::Rc::as_ptr(&maps.link_dests);
     maps.sync(&doc);
@@ -310,11 +310,11 @@ fn a_fresh_document_matches_the_old_three_pass_answer() {
     assert_eq!(*maps.block_code_lang, langs);
     assert!(
         !images.is_empty(),
-        "the fixture must contain a standalone image"
+        "the fixture should contain an image on its own line"
     );
     assert!(
         !langs.is_empty(),
-        "the fixture must contain a code block with a lang"
+        "the fixture should contain a fenced code block with a lang"
     );
 }
 

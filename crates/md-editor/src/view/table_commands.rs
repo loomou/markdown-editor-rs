@@ -4,7 +4,6 @@ use md_i18n::Key;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TableMenuEntry {
     Separator,
-
     Item {
         label: Key,
         op: TableOp,
@@ -84,7 +83,6 @@ mod tests {
             .iter()
             .map(|e| match e {
                 TableMenuEntry::Separator => "---",
-
                 TableMenuEntry::Item { label, .. } => md_i18n::t_in(md_i18n::Lang::En, *label),
             })
             .collect();
@@ -107,7 +105,6 @@ mod tests {
                 "Delete Table",
             ]
         );
-
         let danger: Vec<TableOp> = TABLE_MENU
             .iter()
             .filter_map(|e| match e {

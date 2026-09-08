@@ -3,41 +3,23 @@ use super::paint::{Palette, ThemeColor};
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AppTokens {
     pub editor_bg: ThemeColor,
-
     pub panel_bg: ThemeColor,
-
     pub bar_bg: ThemeColor,
-
     pub hover: ThemeColor,
-
     pub active: ThemeColor,
-
     pub border: ThemeColor,
-
     pub border_variant: ThemeColor,
-
     pub selected_bg: ThemeColor,
-
     pub text: ThemeColor,
-
     pub text_muted: ThemeColor,
-
     pub text_disabled: ThemeColor,
-
     pub accent: ThemeColor,
-
     pub syn_cyan: ThemeColor,
-
     pub syn_red: ThemeColor,
-
     pub overlay: ThemeColor,
-
     pub on_accent: ThemeColor,
-
     pub close_hover: ThemeColor,
-
     pub ok: ThemeColor,
-
     pub warn: ThemeColor,
 }
 
@@ -171,7 +153,6 @@ mod tests {
         assert_eq!(a.text_disabled.a, 1.0);
         assert!(c.scrollbar_track.a < 0.5, "the track should be translucent");
         assert!(c.scrollbar_thumb.a < 1.0, "the thumb should be translucent");
-
         let same_hue =
             |x: crate::ThemeColor, y: crate::ThemeColor| (x.h, x.s, x.l) == (y.h, y.s, y.l);
         assert!(same_hue(c.scrollbar_track, a.border_variant));

@@ -122,7 +122,6 @@ fn outline_scroll_from_pointer(
     thumb: f32,
 ) -> f32 {
     let track = (view - OUTLINE_SB_PAD * 2.0).max(0.0);
-
     scroll_at(
         f64::from(pointer),
         f64::from(grab),
@@ -154,9 +153,7 @@ pub(super) fn clamp_outline_width(width: f32, viewport_w: f32) -> f32 {
 pub(super) struct OutlineCache {
     identity: u64,
     revision: u64,
-
     pub(super) rows: Vec<OutlineRow>,
-
     pub(super) measure_ix: Option<usize>,
 }
 
@@ -231,14 +228,12 @@ impl Shell {
             if top + view_h - item_bottom >= pad {
                 return;
             }
-
             item_bottom + pad - view_h
         } else {
             let item_top = ix as f32 * OUTLINE_ROW_H;
             if item_top - top >= pad {
                 return;
             }
-
             item_top - pad
         };
         let next = next.clamp(0.0, (content_h - view_h).max(0.0));
@@ -286,7 +281,6 @@ impl Shell {
                                         |this, range: std::ops::Range<usize>, window, cx| {
                                             let t = this.theme();
                                             let current = this.outline_follow_current(cx);
-
                                             if current != this.outline_current {
                                                 let prev = this.outline_current;
                                                 this.outline_current = current;

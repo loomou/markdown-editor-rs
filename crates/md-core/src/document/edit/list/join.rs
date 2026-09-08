@@ -30,22 +30,19 @@ fn join_sibling_leaf(doc: &mut Document, path: &Path) -> Option<Caret> {
         return None;
     }
     let parent = doc.arena.get(leaf)?.parent?;
-
     let list = path.list?;
     let before = doc.revision;
-    let (text_changed, join_at) = doc.append_leaf_source(prev, leaf);
+    let (text_changes, join_at) = doc.append_leaf_source(prev, leaf);
     let leaf_prev = doc.arena.get(leaf).and_then(|n| n.prev_sibling);
     normalize::tombstone(doc, leaf);
     doc.bump_structure(parent);
-    let mut changes = vec![
-        text_changed,
-        DocChange::TreeSpliced {
-            parent,
-            before: leaf_prev,
-            removed: vec![leaf],
-            inserted: Vec::new(),
-        },
-    ];
+    let mut changes = text_changes;
+    changes.push(DocChange::TreeSpliced {
+        parent,
+        before: leaf_prev,
+        removed: vec![leaf],
+        inserted: Vec::new(),
+    });
     normalize::sync_loose_after_join(doc, parent, list, &mut changes);
     let _ = doc.commit(before, changes);
     Some(Caret {
@@ -66,12 +63,11 @@ fn join_prev(doc: &mut Document, path: &Path, prev_item: NodeId) -> Caret {
         block: leaf.index,
         offset: 0,
     };
-    doc.arena.snapshot(item);
     let kids: Vec<NodeId> = doc.arena.children(item).collect();
     if merge_text {
         let prev_leaf = prev_last.expect("prev leaf");
-        let (text_changed, join_at) = doc.append_leaf_source(prev_leaf, leaf);
-        changes.push(text_changed);
+        let (text_changes, join_at) = doc.append_leaf_source(prev_leaf, leaf);
+        changes.extend(text_changes);
         doc.arena.snapshot(leaf);
         doc.arena.tombstone(leaf);
         caret = Caret {
@@ -80,11 +76,21 @@ fn join_prev(doc: &mut Document, path: &Path, prev_item: NodeId) -> Caret {
         };
     }
     let moved: Vec<NodeId> = kids
-        .into_iter()
+        .iter()
+        .copied()
         .filter(|&k| doc.arena.get(k).is_some())
         .collect();
     for k in &moved {
         doc.arena.detach(*k);
+    }
+    doc.arena.snapshot(item);
+    changes.push(DocChange::TreeSpliced {
+        parent: item,
+        before: None,
+        removed: kids,
+        inserted: Vec::new(),
+    });
+    for k in &moved {
         doc.arena.append_child(prev_item, *k);
     }
     let prev_prev = doc.arena.get(prev_item).and_then(|n| n.prev_sibling);
@@ -95,6 +101,14 @@ fn join_prev(doc: &mut Document, path: &Path, prev_item: NodeId) -> Caret {
         removed: vec![prev_item, item],
         inserted: vec![prev_item],
     });
+    if !moved.is_empty() {
+        changes.push(DocChange::TreeSpliced {
+            parent: prev_item,
+            before: prev_last,
+            removed: Vec::new(),
+            inserted: moved,
+        });
+    }
     doc.bump_structure(list);
     doc.bump_structure(prev_item);
     normalize::prune_empty_up(doc, list, &mut changes);

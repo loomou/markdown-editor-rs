@@ -1,8 +1,8 @@
 use super::FlowSpine;
-use super::gap::FlowBoundary;
+use super::gap::{FlowBoundary, gap_height};
 use super::item::{FlowItem, FlowItemKind};
 use super::tree_walk::box_on_path;
-use crate::box_tree::{BoxChildren, BoxTree, LayoutBoxId};
+use crate::box_tree::{BoxChildren, BoxRole, BoxTree, LayoutBoxId};
 use crate::flow::HeightState;
 use md_core::Px;
 use std::collections::HashMap;
@@ -20,7 +20,6 @@ impl FlowSpine {
         loop {
             let mut range = self.visible(top, bottom);
             let end = range.end;
-
             let first = range.find(|&pos| {
                 matches!(self.items[pos].kind, FlowItemKind::Collapsed { box_id }
                     if tree.nodes.get(&box_id).is_some())
@@ -34,25 +33,11 @@ impl FlowSpine {
             }
             let y0 = self.fenwick.prefix(first);
             self.tally(first..end, false);
-            let collapsed: Vec<LayoutBoxId> = self.items[first..end]
-                .iter()
-                .filter_map(|item| match item.kind {
-                    FlowItemKind::Collapsed { box_id } if tree.nodes.get(&box_id).is_some() => {
-                        Some(box_id)
-                    }
-                    _ => None,
-                })
-                .collect();
-            for box_id in &collapsed {
-                if let Some(fid) = self.collapsed_of.remove(box_id) {
-                    self.release_id(fid);
-                }
-            }
-
             let mut items = std::mem::take(&mut self.items);
             let mut out: Vec<FlowItem> = Vec::with_capacity(end - first + 32);
             let mut y = y0;
             let mut subtree_heights = HashMap::new();
+            let mut twins: Vec<LayoutBoxId> = Vec::new();
             for item in items.drain(first..end) {
                 if let FlowItemKind::Collapsed { box_id } = item.kind {
                     if tree.nodes.get(&box_id).is_none() {
@@ -60,8 +45,11 @@ impl FlowSpine {
                         out.push(item);
                         continue;
                     }
+                    if let Some(fid) = self.collapsed_of.remove(&box_id) {
+                        self.release_id(fid);
+                    }
                     let avail = tree.avail_width(box_id, self.viewport_width);
-                    self.emit_intersecting(
+                    if let Some(preview) = self.emit_intersecting(
                         tree,
                         box_id,
                         avail,
@@ -70,8 +58,11 @@ impl FlowSpine {
                         bottom,
                         heights,
                         &mut subtree_heights,
+                        true,
                         &mut out,
-                    );
+                    ) {
+                        twins.push(preview);
+                    }
                 } else {
                     y += item.height.px();
                     out.push(item);
@@ -83,6 +74,9 @@ impl FlowSpine {
             self.remap_from(first);
             self.tally(first..first + inserted, true);
             self.splice_height_index(first, end - first, inserted);
+            for preview in twins {
+                self.rewrite_gap_after_twin(tree, preview);
+            }
         }
     }
 
@@ -107,6 +101,9 @@ impl FlowSpine {
             let Some(pos) = self.location(fid) else {
                 return false;
             };
+            if tree.nodes.get(&collapsed_id).is_none() {
+                return false;
+            }
             rounds += 1;
             if rounds > 64 {
                 return self.content_of.contains_key(&target);
@@ -114,22 +111,23 @@ impl FlowSpine {
             if let Some(id) = self.collapsed_of.remove(&collapsed_id) {
                 self.release_id(id);
             }
-            if tree.nodes.get(&collapsed_id).is_none() {
-                return false;
-            }
             let avail = tree.avail_width(collapsed_id, self.viewport_width);
             let mut out = Vec::new();
             let mut subtree_heights = HashMap::new();
-            self.emit_path_to(
+            let twin = self.emit_path_to(
                 tree,
                 collapsed_id,
                 avail,
                 heights,
                 target,
                 &mut subtree_heights,
+                true,
                 &mut out,
             );
             self.splice_shift(pos, 1, out);
+            if let Some(preview) = twin {
+                self.rewrite_gap_after_twin(tree, preview);
+            }
         }
     }
 
@@ -152,6 +150,83 @@ impl FlowSpine {
         None
     }
 
+    fn twin_preview(&self, tree: &BoxTree, id: LayoutBoxId) -> Option<LayoutBoxId> {
+        if id.role != BoxRole::Frame {
+            return None;
+        }
+        let block = id.block()?;
+        let preview = LayoutBoxId::preview(block);
+        if !tree.nodes.contains_key(&preview)
+            || self.collapsed_of.contains_key(&preview)
+            || self.content_of.contains_key(&preview)
+        {
+            return None;
+        }
+        let twin_parent = tree.nodes.get(&preview).and_then(|n| n.parent);
+        (twin_parent == tree.nodes.get(&id).and_then(|n| n.parent)).then_some(preview)
+    }
+
+    fn emit_placeholder_twin(
+        &mut self,
+        tree: &BoxTree,
+        frame: LayoutBoxId,
+        preview: LayoutBoxId,
+        heights: &dyn Fn(LayoutBoxId, Px) -> HeightState,
+        out: &mut Vec<FlowItem>,
+    ) -> Px {
+        let mut added = 0.0;
+        if let Some(parent) = tree.nodes.get(&frame).and_then(|n| n.parent) {
+            let g = self.gap_item(
+                tree,
+                parent,
+                FlowBoundary::Child(frame),
+                FlowBoundary::Child(preview),
+            );
+            added += g.height.px();
+            out.push(g);
+        }
+        let p_avail = tree.avail_width(preview, self.viewport_width);
+        let phs = heights(preview, p_avail);
+        out.push(FlowItem::with_epoch(
+            self.alloc_id(),
+            FlowItemKind::Content { box_id: preview },
+            phs,
+            self.layout_epoch,
+        ));
+        added + phs.px()
+    }
+
+    fn rewrite_gap_after_twin(&mut self, tree: &BoxTree, preview: LayoutBoxId) {
+        let Some(parent) = tree.nodes.get(&preview).and_then(|n| n.parent) else {
+            return;
+        };
+        let kids = match tree.nodes.get(&parent).map(|n| &n.children) {
+            Some(BoxChildren::Vertical(c) | BoxChildren::Island(c)) => c.as_slice(),
+            _ => return,
+        };
+        let Some(at) = kids.iter().position(|c| *c == preview) else {
+            return;
+        };
+        let right = kids
+            .get(at + 1)
+            .map_or(FlowBoundary::End, |c| FlowBoundary::Child(*c));
+        let Some(fid) = self.content_id(preview) else {
+            return;
+        };
+        let Some(pos) = self.location(fid) else {
+            return;
+        };
+        let Some(gap) = pos
+            .checked_add(1)
+            .filter(|&p| p < self.len() && matches!(self.item_at(p).kind, FlowItemKind::Gap))
+        else {
+            return;
+        };
+        let h = gap_height(tree, parent, FlowBoundary::Child(preview), right);
+        let id = self.item_at(gap).id;
+        self.set_height(id, HeightState::Exact(h));
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn emit_path_to(
         &mut self,
@@ -161,8 +236,21 @@ impl FlowSpine {
         heights: &dyn Fn(LayoutBoxId, Px) -> HeightState,
         target: LayoutBoxId,
         subtree_heights: &mut HashMap<LayoutBoxId, Px>,
+        from_placeholder: bool,
         out: &mut Vec<FlowItem>,
-    ) {
+    ) -> Option<LayoutBoxId> {
+        if tree.nodes.get(&id).is_none() {
+            let h = tree
+                .deferred_height(id)
+                .unwrap_or_else(|| heights(id, avail).px());
+            out.push(FlowItem::with_epoch(
+                self.alloc_id(),
+                FlowItemKind::Collapsed { box_id: id },
+                HeightState::Estimated(h),
+                self.layout_epoch,
+            ));
+            return None;
+        }
         let node = tree.get(id);
         match &node.children {
             BoxChildren::Vertical(children) => {
@@ -180,7 +268,7 @@ impl FlowSpine {
                         HeightState::Estimated(h),
                         self.layout_epoch,
                     ));
-                    return;
+                    return None;
                 }
                 let style = tree.style_of(node);
                 let pad_top = style.top_border_padding();
@@ -209,6 +297,7 @@ impl FlowSpine {
                             heights,
                             target,
                             subtree_heights,
+                            false,
                             out,
                         );
                     }
@@ -223,6 +312,7 @@ impl FlowSpine {
                     HeightState::Exact(pad_bottom),
                     self.layout_epoch,
                 ));
+                None
             }
             BoxChildren::Island(_) | BoxChildren::None => {
                 let hs = heights(id, avail);
@@ -232,6 +322,11 @@ impl FlowSpine {
                     hs,
                     self.layout_epoch,
                 ));
+                if from_placeholder && let Some(preview) = self.twin_preview(tree, id) {
+                    self.emit_placeholder_twin(tree, id, preview, heights, out);
+                    return Some(preview);
+                }
+                None
             }
         }
     }
@@ -263,8 +358,9 @@ impl FlowSpine {
         bottom: Px,
         heights: &dyn Fn(LayoutBoxId, Px) -> HeightState,
         subtree_heights: &mut HashMap<LayoutBoxId, Px>,
+        from_placeholder: bool,
         out: &mut Vec<FlowItem>,
-    ) {
+    ) -> Option<LayoutBoxId> {
         if tree.nodes.get(&id).is_none() {
             let h = tree
                 .deferred_height(id)
@@ -276,7 +372,7 @@ impl FlowSpine {
                 self.layout_epoch,
             ));
             *y += h;
-            return;
+            return None;
         }
         let node = tree.get(id);
         match &node.children {
@@ -296,7 +392,7 @@ impl FlowSpine {
                         self.layout_epoch,
                     ));
                     *y += h;
-                    return;
+                    return None;
                 }
                 let style = tree.style_of(node);
                 let pad_top = style.top_border_padding();
@@ -332,6 +428,7 @@ impl FlowSpine {
                             bottom,
                             heights,
                             subtree_heights,
+                            false,
                             out,
                         );
                     }
@@ -349,6 +446,7 @@ impl FlowSpine {
                     self.layout_epoch,
                 ));
                 *y += pad_bottom;
+                None
             }
             BoxChildren::Island(_) | BoxChildren::None => {
                 let hs = heights(id, avail);
@@ -359,6 +457,12 @@ impl FlowSpine {
                     self.layout_epoch,
                 ));
                 *y += hs.px();
+                if from_placeholder && let Some(preview) = self.twin_preview(tree, id) {
+                    let added = self.emit_placeholder_twin(tree, id, preview, heights, out);
+                    *y += added;
+                    return Some(preview);
+                }
+                None
             }
         }
     }

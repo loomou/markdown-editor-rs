@@ -65,8 +65,31 @@ pub(crate) fn is_math_fence_line(source: &str) -> bool {
 }
 
 pub(crate) fn close_fence_delete_range(s: &str, offset: usize) -> Option<std::ops::Range<usize>> {
+    close_fence_delete_range_matching(s, offset, None)
+}
+
+pub(crate) fn close_fence_delete_range_matching(
+    s: &str,
+    offset: usize,
+    open: Option<(char, usize)>,
+) -> Option<std::ops::Range<usize>> {
     let (start, end) = line_range(s, offset);
-    if !is_close_fence_line(s.get(start..end).unwrap_or("")) {
+    let line = s.get(start..end).unwrap_or("");
+    let indent = line.bytes().take_while(|&b| b == b' ').count();
+    if indent > 3 {
+        return None;
+    }
+    let marker = fence_marker(line)?;
+    let (ch, fence_end) = marker;
+    if let Some((open_ch, open_len)) = open
+        && (ch != open_ch || fence_char_count(line) < open_len)
+    {
+        return None;
+    }
+    if !line
+        .get(fence_end..)
+        .is_some_and(|tail| tail.bytes().all(|b| b == b' '))
+    {
         return None;
     }
     let mut from = start;
@@ -79,6 +102,17 @@ pub(crate) fn close_fence_delete_range(s: &str, offset: usize) -> Option<std::op
     Some(from..to)
 }
 
+fn fence_char_count(line: &str) -> usize {
+    let t = line.trim_start_matches(' ');
+    let rest = t.trim_end().trim_end_matches('\r');
+    let bytes = rest.as_bytes();
+    if bytes.first() == Some(&b'`') {
+        rest.chars().take_while(|&c| c == '`').count()
+    } else {
+        rest.chars().take_while(|&c| c == '~').count()
+    }
+}
+
 pub(crate) fn line_range(s: &str, offset: usize) -> (usize, usize) {
     let offset = super::floor_char_boundary(s, offset.min(s.len()));
     let start = s[..offset].rfind('\n').map(|i| i + 1).unwrap_or(0);
@@ -87,15 +121,6 @@ pub(crate) fn line_range(s: &str, offset: usize) -> (usize, usize) {
         .map(|i| offset + i)
         .unwrap_or(s.len());
     (start, end)
-}
-
-fn is_close_fence_line(line: &str) -> bool {
-    let t = line.trim_end_matches('\r').trim_end();
-    let Some((_, end)) = fence_marker(t) else {
-        return false;
-    };
-    t.get(end..)
-        .is_some_and(|tail| tail.bytes().all(|b| b == b' '))
 }
 
 fn fence_marker(line: &str) -> Option<(char, usize)> {
@@ -164,7 +189,6 @@ mod tests {
         assert!(is_open_fence_line("~~~"));
         assert!(!is_open_fence_line("`a`"));
         assert!(!is_open_fence_line("hello"));
-
         assert!(!is_open_fence_line("$$"));
         assert!(is_math_fence_line("$$"));
         assert!(is_math_fence_line("   $$"));

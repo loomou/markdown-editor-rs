@@ -83,7 +83,6 @@ fn ctrl_c_copies_selection_as_markdown(cx: &mut TestAppContext) {
         leaf_texts(&editor, cx),
         vec!["hello **bold** world".to_string()]
     );
-
     select_range(&editor, cx, 0, 6, 14);
     cx.simulate_keystrokes("secondary-c");
     assert_eq!(clipboard(cx), "**bold**");

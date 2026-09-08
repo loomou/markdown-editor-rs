@@ -1,6 +1,7 @@
 use super::decoration::clip_decoration;
 use super::probe::{
-    first_line_height, first_line_top, first_text_box, list_nest_depth, ordered_label,
+    first_line_height, first_line_ink, first_line_top, first_text_box, list_nest_depth,
+    ordered_label,
 };
 use super::request::Pass;
 use crate::boxtree::{block_id_of, inline_offset};
@@ -74,13 +75,15 @@ pub(super) fn collect_chrome(pass: &Pass<'_>, span: ContainerSpan, out: &mut Vec
             let ordered = ordered_label(assembly, box_id);
             let line_top = first_line_top(assembly, box_id, top);
             let line_h = first_line_height(assembly, box_id, theme);
+            let (ink_dy, ink_h) =
+                first_line_ink(assembly, box_id, pass.shaper, pass.env).unwrap_or((0.0, line_h));
             let d = &theme.decoration;
             let gap = d.list_marker_gap;
             let (dot_x, size, mark_top, label_at) = if task.is_some() {
                 let size = d.task_size;
                 let gap = d.task_gap;
                 let box_x = x - size - gap;
-                let mt = line_top + ((line_h - size) * 0.5).max(0.0);
+                let mt = line_top + ink_dy + ((ink_h - size) * 0.5).max(0.0);
                 let label_at = ordered.as_ref().map(|_| (box_x - gap, line_top));
                 (box_x, size, mt, label_at)
             } else if ordered.is_some() {
@@ -90,7 +93,7 @@ pub(super) fn collect_chrome(pass: &Pass<'_>, span: ContainerSpan, out: &mut Vec
                 (
                     x - gap - size,
                     size,
-                    line_top + ((line_h - size) * 0.5).max(0.0),
+                    line_top + ink_dy + ((ink_h - size) * 0.5).max(0.0),
                     None,
                 )
             };

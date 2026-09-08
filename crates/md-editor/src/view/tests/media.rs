@@ -33,12 +33,12 @@ fn unparsable_inline_math_falls_back_to_the_full_source(cx: &mut TestAppContext)
     assert_eq!(
         parts.len(),
         1,
-        "still one Math part after the fallback, caret landing unaffected"
+        "after the fallback it is still one Math part, so the caret landing is unaffected"
     );
     assert_eq!(parts[0].0, "a^");
     assert!(
         parts[0].1,
-        "after a parse failure it must keep the raw `$a^$` source line"
+        "after the failed parse the `$a^$` source row must ride along"
     );
     assert!(parts[0].2 > 0.0);
 }
@@ -55,7 +55,7 @@ fn parsable_inline_math_keeps_rasterizing(cx: &mut TestAppContext) {
     assert_eq!(parts[0].0, "a^2");
     assert!(
         !parts[0].1,
-        "a successfully parsed formula should have no fallback line"
+        "a formula that parsed fine should have no fallback row"
     );
 }
 
@@ -75,7 +75,7 @@ fn math_fallback_advances_x_for_the_following_text(cx: &mut TestAppContext) {
             } => {
                 assert!(
                     fallback.is_some(),
-                    "after a parse failure it should carry the fallback line"
+                    "a failed parse should produce a fallback row"
                 );
                 math_end = Some(*x + *width);
             }
@@ -122,13 +122,97 @@ fn unloadable_inline_image_falls_back_to_the_full_source(cx: &mut TestAppContext
     assert_eq!(
         parts.len(),
         1,
-        "still one Image part after the fallback, caret landing unaffected"
+        "after the fallback it is still one Image part, so the caret landing is unaffected"
     );
     assert!(
         parts[0].1,
-        "after a load failure it must keep the raw `![cat](./nope.png)` source line"
+        "after a load failure it must keep the `![cat](./nope.png)` source line"
     );
     assert!(parts[0].2 > 0.0);
+}
+
+#[gpui::test]
+fn transient_server_errors_retry_after_the_backoff_window(cx: &mut TestAppContext) {
+    use base64::Engine;
+    let png = base64::engine::general_purpose::STANDARD
+        .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+        .expect("1x1 png");
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let handler_calls = calls.clone();
+    let client = gpui::http_client::FakeHttpClient::create(move |_| {
+        let png = png.clone();
+        let calls = handler_calls.clone();
+        async move {
+            if calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                return Ok(gpui::http_client::http::Response::builder()
+                    .status(503)
+                    .body(Default::default())
+                    .unwrap());
+            }
+            Ok(gpui::http_client::http::Response::builder()
+                .status(200)
+                .body(gpui::http_client::AsyncBody::from(png))
+                .unwrap())
+        }
+    });
+    cx.update(|app| app.set_http_client(client));
+    let url = "http://example.com/x.png";
+    let (editor, cx) = editor_with_doc(&format!("![cat]({url}) tail"), cx);
+    cx.update(|_, app| {
+        editor.update(app, |v, cx| v.set_remote_images(true, cx));
+    });
+    let _ = draw_first_art(&editor, cx);
+    cx.run_until_parked();
+
+    let (due, failed) = cx.update(|_, app| {
+        let v = editor.read(app);
+        (
+            v.images.source_retry_due(url),
+            v.images.failed_sources().contains(url),
+        )
+    });
+    assert!(!due, "no retry inside the backoff window");
+    assert!(
+        failed,
+        "the failure projection must be booked; the fallback text is laid out from it"
+    );
+    let art = draw_first_art(&editor, cx);
+    let parts = image_parts(&art);
+    assert_eq!(parts.len(), 1);
+    assert!(
+        parts[0].1,
+        "inside the retry window the fallback text must hold, without flashing a waiting state"
+    );
+
+    std::thread::sleep(std::time::Duration::from_millis(4400));
+    let _ = draw_first_art(&editor, cx);
+    cx.run_until_parked();
+
+    let (ready, failed) = cx.update(|_, app| {
+        let v = editor.read(app);
+        (
+            v.images.source_image(url).is_some(),
+            v.images.failed_sources().contains(url),
+        )
+    });
+    assert_eq!(
+        calls.load(std::sync::atomic::Ordering::SeqCst),
+        2,
+        "exactly two requests: the first fails, one retry after the window"
+    );
+    assert!(
+        ready,
+        "after a successful retry the source must be in place"
+    );
+    assert!(
+        !failed,
+        "after success the failure projection must yield; the fallback text must not linger"
+    );
+
+    let art = draw_first_art(&editor, cx);
+    let parts = image_parts(&art);
+    assert_eq!(parts.len(), 1);
+    assert!(!parts[0].1, "after recovery there must be no fallback row");
 }
 
 #[gpui::test]
@@ -147,7 +231,7 @@ fn image_fallback_advances_x_for_the_following_text(cx: &mut TestAppContext) {
             } => {
                 assert!(
                     fallback.is_some(),
-                    "after a load failure it should carry the fallback line"
+                    "a failed load should produce a fallback row"
                 );
                 img_end = Some(*x + *width);
             }
@@ -234,9 +318,8 @@ fn long_image_fallback_wraps_inside_the_text_column(cx: &mut TestAppContext) {
     );
     assert!(
         !line.wrap_boundaries.is_empty(),
-        "source this long should wrap"
+        "source this long should have wrapped"
     );
-
     let rows = (line.wrap_boundaries.len() + 1) as f64 * t.art.row_advance;
     assert!(
         (band.height - rows).abs() < 0.5,
@@ -245,7 +328,7 @@ fn long_image_fallback_wraps_inside_the_text_column(cx: &mut TestAppContext) {
     );
     assert!(
         (*slot_h - rows).abs() < 0.5,
-        "slot_h should equal the total height after the wrap"
+        "slot_h should equal the wrapped total height"
     );
 }
 

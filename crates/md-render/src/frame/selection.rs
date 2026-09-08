@@ -1,15 +1,13 @@
 use super::caret::{caret_logical, resolve_text_frame};
 use super::rows::{clamp_text_range, row_bands};
-use crate::boxtree::{
-    block_id_of, cmp_box_order, cmp_cursor, for_each_visible_text_box, text_box_id,
-};
+use crate::boxtree::{block_id_of, cmp_box_order, for_each_visible_text_box, text_box_id};
 use crate::snapshot::AtomSpan;
 use md_content::shaper::GpuiShaper;
 use md_core::Px;
 use md_core::block::BlockId;
-use md_core::doc::Cursor;
+use md_core::doc::{Cursor, Doc};
 use md_layout::assembly::Assembly;
-use md_layout::box_tree::LayoutBoxId;
+use md_layout::box_tree::{BoxTree, LayoutBoxId};
 use md_layout::style::BoxLayoutEnvironment;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
@@ -71,7 +69,23 @@ fn selection_rects_in_leaf(
     out
 }
 
+pub(super) fn cmp_selection_cursors(doc: &Doc, tree: &BoxTree, a: Cursor, b: Cursor) -> Ordering {
+    let a_box = text_box_id(tree, a.block);
+    let b_box = text_box_id(tree, b.block);
+    match (a_box, b_box) {
+        (Some(ab), Some(bb)) => match cmp_box_order(tree, ab, bb) {
+            Ordering::Equal => a.offset.cmp(&b.offset),
+            order => order,
+        },
+        _ => match doc.cmp_reading_order(a.block, b.block) {
+            Ordering::Equal => a.offset.cmp(&b.offset),
+            order => order,
+        },
+    }
+}
+
 pub(super) fn selection_rects_logical(
+    doc: &Doc,
     assembly: &Assembly,
     spans: &BTreeMap<LayoutBoxId, AtomSpan>,
     shaper: &GpuiShaper,
@@ -83,7 +97,7 @@ pub(super) fn selection_rects_logical(
         return Vec::new();
     }
     let tree = assembly.tree.as_ref();
-    let (start, end) = if cmp_cursor(tree, from, to) == Ordering::Greater {
+    let (start, end) = if cmp_selection_cursors(doc, tree, from, to) == Ordering::Greater {
         (to, from)
     } else {
         (from, to)
@@ -99,25 +113,19 @@ pub(super) fn selection_rects_logical(
             end.offset,
         );
     }
-    let Some(start_box) = text_box_id(tree, start.block) else {
-        return Vec::new();
-    };
-    let Some(end_box) = text_box_id(tree, end.block) else {
-        return Vec::new();
-    };
+    let start_box = text_box_id(tree, start.block);
+    let end_box = text_box_id(tree, end.block);
     let mut out = Vec::new();
     for_each_visible_text_box(tree, spans, |id| {
         let Some(block) = block_id_of(id) else {
             return;
         };
         let len = tree.text(id).len();
-        let range = if id == start_box {
+        let range = if Some(id) == start_box {
             start.offset..len
-        } else if id == end_box {
+        } else if Some(id) == end_box {
             0..end.offset
-        } else if cmp_box_order(tree, start_box, id) == Ordering::Less
-            && cmp_box_order(tree, id, end_box) == Ordering::Less
-        {
+        } else if leaf_between(doc, tree, start, end, id, start_box, end_box) {
             0..len
         } else {
             return;
@@ -135,6 +143,26 @@ pub(super) fn selection_rects_logical(
     out
 }
 
+fn leaf_between(
+    doc: &Doc,
+    tree: &BoxTree,
+    start: Cursor,
+    end: Cursor,
+    leaf: LayoutBoxId,
+    start_box: Option<LayoutBoxId>,
+    end_box: Option<LayoutBoxId>,
+) -> bool {
+    if let (Some(start_box), Some(end_box)) = (start_box, end_box) {
+        return cmp_box_order(tree, start_box, leaf) == Ordering::Less
+            && cmp_box_order(tree, leaf, end_box) == Ordering::Less;
+    }
+    let Some(leaf_block) = block_id_of(leaf) else {
+        return false;
+    };
+    doc.cmp_reading_order(start.block, leaf_block) == Ordering::Less
+        && doc.cmp_reading_order(leaf_block, end.block) == Ordering::Less
+}
+
 pub fn caret_logical_y(
     assembly: &Assembly,
     spans: &BTreeMap<LayoutBoxId, AtomSpan>,
@@ -146,6 +174,7 @@ pub fn caret_logical_y(
 }
 
 pub fn selection_vertical_span(
+    doc: &Doc,
     assembly: &Assembly,
     spans: &BTreeMap<LayoutBoxId, AtomSpan>,
     shaper: &GpuiShaper,
@@ -153,7 +182,7 @@ pub fn selection_vertical_span(
     from: Cursor,
     to: Cursor,
 ) -> Option<(Px, Px, Px)> {
-    let rects = selection_rects_logical(assembly, spans, shaper, env, from, to);
+    let rects = selection_rects_logical(doc, assembly, spans, shaper, env, from, to);
     if !rects.is_empty() {
         let y0 = rects
             .iter()

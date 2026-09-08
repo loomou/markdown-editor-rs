@@ -5,7 +5,7 @@ use md_core::doc::Cursor;
 
 #[gpui::test]
 fn cursor_horizontal_motion_stays_on_utf8_boundaries(cx: &mut TestAppContext) {
-    let (editor, cx) = editor_with_doc("αβ", cx);
+    let (editor, cx) = editor_with_doc("你好", cx);
     let cursors = cx.update(|_, app| {
         editor.update(app, |view, _| {
             let block = view.state.cursor.block;
@@ -18,9 +18,9 @@ fn cursor_horizontal_motion_stays_on_utf8_boundaries(cx: &mut TestAppContext) {
             (first, second, view.state.cursor)
         })
     });
-    assert_eq!(cursors.0.offset, "α".len());
-    assert_eq!(cursors.1.offset, "αβ".len());
-    assert_eq!(cursors.2.offset, "α".len());
+    assert_eq!(cursors.0.offset, "你".len());
+    assert_eq!(cursors.1.offset, "你好".len());
+    assert_eq!(cursors.2.offset, "你".len());
 }
 
 #[gpui::test]
@@ -169,7 +169,7 @@ fn cmd_backspace_deletes_to_line_start(cx: &mut TestAppContext) {
     let md = cx.update(|_, app| editor.read(app).state.doc.document.to_markdown());
     assert_eq!(
         md, "world\n",
-        "Cmd-Backspace must delete from the line start to the caret: {md:?}"
+        "⌘⌫ should delete from the row start up to the caret: {md:?}"
     );
     let offset = cx.update(|_, app| editor.read(app).state.cursor.offset);
     assert_eq!(offset, 0);
@@ -190,7 +190,7 @@ fn cmd_backspace_deletes_to_line_start(cx: &mut TestAppContext) {
     let md = cx.update(|_, app| editor.read(app).state.doc.document.to_markdown());
     assert_eq!(
         md, " world\n",
-        "with a selection, Cmd-Backspace must delete only the selection: {md:?}"
+        "with a selection ⌘⌫ eats only the selection: {md:?}"
     );
 }
 

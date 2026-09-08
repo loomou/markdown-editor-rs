@@ -1,4 +1,4 @@
-use crate::block::{NodeExtra, alignment_at};
+use crate::block::{BlockId, NodeExtra, TextEditStrategy, alignment_at};
 use pulldown_cmark::Options;
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -21,6 +21,7 @@ mod nav;
 mod paste;
 mod promote;
 mod query;
+mod reference;
 mod replay;
 mod syntax;
 mod text;
@@ -64,14 +65,12 @@ pub struct Document {
     pub langs: Arc<Vec<String>>,
     pub(crate) footnotes: Arc<Vec<String>>,
     pub(crate) reference_definitions: Arc<Vec<String>>,
-
     pub(crate) table_alignment_overflow: HashMap<NodeId, Arc<[u8]>>,
     pub root: NodeId,
     revision: u64,
     max_content_revision: u64,
     pub(crate) changes: ChangeSet,
     pub(crate) focus: Option<focus::InlineFocus>,
-
     pub(crate) block_edit: Option<NodeId>,
 }
 
@@ -92,6 +91,28 @@ impl Document {
             Some(NodeExtra::Table { alignments, .. }) => alignment_at(alignments, col),
             _ => 0,
         }
+    }
+
+    pub(crate) fn source_suffix(&self, block: BlockId, offset: usize) -> String {
+        let Some(id) = self.live_id(block) else {
+            return String::new();
+        };
+        let source = self.leaf_source(id);
+        let strategy = self
+            .arena
+            .get(id)
+            .map(|node| node.kind.text_edit_strategy())
+            .unwrap_or(TextEditStrategy::Literal);
+        let source_at = match strategy {
+            TextEditStrategy::Phrasing => {
+                let display = self.caret_text(id);
+                let display_at = floor_char_boundary(display, offset.min(display.len()));
+                bind::display_to_source_first(&self.visual_s2d(id), display_at)
+            }
+            TextEditStrategy::BlockSource | TextEditStrategy::Literal => offset,
+        };
+        let source_at = floor_char_boundary(source, source_at.min(source.len()));
+        source.get(source_at..).unwrap_or("").to_string()
     }
 
     pub(crate) fn populate_s2d_cache(&mut self) {
@@ -121,6 +142,7 @@ impl Document {
                 leaf.source_str(&self.source),
                 leaf.display(),
                 kind,
+                &self.reference_definitions,
             )
             .1;
             if let Some(leaf) = self.texts.get_mut(tid) {

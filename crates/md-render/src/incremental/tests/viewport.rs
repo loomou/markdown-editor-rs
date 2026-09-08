@@ -275,7 +275,11 @@ fn invalidated_geometry_falls_back_to_last_exact_height() {
     assert_eq!(engine.estimate_island(box_id), exact);
 
     engine.materialize_one(box_id, &measure, &solver);
-    assert!(engine.store.is_fresh(&engine.tree, box_id));
+    assert!(
+        engine
+            .store
+            .is_fresh(&engine.tree, box_id, engine.viewport_width())
+    );
     assert_eq!(engine.store.last_exact_height(box_id), None);
 }
 
@@ -369,7 +373,6 @@ fn anchor_keeps_requested_y_when_estimate_ran_tall() {
     let measure = HalfMeasure;
     let solver = FallbackSolver;
     let vh = 600.0;
-
     engine.assemble_incremental(ScrollAnchor::top(), vh, &measure, &solver);
 
     let mut drift = Vec::new();
@@ -391,9 +394,7 @@ fn anchor_keeps_requested_y_when_estimate_ran_tall() {
             break;
         }
         let Some(want) = want else {
-            panic!(
-                "no candidate piece whose height estimate overshoots; the fixture has gone stale"
-            );
+            panic!("no candidate piece overestimates height; the fixture is broken");
         };
         let sa = engine.anchor_at_y(want, &measure, &solver);
         let (_asm, published) = engine.assemble_incremental(sa, vh, &measure, &solver);

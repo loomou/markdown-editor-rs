@@ -49,9 +49,6 @@ fn band_rows_survive_a_click_roundtrip(cx: &mut TestAppContext) {
         let doc = Doc::new(load_markdown(md, editor_options()));
         let env = BoxLayoutEnvironment::default();
         let theme = DocumentTheme::one_dark();
-
-
-
         let mut image_sizes = HashMap::new();
         image_sizes.insert(SourceKey::new("pic.png"), (200, 120));
         let mut link_dests = HashMap::new();
@@ -88,7 +85,6 @@ fn band_rows_survive_a_click_roundtrip(cx: &mut TestAppContext) {
             .find(|t| t.block == block)
             .expect("text piece");
         let art = &text.art;
-
         assert_eq!(art.bands.len(), 3, "the fixture must lay out 3 bands");
         assert!(
             art.bands[0].height > art.row_advance * 2.0,
@@ -102,7 +98,6 @@ fn band_rows_survive_a_click_roundtrip(cx: &mut TestAppContext) {
         let roundtrip = |needle: &str, dx: Px| {
             let off = display.find(needle).unwrap_or_else(|| panic!("{needle} is not in the body text"));
             let (px, row) = shaper.position_for_offset(art, off, text.align, text.content_width);
-
             let click_x = cox + px + dx;
             let click_y = coy + art.row_top(row) + art.row_height(row) / 2.0;
             let hit = hit_test(
@@ -113,8 +108,6 @@ fn band_rows_survive_a_click_roundtrip(cx: &mut TestAppContext) {
                 |_| (0.0, 0.0),
             )
             .expect("a point inside the text box must hit");
-
-
             let line_start = display[..off].rfind('\n').map(|i| i + 1).unwrap_or(0);
             let line_len = display[line_start..].split('\n').next().unwrap_or("").len();
             assert!(
@@ -126,7 +119,6 @@ fn band_rows_survive_a_click_roundtrip(cx: &mut TestAppContext) {
         roundtrip("look", 3.0);
         roundtrip("second", 3.0);
         roundtrip("short", 3.0);
-
         let plenty = display.find("plenty").expect("plenty");
         let (px, row) = shaper.position_for_offset(art, plenty, text.align, text.content_width);
         let click_x = cox + px + 40.0;
@@ -138,7 +130,7 @@ fn band_rows_survive_a_click_roundtrip(cx: &mut TestAppContext) {
             &shaper,
             |_| (0.0, 0.0),
         )
-        .expect("点在文本盒内必有命中");
+        .expect("a click inside the text box must hit something");
         assert_eq!(hit.block, block);
         assert_ne!(
             hit.offset,

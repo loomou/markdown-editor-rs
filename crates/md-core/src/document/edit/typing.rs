@@ -107,11 +107,37 @@ pub(super) fn split_marker_line(doc: &mut Document, caret: Caret, line: &str) ->
     })
 }
 
+fn source_line_of(
+    doc: &Document,
+    id: crate::document::arena::NodeId,
+    offset: usize,
+) -> Option<String> {
+    let text = doc.caret_text(id);
+    let (a, b) = crate::document::syntax::line_range(text, offset);
+    let source = doc.leaf_source(id);
+    let s2d = doc.visual_s2d(id);
+    let source_a = floor_char_boundary(
+        source,
+        bind::display_to_source_first(&s2d, a).min(source.len()),
+    );
+    let source_b = floor_char_boundary(
+        source,
+        bind::display_to_source_inner(&s2d, b).min(source.len()),
+    )
+    .max(source_a);
+    source.get(source_a..source_b).map(str::to_string)
+}
+
 pub(super) fn try_wrap_quote_line(doc: &mut Document, caret: Caret) -> Option<Caret> {
     let text = doc.text_of(caret.block)?;
     let (a, b) = crate::document::syntax::line_range(text, caret.offset);
     let line = text.get(a..b)?.to_string();
     if !crate::document::syntax::is_quote_commit(&line) {
+        return None;
+    }
+    let id = doc.live_id(caret.block)?;
+    let source_line = source_line_of(doc, id, caret.offset)?;
+    if !crate::document::syntax::is_quote_commit(&source_line) {
         return None;
     }
     let at = split_marker_line(doc, caret, &line)?;
@@ -124,6 +150,9 @@ pub(super) fn try_wrap_marker_line(doc: &mut Document, caret: Caret) -> Option<C
     let (a, b) = crate::document::syntax::line_range(text, caret.offset);
     let line = text.get(a..b)?.to_string();
     let (_, ordered, task) = list::marker_prefix_spec(&line)?;
+    let id = doc.live_id(caret.block)?;
+    let source_line = source_line_of(doc, id, caret.offset)?;
+    list::marker_prefix_spec(&source_line)?;
     let at = split_marker_line(doc, caret, &line)?;
     Some(apply(
         doc,

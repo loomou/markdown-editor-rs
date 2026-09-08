@@ -50,7 +50,10 @@ pub(crate) fn try_commit_pipe_table(doc: &mut Document, caret: Caret) -> Option<
         return None;
     }
     let headers = parse_pipe_header(source)?;
-    let cols = headers.len().min(TABLE_INSERT_MAX_COLS);
+    if headers.len() > TABLE_INSERT_MAX_COLS {
+        return None;
+    }
+    let cols = headers.len();
     if cols == 0 {
         return None;
     }
@@ -59,7 +62,7 @@ pub(crate) fn try_commit_pipe_table(doc: &mut Document, caret: Caret) -> Option<
         caret,
         TABLE_INSERT_MIN_ROWS,
         cols,
-        &headers[..cols],
+        &headers,
         true,
         true,
     ))
@@ -178,14 +181,8 @@ pub(crate) fn parse_pipe_header(line: &str) -> Option<Vec<String>> {
     if cells.is_empty() {
         return None;
     }
-    let mut cells: Vec<String> = cells.into_iter().map(|c| c.trim().to_string()).collect();
-    while cells.first().is_some_and(|c| c.is_empty()) {
-        cells.remove(0);
-    }
-    while cells.last().is_some_and(|c| c.is_empty()) {
-        cells.pop();
-    }
-    if cells.is_empty() {
+    let cells: Vec<String> = cells.into_iter().map(|c| c.trim().to_string()).collect();
+    if cells.iter().all(|c| c.is_empty()) {
         return None;
     }
     if cells.iter().all(|c| is_sep_cell(c)) {

@@ -32,7 +32,6 @@ impl GpuiShaper {
                 role.row_advance,
             ));
         }
-
         let block_kind = if ident.edit_source {
             BlockKind::CodeBlock
         } else {
@@ -195,7 +194,6 @@ impl GpuiShaper {
                     len,
                     font,
                     color,
-
                     background_color: None,
                     underline,
                     strikethrough,
@@ -262,7 +260,6 @@ impl GpuiShaper {
         } else {
             Vec::new()
         };
-
         let wrap = if matches!(block_kind, BlockKind::CodeBlock | BlockKind::MetadataBlock) {
             None
         } else {

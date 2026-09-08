@@ -102,10 +102,8 @@ pub struct RasterSpec {
     pub ok: String,
     pub warn: String,
     pub error: String,
-
     pub series: [String; 8],
     pub font_size: String,
-
     pub font_family: String,
     pub fit_w: u32,
     pub fit_h: u32,
@@ -129,20 +127,15 @@ pub struct MermaidCache {
     map: HashMap<MermaidKey, Slot>,
     lru: VecDeque<MermaidKey>,
     latest: HashMap<MermaidIdentity, MermaidKey>,
-
     hot: HashSet<MermaidKey>,
-
     warm: HashSet<MermaidKey>,
     bytes: usize,
     inflight: usize,
     theme_fp: u64,
     svgs: HashMap<MermaidSvgKey, std::sync::Arc<merman::svg::ResvgCompatibleSvg>>,
     svg_order: VecDeque<MermaidSvgKey>,
-
     current: Rc<HashMap<MermaidIdentity, CurrentMermaid>>,
-
     fitted: Rc<HashMap<MermaidIdentity, (f32, f32)>>,
-
     fitted_order: VecDeque<MermaidIdentity>,
 }
 

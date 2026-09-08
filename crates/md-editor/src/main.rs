@@ -9,11 +9,9 @@ use std::path::PathBuf;
 
 fn main() {
     let _log = md_editor::platform::log::init();
-
     md_editor::store::settings::init_language();
     let t_boot = std::time::Instant::now();
     let md_test_path = std::env::var_os("MD_TEST_PATH").map(PathBuf::from);
-
     let (doc, title, notice) = match md_test_path {
         Some(path) => match std::fs::read_to_string(&path) {
             Ok(md) => {

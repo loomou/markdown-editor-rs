@@ -91,7 +91,6 @@ impl EditorView {
             Some(i) if self.match_index_for_selection() == Some(i) => {
                 (i as i32 + dir).rem_euclid(n as i32) as usize
             }
-
             _ => {
                 let i = active_for_cursor(&self.search.matches, self.state.cursor).unwrap_or(0);
                 if dir < 0 {
@@ -121,7 +120,6 @@ impl EditorView {
             return;
         };
         let m = self.search.matches[i];
-
         let range = self.state.doc.visual_range(m.block, m.start..m.end);
         let a = Cursor {
             block: m.block,

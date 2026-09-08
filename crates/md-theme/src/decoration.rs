@@ -17,15 +17,11 @@ pub struct DecorationTokens {
     pub image_placeholder_height: Px,
     pub image_max_width: Px,
     pub image_max_height: Px,
-
     pub image_popover_max_width: Px,
     pub image_popover_max_height: Px,
-
     pub popover_gap: Px,
     pub popover_pad: Px,
-
     pub code_max_height: Px,
-
     pub math_max_height: Px,
     pub mermaid_max_width: Px,
     pub mermaid_max_height: Px,
@@ -33,7 +29,6 @@ pub struct DecorationTokens {
     pub table_line_thickness: Px,
     pub code_radius: f32,
     pub code_border: Px,
-
     pub well_lang_size: f32,
     pub well_lang_right: Px,
     pub well_lang_top: Px,

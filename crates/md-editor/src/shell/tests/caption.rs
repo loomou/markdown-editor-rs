@@ -37,13 +37,13 @@ fn pressing_the_caption_arms_the_drag_and_releasing_disarms_it(cx: &mut TestAppC
 
     assert!(
         !armed(&shell, cx),
-        "nothing was done yet, so the drag should be disarmed"
+        "having done nothing, it should be in the undo state"
     );
 
     press(cx, at, 1);
     assert!(
         armed(&shell, cx),
-        "a press on the hot zone should arm the drag, ready for a move"
+        "after pressing on the hot zone the move loop should be armed"
     );
 
     cx.simulate_event(MouseUpEvent {
@@ -55,7 +55,7 @@ fn pressing_the_caption_arms_the_drag_and_releasing_disarms_it(cx: &mut TestAppC
     cx.run_until_parked();
     assert!(
         !armed(&shell, cx),
-        "the release did not disarm, so any later mouse move would drag the window along"
+        "nothing was done yet, so the drag should be disarmed"
     );
 }
 
@@ -86,7 +86,7 @@ fn moving_after_a_press_consumes_the_armed_flag_once(cx: &mut TestAppContext) {
     drag_to(cx, 16.0);
     assert!(
         !armed(&shell, cx),
-        "a single press should enter the move loop only once"
+        "one press should enter the move loop only once"
     );
 }
 
@@ -100,6 +100,6 @@ fn double_clicking_the_caption_does_not_arm_the_drag(cx: &mut TestAppContext) {
     press(cx, at, 2);
     assert!(
         !armed(&shell, cx),
-        "the double-click already toggled maximize; with the flag still armed, a following move would start dragging again"
+        "the release did not disarm, so any later mouse move would drag the window along"
     );
 }

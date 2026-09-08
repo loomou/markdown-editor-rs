@@ -207,7 +207,6 @@ fn the_table_menu_shows_only_the_key_it_has(cx: &mut TestAppContext) {
             .width,
     );
     let want = mono_px(cx, &chord.display(), 10.5);
-
     let stale = Cmd::TableRowBelow
         .default_chord()
         .expect("the command must ship with a default key")
@@ -429,7 +428,7 @@ fn right_click_outside_selection_moves_caret(cx: &mut TestAppContext) {
         let view = editor.read(app);
         assert_eq!(
             view.state.selection, None,
-            "a click outside the selection must drop it"
+            "clicking outside the selection should clear it"
         );
         assert!(
             view.state.cursor.offset >= 6,

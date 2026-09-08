@@ -3,9 +3,7 @@ use std::time::Duration;
 
 pub struct Blink {
     visible: bool,
-
     wake: bool,
-
     live: bool,
     task: Option<Task<()>>,
 }
@@ -79,7 +77,6 @@ impl Blink {
         let next = wake || !self.live || !self.visible;
         let changed = next != self.visible;
         self.visible = next;
-
         changed && self.live
     }
 }
@@ -108,15 +105,12 @@ mod tests {
     fn waking_eats_one_beat_so_typing_never_dims_the_caret() {
         let mut b = live();
         assert!(b.tick());
-        assert!(
-            !b.visible(),
-            "it should have dropped to the dim phase first"
-        );
+        assert!(!b.visible(), "it starts in the off phase");
         b.wake();
         assert!(b.visible(), "waking should snap right back to bright");
         assert!(
             !b.tick(),
-            "the very next beat is eaten: phase unchanged, so no repaint"
+            "the very next heartbeat was eaten: the phase did not change, so no repaint either"
         );
         assert!(b.visible());
         assert!(b.tick(), "only the beat after that may turn it dim");
@@ -132,11 +126,11 @@ mod tests {
         assert!(!b.tick(), "losing focus should not repaint");
         assert!(
             b.visible(),
-            "but it should stay bright so the frame in which focus returns is solid"
+            "but it should stay in the on phase; the frame focus returns is solid"
         );
         assert!(
             !b.tick(),
-            "every beat after that is wasted and must not repaint"
+            "every later tick is wasted; none of them repaint"
         );
         assert!(b.visible());
     }

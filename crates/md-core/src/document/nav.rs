@@ -1,5 +1,6 @@
 use super::{Document, NodeId};
 use crate::block::BlockId;
+use std::cmp::Ordering;
 
 impl Document {
     fn preorder_next(&self, id: NodeId) -> Option<NodeId> {
@@ -7,7 +8,6 @@ impl Document {
         if let Some(first) = node.first_child {
             return Some(first);
         }
-
         let mut cur = id;
         loop {
             if cur == self.root {
@@ -26,7 +26,6 @@ impl Document {
             return None;
         }
         let node = self.arena.get(id)?;
-
         if let Some(prev) = node.prev_sibling {
             let mut cur = prev;
             while let Some(last) = self.arena.get(cur).and_then(|n| n.last_child) {
@@ -77,5 +76,45 @@ impl Document {
             };
         }
         Some(cur.index)
+    }
+
+    pub fn cmp_reading_order(&self, a: BlockId, b: BlockId) -> Ordering {
+        let (Some(a_id), Some(b_id)) = (self.live_id(a), self.live_id(b)) else {
+            return a.cmp(&b);
+        };
+        if a_id == b_id {
+            return Ordering::Equal;
+        }
+        let chain = |from: NodeId| {
+            let mut out = Vec::new();
+            let mut cur = Some(from);
+            while let Some(id) = cur {
+                out.push(id);
+                cur = self.arena.get(id).and_then(|n| n.parent);
+            }
+            out
+        };
+        let a_chain = chain(a_id);
+        let b_chain = chain(b_id);
+        let (mut i, mut j) = (a_chain.len(), b_chain.len());
+        while i > 0 && j > 0 && a_chain[i - 1] == b_chain[j - 1] {
+            i -= 1;
+            j -= 1;
+        }
+        if i == 0 {
+            return Ordering::Less;
+        }
+        if j == 0 {
+            return Ordering::Greater;
+        }
+        let (fa, fb) = (a_chain[i - 1], b_chain[j - 1]);
+        let mut cur = fa;
+        while let Some(next) = self.arena.get(cur).and_then(|n| n.next_sibling) {
+            if next == fb {
+                return Ordering::Less;
+            }
+            cur = next;
+        }
+        Ordering::Greater
     }
 }

@@ -2,17 +2,17 @@ use crate::document::{Document, editor_options, load_markdown};
 
 fn fixtures() -> Vec<(&'static str, &'static str)> {
     vec![
-        ("empty doc", ""),
-        ("single paragraph", "only one\n"),
+        ("empty document", ""),
+        ("one paragraph", "only one\n"),
         ("two paragraphs", "first\n\nsecond\n"),
-        ("heading and paragraph", "# h1\n\npara\n\n## h2\n\ntail\n"),
+        ("headings and paragraphs", "# h1\n\npara\n\n## h2\n\ntail\n"),
         ("flat list", "- a\n- b\n- c\n"),
         ("nested list", "- a\n  - b\n    - c\n- d\n"),
         ("deep quote", "> > > deep\n\nafter\n"),
         ("multi-paragraph quote", "> one\n>\n> two\n\nout\n"),
         ("table", "| a | b |\n| --- | --- |\n| c | d |\n| e | f |\n"),
         (
-            "table between paragraphs",
+            "table sandwiched between paragraphs",
             "before\n\n| a | b |\n| --- | --- |\n| c | d |\n\nafter\n",
         ),
         ("code block", "para\n\n```rust\nfn main() {}\n```\n\ntail\n"),
@@ -20,14 +20,11 @@ fn fixtures() -> Vec<(&'static str, &'static str)> {
             "footnote definition",
             "text[^1]\n\n[^1]: the note\n\nafter\n",
         ),
-        (
-            "paragraph with a soft break",
-            "term\n: definition\n\nafter\n",
-        ),
-        ("horizontal rule", "a\n\n---\n\nb\n"),
+        ("paragraph with soft break", "term\n: definition\n\nafter\n"),
+        ("thematic break", "a\n\n---\n\nb\n"),
         ("image on its own line", "![alt](x.png)\n\nafter\n"),
         (
-            "mixed content",
+            "mixed",
             "# h\n\npara\n\n- item\n  - nested\n\n> quote\n\n| a |\n| --- |\n| b |\n\n```\ncode\n```\n",
         ),
     ]
@@ -55,7 +52,7 @@ fn forward_walk_matches_text_leaves() {
 
         assert_eq!(
             got, expected,
-            "{name}: walking next does not match text_leaves"
+            "{name}: the next-walk sequence disagrees with text_leaves"
         );
     }
 }
@@ -79,7 +76,7 @@ fn backward_walk_is_the_reverse() {
 
         assert_eq!(
             got, expected,
-            "{name}: walking prev is not the reverse order"
+            "{name}: the prev-walk sequence is not the reverse"
         );
     }
 }
@@ -94,7 +91,7 @@ fn next_then_prev_returns() {
                 assert_eq!(
                     doc.prev_text_leaf(next).map(|n| n.index),
                     Some(leaf),
-                    "{name}: leaf {leaf} did not return after next then prev"
+                    "{name}: from leaf {leaf}, forward then back did not return"
                 );
             }
         }
@@ -109,7 +106,7 @@ fn ends_have_no_neighbour() {
         let Some((&first, &last)) = leaves.first().zip(leaves.last()) else {
             assert!(
                 doc.first_text_leaf().is_none(),
-                "{name}: an empty doc must not have a first leaf"
+                "{name}: an empty document must have no first leaf"
             );
             continue;
         };
@@ -117,11 +114,11 @@ fn ends_have_no_neighbour() {
         let last_id = doc.live_id(last).expect("live");
         assert!(
             doc.prev_text_leaf(first_id).is_none(),
-            "{name}: the first leaf must not have a predecessor"
+            "{name}: the first leaf must have no predecessor"
         );
         assert!(
             doc.next_text_leaf(last_id).is_none(),
-            "{name}: the last leaf must not have a successor"
+            "{name}: the last leaf must have no successor"
         );
     }
 }
@@ -151,7 +148,7 @@ fn nth_from_matches_index_arithmetic() {
                 assert_eq!(
                     doc.nth_text_leaf_from(leaf, delta),
                     want,
-                    "{name}: offset {delta} from leaf {i}"
+                    "{name}: offset {delta} from the {i}th leaf"
                 );
             }
         }
@@ -164,7 +161,6 @@ fn walk_is_consistent_after_an_edit() {
 
     let mut doc = doc_of("one\n\ntwo\n\nthree\n\nfour\n");
     let leaves = doc.text_leaves();
-
     apply(
         &mut doc,
         Sel {
@@ -192,6 +188,95 @@ fn walk_is_consistent_after_an_edit() {
     }
     assert_eq!(
         got, after,
-        "after the edit, walking next does not match text_leaves"
+        "after the edit, the next-walk sequence disagrees with text_leaves"
     );
+}
+
+#[test]
+fn reading_order_matches_the_leaf_table() {
+    for (name, md) in fixtures() {
+        let doc = doc_of(md);
+        let leaves = doc.text_leaves();
+        for (i, &a) in leaves.iter().enumerate() {
+            for (j, &b) in leaves.iter().enumerate() {
+                let want = i.cmp(&j);
+                assert_eq!(
+                    doc.cmp_reading_order(a, b),
+                    want,
+                    "{name}: leaves {i} and {j}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn front_split_sorts_before_despite_higher_slot() {
+    let mut doc = doc_of(
+        &(0..8)
+            .map(|i| format!("paragraph {i}\n\n"))
+            .collect::<String>(),
+    );
+    let first = doc.first_text_leaf().expect("leaf");
+    let (_, inserted) = doc.split_leaf(first, 0);
+    let leaves = doc.text_leaves();
+    let last = *leaves.last().expect("last");
+    assert!(
+        inserted > last,
+        "fixture premise: the new block's slot index must exceed the old tail block's"
+    );
+    assert_eq!(
+        doc.cmp_reading_order(inserted, last),
+        std::cmp::Ordering::Less
+    );
+    assert_eq!(
+        doc.cmp_reading_order(last, inserted),
+        std::cmp::Ordering::Greater
+    );
+    assert_eq!(leaves.iter().position(|&id| id == inserted), Some(1));
+    assert_eq!(
+        doc.cmp_reading_order(first, inserted),
+        std::cmp::Ordering::Less
+    );
+    assert_eq!(
+        doc.cmp_reading_order(inserted, leaves[2]),
+        std::cmp::Ordering::Less
+    );
+}
+
+#[test]
+fn ancestor_precedes_descendant() {
+    let doc = doc_of("before\n\n> one\n>\n> two\n\nafter\n");
+    let quote = doc
+        .arena
+        .children(doc.root)
+        .find(|id| doc.arena.get(*id).expect("live").kind == crate::block::BlockKind::BlockQuote)
+        .expect("quote");
+    let inside = doc.text_leaves()[1];
+    let before = doc.text_leaves()[0];
+    let after = doc.text_leaves()[3];
+    assert_eq!(
+        doc.cmp_reading_order(quote.index, inside),
+        std::cmp::Ordering::Less
+    );
+    assert_eq!(
+        doc.cmp_reading_order(before, quote.index),
+        std::cmp::Ordering::Less
+    );
+    assert_eq!(
+        doc.cmp_reading_order(quote.index, after),
+        std::cmp::Ordering::Less
+    );
+}
+
+#[test]
+fn dead_block_falls_back_to_slot_order() {
+    let doc = doc_of("a\n\nb\n");
+    let live = doc.first_text_leaf().expect("leaf");
+    let dead = doc.text_leaves().iter().max().copied().unwrap() + 1000;
+    assert_eq!(
+        doc.cmp_reading_order(dead, live),
+        std::cmp::Ordering::Greater
+    );
+    assert_eq!(doc.cmp_reading_order(dead, dead), std::cmp::Ordering::Equal);
 }

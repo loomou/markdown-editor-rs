@@ -21,14 +21,11 @@ pub struct FrameContext<'a> {
 #[derive(Clone)]
 pub struct FrameRequest<'a> {
     pub viewport: (Px, Px),
-
     pub scroll: Px,
     pub cursor: Cursor,
     pub selection: Option<(Cursor, Cursor)>,
-
     pub marked: Option<(BlockId, Range<usize>)>,
     pub search_query: &'a str,
-
     pub search_skip: Option<SearchMatch>,
 }
 

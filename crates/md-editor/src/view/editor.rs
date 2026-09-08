@@ -39,7 +39,6 @@ impl DocShapeMaps {
         if self.revision == doc.document.revision() && !path_changed {
             return;
         }
-
         let text_only = !path_changed && doc.document.pending_changes().is_text_only();
         self.revision = doc.document.revision();
         if path_changed {
@@ -178,7 +177,6 @@ impl EditorView {
             self.state.incremental_anchor_override = None;
             self.state.incremental_last_anchor = None;
         }
-
         self.state.last_stable = None;
         cx.notify();
     }

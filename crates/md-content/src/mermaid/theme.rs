@@ -9,7 +9,6 @@ use std::borrow::Cow;
 pub fn theme_fingerprint(theme: &DocumentTheme) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
-
     5u8.hash(&mut h);
     hash_color(&mut h, theme.paint.canvas);
     hash_color(&mut h, theme.type_scale.body.color);
@@ -50,13 +49,11 @@ pub fn spec_from_theme(theme: &DocumentTheme, key: MermaidKey) -> RasterSpec {
         theme_fp: key.theme_fp,
         dark: canvas.l <= 0.5,
         canvas: canvas.to_css_hex(),
-
         surface: theme.app.panel_bg.to_css_hex(),
         cluster: theme.app.active.to_css_hex(),
         text,
         subtle: theme.app.text_disabled.to_css_hex(),
         border: border.clone(),
-
         line: border,
         ok: theme.app.ok.to_css_hex(),
         warn: theme.app.warn.to_css_hex(),

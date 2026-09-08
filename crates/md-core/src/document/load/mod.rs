@@ -1,5 +1,4 @@
 use super::Document;
-
 #[cfg(test)]
 use super::text::{LeafText, TextPiece};
 use crate::block::{AlertKind, CodeFenceMarker, ListMarker, NodeExtra};

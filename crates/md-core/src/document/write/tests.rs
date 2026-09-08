@@ -1,7 +1,7 @@
 use crate::block::NodeExtra;
+use crate::doc::Doc;
 use crate::document::Document;
 use crate::document::arena::NodeId;
-
 use std::fmt::Write;
 use std::path::Path;
 
@@ -166,7 +166,6 @@ fn blank_separated_nonparagraph_items_mark_the_list_loose() {
         let doc = load_markdown(source, editor_options());
         let list = *list_nodes(&doc).first().expect("list");
         assert!(doc.extra(list).list_loose(), "source={source:?}");
-
         let md = doc.to_markdown();
         let again = load_markdown(&md, editor_options());
         let list = *list_nodes(&again).first().expect("list");
@@ -682,14 +681,14 @@ fn colon_lines_are_plain_paragraphs() {
         let node = doc.arena.get(id).expect("live");
         assert!(
             matches!(node.kind, BlockKind::DocRoot | BlockKind::Paragraph),
-            "unexpected extra {:?}",
+            "extras: {:?}",
             node.kind
         );
         if node.kind == BlockKind::Paragraph {
             assert_eq!(
                 doc.arena.children(id).count(),
                 0,
-                "a paragraph must not contain blocks"
+                "the paragraph contains blocks"
             );
         }
     }
@@ -980,7 +979,7 @@ fn cross_line_constructs_round_trip_stable_in_every_host() {
                 if round >= 1 {
                     assert_eq!(
                         next, prev,
-                        "save is not a fixed point: src={src:?} round={round} md={next:?}"
+                        "saving is not a fixed point: src={src:?} round={round} md={next:?}"
                     );
                 }
                 markdown = next.clone();
@@ -989,9 +988,120 @@ fn cross_line_constructs_round_trip_stable_in_every_host() {
             for (round, d) in displays.iter().enumerate() {
                 assert_eq!(
                     d, &displays[0],
-                    "display changed on generation {round}: src={src:?} displays={displays:?}"
+                    "display was rewritten at round {round}: src={src:?} displays={displays:?}"
                 );
             }
+        }
+    }
+}
+
+#[test]
+fn inline_code_and_math_keep_continuation_whitespace() {
+    for source in [
+        "`a\n    b`\n",
+        "- `a\n      b`\n",
+        "> `a\n>     b`\n",
+        "a $x\n    y$ b\n",
+    ] {
+        let first = load_markdown(source, editor_options());
+        let display: Vec<String> = first
+            .text_leaves()
+            .into_iter()
+            .map(|b| first.text_of(b).unwrap_or("").to_string())
+            .collect();
+        let mut markdown = source.to_string();
+        for round in 0..3 {
+            let doc = load_markdown(&markdown, editor_options());
+            let now: Vec<String> = doc
+                .text_leaves()
+                .into_iter()
+                .map(|b| doc.text_of(b).unwrap_or("").to_string())
+                .collect();
+            assert_eq!(
+                now, display,
+                "display was rewritten at round {round}: src={source:?}"
+            );
+            let saved = doc.to_markdown();
+            if round >= 1 {
+                assert_eq!(
+                    saved, markdown,
+                    "saving is not a fixed point: src={source:?} round={round}"
+                );
+            }
+            markdown = saved;
+        }
+    }
+}
+
+#[test]
+fn display_math_extraction_does_not_duplicate_enclosing_source() {
+    for source in [
+        "**before $$x$$ after**\n",
+        "a **b $$x$$ c** d\n",
+        "[before $$x$$ after](u)\n",
+    ] {
+        let first = load_markdown(source, editor_options());
+        let leaves = first.text_leaves().len();
+        let mut markdown = first.to_markdown();
+        for round in 0..3 {
+            let doc = load_markdown(&markdown, editor_options());
+            assert_eq!(
+                doc.text_leaves().len(),
+                leaves,
+                "the leaf count ballooned at round {round}: src={source:?} md={markdown:?}"
+            );
+            assert_eq!(
+                doc.to_markdown().matches("$$x$$").count(),
+                1,
+                "a formula was duplicated: src={source:?} md={markdown:?}"
+            );
+            let saved = doc.to_markdown();
+            if round >= 1 {
+                assert_eq!(
+                    saved, markdown,
+                    "saving is not a fixed point: src={source:?}"
+                );
+            }
+            markdown = saved;
+        }
+    }
+}
+
+#[test]
+fn escaped_punctuation_stays_literal_across_saves() {
+    for (source, first_display) in [
+        (r"\*word\*".to_string() + "\n", "*word*"),
+        (r"a\*word\*z".to_string() + "\n", "a*word*z"),
+        (r"\# title".to_string() + "\n", "# title"),
+    ] {
+        let first = load_markdown(&source, editor_options());
+        assert_eq!(
+            first.text_of(first.text_leaves()[0]),
+            Some(first_display),
+            "src={source:?}"
+        );
+        let mut markdown = source.clone();
+        for round in 0..3 {
+            let doc = load_markdown(&markdown, editor_options());
+            let reloaded_display = doc
+                .text_leaves()
+                .into_iter()
+                .map(|b| doc.text_of(b).unwrap_or("").to_string())
+                .collect::<Vec<_>>()
+                .join("\u{1}");
+            let first_all: String = first_display.to_string();
+            assert_eq!(
+                reloaded_display, first_all,
+                "display was rewritten at round {round}: src={source:?}"
+            );
+            let saved = doc.to_markdown();
+            if round >= 1 {
+                assert_eq!(
+                    saved, markdown,
+                    "saving is not a fixed point: src={source:?}"
+                );
+            }
+            markdown = saved;
         }
     }
 }
@@ -1028,7 +1138,7 @@ fn over_indented_continuations_normalize_once_then_hold() {
                 if round >= 1 {
                     assert_eq!(
                         next, prev,
-                        "save is still unstable on generation {round}: src={src:?} md={next:?}"
+                        "saving is still unstable at round {round}: src={src:?} md={next:?}"
                     );
                 }
                 markdown = next.clone();
@@ -1037,7 +1147,7 @@ fn over_indented_continuations_normalize_once_then_hold() {
             for (round, d) in displays.iter().enumerate().skip(1) {
                 assert_eq!(
                     d, &displays[1],
-                    "display still drifts on generation {round}: src={src:?} displays={displays:?}"
+                    "display is still drifting at round {round}: src={src:?} displays={displays:?}"
                 );
             }
         }
@@ -1061,7 +1171,7 @@ fn repo_corpus_reaches_a_text_level_save_fixed_point() {
     }
     for path in &paths {
         let Ok(md) = std::fs::read_to_string(path) else {
-            panic!("cannot read corpus: {}", path.display());
+            panic!("cannot read the corpus: {}", path.display());
         };
         let mut markdown = md;
         let mut prev = String::new();
@@ -1078,7 +1188,7 @@ fn repo_corpus_reaches_a_text_level_save_fixed_point() {
                 assert_eq!(
                     &display,
                     d,
-                    "display drifts on generation {round}: {}",
+                    "display drifted at round {round}: {}",
                     path.display()
                 );
             } else {
@@ -1089,7 +1199,7 @@ fn repo_corpus_reaches_a_text_level_save_fixed_point() {
                 assert_eq!(
                     next,
                     prev,
-                    "save is not a fixed point on generation {round}: {}",
+                    "saving is not a fixed point at round {round}: {}",
                     path.display()
                 );
             }
@@ -1136,4 +1246,178 @@ fn indented_and_nested_quote_markers_survive_saves() {
             markdown = next;
         }
     }
+}
+
+#[test]
+fn ordered_list_numbers_stay_within_marker_limits() {
+    let doc = load_markdown("999999999. a\n1. b\n", editor_options());
+    let saved = doc.to_markdown();
+    let reloaded = load_markdown(&saved, editor_options());
+    assert_eq!(saved, "999999999. a\n999999999. b\n");
+    let texts: Vec<_> = reloaded
+        .text_leaves()
+        .into_iter()
+        .map(|b| reloaded.text_of(b).unwrap_or("").to_string())
+        .collect();
+    assert_eq!(texts, ["a", "b"], "saved={saved:?}");
+}
+
+#[test]
+fn reference_definitions_escape_a_trailing_unclosed_html_block() {
+    for (tail, tail_text) in [
+        ("<script>\ntext\n", "text"),
+        ("<!-- open\n", ""),
+        ("<pre>\nx\n", "x"),
+    ] {
+        let source = format!("[r]: /url\n\n[go][r]\n\n{tail}");
+        let doc = load_markdown(&source, editor_options());
+        let saved = doc.to_markdown();
+        let reloaded = load_markdown(&saved, editor_options());
+        let texts: Vec<_> = reloaded
+            .text_leaves()
+            .into_iter()
+            .map(|b| reloaded.text_of(b).unwrap_or("").to_string())
+            .collect();
+        assert_eq!(texts, ["go", tail_text], "tail={tail:?} saved={saved:?}");
+        assert_eq!(reloaded.to_markdown(), saved, "tail={tail:?}");
+    }
+}
+
+#[test]
+fn closed_html_blocks_keep_definitions_at_the_tail() {
+    let doc = load_markdown(
+        "[r]: /url\n\n[go][r]\n\n<div>\nx\n</div>\n",
+        editor_options(),
+    );
+    let saved = doc.to_markdown();
+    assert_eq!(saved, "[go][r]\n\n<div>\nx\n</div>\n\n[r]: /url\n");
+    let reloaded = load_markdown(&saved, editor_options());
+    let texts: Vec<_> = reloaded
+        .text_leaves()
+        .into_iter()
+        .map(|b| reloaded.text_of(b).unwrap_or("").to_string())
+        .collect();
+    assert_eq!(texts, ["go", "x"]);
+}
+
+#[test]
+fn prefix_close_tags_do_not_count_as_closed() {
+    for tail in [
+        "<script>\nfoo\n</scripture>\n",
+        "<pre>\nx\n</pretty>\n",
+        "<style>\ns\n</stylus>\n",
+        "<textarea>\nt\n</textareax>\n",
+        "<pre>\nx\n</pre >\n",
+    ] {
+        let source = format!("[r]: target\n\n[r]\n\n{tail}");
+        let doc = load_markdown(&source, editor_options());
+        let saved = doc.to_markdown();
+        let reloaded = load_markdown(&saved, editor_options());
+        let leaf = reloaded.live_id(reloaded.text_leaves()[0]).expect("leaf");
+        assert_eq!(
+            reloaded.link_at(leaf, 0),
+            Some("target"),
+            "tail={tail:?} saved={saved:?}"
+        );
+        assert_eq!(reloaded.to_markdown(), saved, "tail={tail:?}");
+    }
+
+    {
+        let tail = "<script>\nclosed\n</script>\n";
+        let source = format!("[r]: target\n\n[r]\n\n{tail}");
+        let doc = load_markdown(&source, editor_options());
+        let saved = doc.to_markdown();
+        assert!(
+            saved.ends_with("[r]: target\n"),
+            "closed tail keeps definitions at the end: {saved:?}"
+        );
+        let reloaded = load_markdown(&saved, editor_options());
+        let leaf = reloaded.live_id(reloaded.text_leaves()[0]).expect("leaf");
+        assert_eq!(reloaded.link_at(leaf, 0), Some("target"), "tail={tail:?}");
+    }
+}
+
+#[test]
+fn fence_marker_lines_inside_a_paragraph_are_escaped_on_save() {
+    let mut doc = load_markdown("before\n\nafter\n", editor_options());
+    let leaves = doc.text_leaves();
+    let _ = doc.replace_text(leaves[0], 6..6, "\n\n```rust\nfn\n```");
+    let saved = doc.to_markdown();
+    assert_eq!(saved, "before\n\n\\```rust\nfn\n\\```\n\nafter\n");
+
+    let reloaded = load_markdown(&saved, editor_options());
+    let kinds: Vec<BlockKind> = reloaded
+        .preorder()
+        .into_iter()
+        .filter_map(|id| reloaded.arena.get(id).map(|n| n.kind))
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![
+            BlockKind::DocRoot,
+            BlockKind::Paragraph,
+            BlockKind::Paragraph,
+            BlockKind::Paragraph
+        ]
+    );
+    assert_eq!(reloaded.to_markdown(), saved);
+}
+
+#[test]
+fn indented_and_tilde_fence_lines_are_escaped_too() {
+    let mut doc = load_markdown("body\n", editor_options());
+    let leaves = doc.text_leaves();
+    let _ = doc.replace_text(leaves[0], 4..4, "\n\na\n~~~txt\nx\n~~~");
+    let saved = doc.to_markdown();
+    assert_eq!(saved, "body\n\na\n\\~~~txt\nx\n\\~~~\n");
+
+    let reloaded = load_markdown(&saved, editor_options());
+    let kinds: Vec<BlockKind> = reloaded
+        .preorder()
+        .into_iter()
+        .filter_map(|id| reloaded.arena.get(id).map(|n| n.kind))
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![
+            BlockKind::DocRoot,
+            BlockKind::Paragraph,
+            BlockKind::Paragraph
+        ]
+    );
+    assert_eq!(reloaded.to_markdown(), saved);
+}
+
+#[test]
+fn fence_marker_text_inside_a_table_cell_stays_literal() {
+    let doc = load_markdown("| ``` |\n| --- |\n| ```x``` |\n", editor_options());
+    assert_eq!(doc.to_markdown(), "| ``` |\n| --- |\n| ```x``` |\n");
+}
+
+#[test]
+fn trailing_blank_does_not_hide_an_unterminated_html_tail_from_the_writer() {
+    let mut doc = Doc::new(load_markdown(
+        "[r]: /target\n\n[label][r]\n\n<!-- unclosed\n",
+        editor_options(),
+    ));
+    let control = Doc::new(load_markdown(&doc.document.to_markdown(), editor_options()));
+    assert_eq!(
+        control.link_at(Caret {
+            block: control.text_leaves()[0],
+            offset: 1
+        }),
+        Some("/target")
+    );
+    doc.enable_trailing_blank();
+    let saved = doc.document.to_markdown();
+    let reloaded = Doc::new(load_markdown(&saved, editor_options()));
+    let live = doc.link_at(Caret {
+        block: doc.text_leaves()[0],
+        offset: 1,
+    });
+    let after_reload = reloaded.link_at(Caret {
+        block: reloaded.text_leaves()[0],
+        offset: 1,
+    });
+    assert_eq!(after_reload, live, "saved={saved:?}");
 }

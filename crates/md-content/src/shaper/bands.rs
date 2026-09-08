@@ -55,7 +55,6 @@ pub(super) enum Atom {
         start: usize,
         end: usize,
         dest: String,
-
         raw: Option<String>,
     },
 }
@@ -75,7 +74,6 @@ pub(super) enum Pending {
         display: bool,
         start: usize,
         end: usize,
-
         fallback: Option<Box<WrappedLine>>,
     },
     Image {
@@ -85,7 +83,6 @@ pub(super) enum Pending {
         slot_h: f32,
         start: usize,
         end: usize,
-
         fallback: Option<Box<WrappedLine>>,
     },
 }
@@ -127,7 +124,6 @@ pub(super) fn bands_to_artifact(bands: Vec<ShapeBand>, role: &ResolvedType) -> S
     let height: Px = bands.iter().map(|b| b.height).sum();
     let first_baseline = bands[0].text_dy + role.text_baseline();
     let rows = bands.len() as u32;
-
     let max_line_width = band_max_width(&bands);
     ShapeArtifact {
         lines: Vec::new(),
@@ -187,7 +183,6 @@ pub(super) fn flush_band(
         return;
     }
     let lone_avail = lone_avail.filter(|_| is_lone_display(pending));
-
     if let Some(avail) = lone_avail
         && let [Pending::Math { x, metrics, .. }] = pending.as_mut_slice()
     {
@@ -228,7 +223,6 @@ pub(super) fn flush_band(
             }
         }
     }
-
     let air = if lone_avail.is_some() {
         role.row_advance
     } else {

@@ -263,7 +263,6 @@ fn warm_media_reaches_past_the_visible_window() {
     };
     let solver = FallbackSolver;
     let vh = 600.0;
-
     let sa = engine.anchor_at_y(4_000.0, &measure, &solver);
     let (_, published) = engine.assemble_with_doc(&doc, sa, vh, &measure, &solver);
     let top = published.resolved_top;
@@ -304,7 +303,6 @@ fn warm_media_is_empty_without_a_window() {
     let doc = paras_with_mermaid_every(40, 6);
     let env = BoxLayoutEnvironment::default();
     let mut engine = IncrementalEngine::new(&doc, env, estimator(), dummy_layout());
-
     engine.eviction = EvictionPolicy::unbounded();
     let measure = CountingMeasure {
         calls: Cell::new(0),
@@ -330,7 +328,6 @@ fn warm_media_reaches_below_the_viewport() {
     let top = published.resolved_top;
 
     let warm = engine.warm_media_blocks(top, vh);
-
     let mut y_of = std::collections::HashMap::new();
     for pos in engine.spine.visible(0.0, f64::MAX) {
         let item = engine.spine.item_at(pos);
@@ -348,7 +345,7 @@ fn warm_media_reaches_below_the_viewport() {
     for (block, _, _) in &warm {
         let y = *y_of
             .get(block)
-            .expect("every block the warm window reports must be on the spine");
+            .expect("blocks reported by the warm window should be on the spine");
         if y < top {
             above += 1;
         } else if y >= top + vh {
@@ -373,7 +370,6 @@ fn warm_realize_spends_its_quota_ahead_of_the_scroll() {
     };
     let solver = FallbackSolver;
     let vh = 600.0;
-
     let sa = engine.anchor_at_y(6_000.0, &measure, &solver);
     let published = engine.assemble_with_doc(&doc, sa, vh, &measure, &solver).1;
     let top = published.resolved_top;
@@ -395,5 +391,106 @@ fn warm_realize_spends_its_quota_ahead_of_the_scroll() {
     assert!(
         boxed > 0,
         "the jump frame built no box below; the quota all went above: boxed={boxed} deferred_only={deferred_only}"
+    );
+}
+
+#[test]
+fn cold_subtree_text_edit_updates_the_spine_estimate() {
+    use md_core::document::{Caret, Command, Sel, apply};
+
+    let mut doc = paras_then_quote(80);
+    let env = BoxLayoutEnvironment::default();
+    let mut engine =
+        IncrementalEngine::with_window(&doc, env, estimator(), dummy_layout(), 0.0, 80.0);
+    let measure = CountingMeasure {
+        calls: Cell::new(0),
+    };
+    let solver = FallbackSolver;
+    engine.assemble_with_doc(&doc, ScrollAnchor::top(), 600.0, &measure, &solver);
+    let target = leaf_containing(&doc, "findme");
+    let quote_node = doc
+        .preorder()
+        .into_iter()
+        .find(|&id| doc.arena.get(id).unwrap().kind == BlockKind::BlockQuote)
+        .expect("the quote container");
+    let quote_box = LayoutBoxId::frame(quote_node.index);
+    assert!(
+        engine.tree.deferred_height(quote_box).is_some(),
+        "fixture: the quote must still be cold"
+    );
+    let item = engine
+        .spine
+        .collapsed_id(quote_box)
+        .expect("a pending collapsed item");
+    let before_total = engine.spine.total_height();
+
+    let _ = doc.take_changes();
+    apply(
+        &mut doc,
+        Sel::collapsed(Caret {
+            block: target,
+            offset: 2,
+        }),
+        Command::Insert {
+            text: "tail ".repeat(400),
+        },
+    );
+    let changes = doc.take_changes();
+    engine.apply_changes(&doc, &changes);
+
+    let after_total = engine.spine.total_height();
+    assert!(
+        after_total > before_total,
+        "the collapsed estimate must follow the edit ({after_total} vs {before_total})"
+    );
+    let spine_h = engine
+        .spine
+        .get(item)
+        .expect("the collapsed item survives")
+        .height
+        .px();
+    let tree_h = engine
+        .tree
+        .deferred_height(quote_box)
+        .expect("re-estimated on the tree side");
+    assert_eq!(spine_h, tree_h, "spine and tree must agree on the estimate");
+}
+
+#[test]
+fn ensure_composed_block_lowers_the_cold_editing_preview() {
+    use md_core::document::{Caret, FocusBias};
+    use std::fmt::Write as _;
+
+    let mut md = String::new();
+    for i in 0..80 {
+        let _ = writeln!(md, "paragraph {i} {}\n", "word ".repeat(8));
+    }
+    md.push_str("$$\nx\n$$\n");
+    let mut doc = load_markdown(&md, editor_options());
+    let block = doc
+        .text_leaves()
+        .into_iter()
+        .find(|&b| doc.kind(b) == Some(BlockKind::Math))
+        .expect("the math block");
+    doc.retarget_inline_focus_biased(Caret { block, offset: 0 }, FocusBias::Neutral);
+    assert_eq!(doc.block_edit(), Some(block));
+
+    let env = BoxLayoutEnvironment::default();
+    let mut engine =
+        IncrementalEngine::with_window(&doc, env, estimator(), dummy_layout(), 0.0, 80.0);
+    let measure = CountingMeasure {
+        calls: Cell::new(0),
+    };
+    let solver = FallbackSolver;
+    engine.assemble_with_doc(&doc, ScrollAnchor::top(), 600.0, &measure, &solver);
+    let preview = LayoutBoxId::preview(block);
+    assert!(
+        !engine.tree.nodes().contains_key(&preview),
+        "fixture: the editing math block must still be cold"
+    );
+    assert!(engine.ensure_composed_block(&doc, block, &measure, &solver));
+    assert!(
+        engine.spine.content_id(preview).is_some(),
+        "the preview must ride the spine with its frame"
     );
 }

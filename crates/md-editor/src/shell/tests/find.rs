@@ -41,7 +41,7 @@ fn find_next_in_the_shell_steps_the_open_bar(cx: &mut TestAppContext) {
     assert_eq!(
         active(cx),
         Some(0),
-        "precondition: seeding should stop at the first match"
+        "precondition: the seeded typing should stop at the first match"
     );
 
     cx.update(|window, app| {
@@ -53,7 +53,7 @@ fn find_next_in_the_shell_steps_the_open_bar(cx: &mut TestAppContext) {
     assert_eq!(
         active(cx),
         Some(1),
-        "while the bar is open, \"next\" should step to the second match"
+        "with the bar open, \"next\" should step to the second match"
     );
     let (query, selection_empty) = cx.update(|_, app| {
         let find = shell.read(app).find.read(app);
@@ -65,7 +65,7 @@ fn find_next_in_the_shell_steps_the_open_bar(cx: &mut TestAppContext) {
     );
     assert!(
         selection_empty,
-        "the query box was fully selected; this looks like the find bar was reopened"
+        "the query field got select-all — as if the find bar had been reopened"
     );
 
     cx.update(|window, app| {
@@ -77,6 +77,6 @@ fn find_next_in_the_shell_steps_the_open_bar(cx: &mut TestAppContext) {
     assert_eq!(
         active(cx),
         Some(0),
-        "\"prev\" should step back to the first match"
+        "\"previous\" should walk back to the first match"
     );
 }

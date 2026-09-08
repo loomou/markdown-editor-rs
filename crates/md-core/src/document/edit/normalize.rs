@@ -108,10 +108,11 @@ impl Document {
 
     pub(crate) fn clamp_live_caret(&self, caret: Caret) -> Caret {
         if let Some(id) = self.live_id(caret.block) {
-            let n = self.caret_text(id).len();
+            let text = self.caret_text(id);
+            let offset = crate::document::floor_char_boundary(text, caret.offset.min(text.len()));
             return Caret {
                 block: caret.block,
-                offset: caret.offset.min(n),
+                offset,
             };
         }
         match self.first_text_leaf() {
@@ -141,7 +142,6 @@ pub(crate) fn ensure_trailing_blank_paragraph(doc: &mut Document, caret: Option<
             && prev.is_some_and(|id| is_blank_paragraph(doc, id))
         {
             let id = last.expect("last");
-
             let drop_sentinel = match caret {
                 None => true,
                 Some(c) => prev.is_some_and(|p| c.block == p.index),
@@ -162,7 +162,6 @@ pub(crate) fn ensure_trailing_blank_paragraph(doc: &mut Document, caret: Option<
         break;
     }
     let last = doc.arena.get(root).and_then(|n| n.last_child);
-
     if let Some(id) = last.filter(|&id| is_blank_paragraph(doc, id)) {
         if !changes.is_empty() {
             let _ = doc.commit(before_rev, changes);

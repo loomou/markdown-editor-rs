@@ -19,7 +19,7 @@ fn map(source: &str) -> (String, Vec<InlineRun>, Vec<usize>) {
     (
         doc.display(id).to_string(),
         doc.runs(id).to_vec(),
-        source_to_display_map(source),
+        source_to_display_map(source, &[]),
     )
 }
 
@@ -35,7 +35,7 @@ fn focus_at(
         d,
         runs,
         s2d,
-        &raw_constructs(source),
+        &raw_constructs(source, &[]),
         FocusQuery {
             caret,
             src_hint: None,
@@ -53,7 +53,7 @@ fn short_collapsed_mapping_falls_back_to_identity() {
 fn constructs_strong_in_plain() {
     let source = "a**b**c";
     let (_, _, s2d) = map(source);
-    let cs = inline_constructs(source, &s2d);
+    let cs = inline_constructs(source, &s2d, &[]);
     assert_eq!(cs.len(), 1);
     assert_eq!(cs[0].source, 1..6);
     assert_eq!(cs[0].inner, 3..4);
@@ -110,7 +110,6 @@ fn revealed_empty_alt_image_drops_placeholder_and_maps_identically() {
     let f = focus_at(source, &d, &runs, &s2d, 2).expect("focus");
     assert_eq!(f.display, source);
     assert_eq!(f.s2d, identity_map(source.len()));
-
     assert!(
         f.runs
             .iter()
@@ -121,7 +120,6 @@ fn revealed_empty_alt_image_drops_placeholder_and_maps_identically() {
             .iter()
             .any(|r| r.marks.is_syntax() && r.display_range == (4u32..8))
     );
-
     assert!(!f.runs.iter().any(|r| r.marks.is_image()));
 }
 
@@ -188,7 +186,7 @@ fn source_hint_keeps_caret_inside_markers() {
         &d,
         &runs,
         &s2d,
-        &raw_constructs(source),
+        &raw_constructs(source, &[]),
         FocusQuery {
             caret: 1,
             src_hint: Some(3),
@@ -209,7 +207,7 @@ fn source_hint_after_inner_stays_before_closer() {
         &d,
         &runs,
         &s2d,
-        &raw_constructs(source),
+        &raw_constructs(source, &[]),
         FocusQuery {
             caret: 3,
             src_hint: Some(5),
@@ -225,7 +223,7 @@ fn source_hint_after_inner_stays_before_closer() {
 fn code_and_emphasis_constructs() {
     for (source, start, end) in [("`a`", 0, 3), ("*b*", 0, 3), ("~~d~~", 0, 5)] {
         let (_, _, s2d) = map(source);
-        let cs = inline_constructs(source, &s2d);
+        let cs = inline_constructs(source, &s2d, &[]);
         assert_eq!(cs.len(), 1, "{source}");
         assert_eq!(cs[0].source, start..end, "{source}");
     }
@@ -236,7 +234,7 @@ fn link_construct_reveals_destination() {
     let source = "a[b](u)c";
     let (d, runs, s2d) = map(source);
     assert_eq!(d, "abc");
-    let cs = inline_constructs(source, &s2d);
+    let cs = inline_constructs(source, &s2d, &[]);
     assert_eq!(cs.len(), 1);
     let f = focus_at(source, &d, &runs, &s2d, 1).expect("focus");
     assert_eq!(f.display, "a[b](u)c");
@@ -247,7 +245,7 @@ fn link_construct_reveals_destination() {
 fn math_construct_reveals_dollars() {
     let source = "a$x$c";
     let (_, _, s2d) = map(source);
-    let cs = inline_constructs(source, &s2d);
+    let cs = inline_constructs(source, &s2d, &[]);
     assert_eq!(cs.len(), 1);
     assert_eq!(cs[0].source, 1..4);
 }
@@ -256,7 +254,7 @@ fn math_construct_reveals_dollars() {
 fn image_construct_reveals_markdown() {
     let source = "a![x](u)c";
     let (d, runs, s2d) = map(source);
-    let cs = inline_constructs(source, &s2d);
+    let cs = inline_constructs(source, &s2d, &[]);
     assert_eq!(cs.len(), 1);
     let f = focus_at(source, &d, &runs, &s2d, 1).expect("focus");
     assert!(f.display.contains("![x](u)"));
@@ -281,7 +279,7 @@ fn seam_bias_picks_direction() {
         &d,
         &runs,
         &s2d,
-        &raw_constructs(source),
+        &raw_constructs(source, &[]),
         FocusQuery {
             caret: seam,
             src_hint: None,
@@ -296,7 +294,7 @@ fn seam_bias_picks_direction() {
         &d,
         &runs,
         &s2d,
-        &raw_constructs(source),
+        &raw_constructs(source, &[]),
         FocusQuery {
             caret: seam.saturating_sub(1),
             src_hint: None,
@@ -459,7 +457,7 @@ fn revealed_display_math_enters_block_edit() {
     assert_eq!(doc.block_edit(), Some(math));
     assert!(
         doc.revealed_math().is_none(),
-        "display math must not go through inline reveal"
+        "a math block does not go through inline reveal"
     );
 }
 
@@ -620,13 +618,14 @@ fn construct_cache_follows_load_edit_and_merge() {
 
     let _ = doc.replace_text(leaf, 3..3, "c");
     let id = doc.live_id(leaf).expect("live after edit");
-    let expected = raw_constructs(doc.leaf_source(id));
+    let expected = raw_constructs(doc.leaf_source(id), &[]);
     assert_eq!(doc.recorded_constructs(id), Some(expected.as_slice()));
 
     let tail = doc.text_leaves()[1];
     let _ = doc.merge_into_prev(tail);
     let id = doc.live_id(leaf).expect("live after merge");
-    assert_eq!(doc.recorded_constructs(id), None);
+    let expected = raw_constructs(doc.leaf_source(id), &[]);
+    assert_eq!(doc.recorded_constructs(id), Some(expected.as_slice()));
     assert_eq!(doc.leaf_source(id), "*a* bcz");
 
     let _ = doc.retarget_inline_focus(Caret {
@@ -634,7 +633,7 @@ fn construct_cache_follows_load_edit_and_merge() {
         offset: 0,
     });
     let id = doc.live_id(leaf).expect("live after refocus");
-    let expected = raw_constructs(doc.leaf_source(id));
+    let expected = raw_constructs(doc.leaf_source(id), &[]);
     assert_eq!(doc.recorded_constructs(id), Some(expected.as_slice()));
     assert_eq!(doc.display(id), "*a* bcz");
 }
@@ -677,7 +676,7 @@ fn recorded_constructs_match_standalone_parsing() {
             });
             assert_eq!(
                 finish_constructs(recorded, &s2d),
-                inline_constructs(&src, &s2d),
+                inline_constructs(&src, &s2d, &doc.reference_definitions),
                 "source={source:?} leaf={src:?}"
             );
         }
@@ -685,7 +684,7 @@ fn recorded_constructs_match_standalone_parsing() {
 }
 
 #[test]
-fn reference_link_construct_survives_only_in_the_cache() {
+fn reference_link_construct_survives_on_both_paths() {
     let doc = load_markdown("text [ref][d]\n\n[d]: /u\n", editor_options());
     let leaf = doc.text_leaves()[0];
     let id = doc.live_id(leaf).expect("live");
@@ -693,21 +692,19 @@ fn reference_link_construct_survives_only_in_the_cache() {
     let recorded = doc.recorded_constructs(id).expect("recorded");
     assert!(
         !recorded.is_empty(),
-        "a full-document parse sees the definition, so Link records it"
-    );
-    assert!(
-        raw_constructs(doc.leaf_source(id)).is_empty(),
-        "a standalone parse has no definitions"
+        "a whole-document parse sees the definition, so Link records it"
     );
     let s2d = doc.collapsed_s2d(id);
     assert_eq!(
         finish_constructs(recorded, &s2d),
-        inline_constructs(doc.leaf_source(id), &s2d)
+        inline_constructs(doc.leaf_source(id), &s2d, &doc.reference_definitions)
     );
+    assert_eq!(doc.display(id), "text ref");
+    assert_eq!(s2d.last().copied(), Some(doc.display(id).len()));
 }
 
 #[test]
-fn emphasis_straddling_extracted_math_stays_collapsed() {
+fn emphasis_straddling_display_math_stays_in_the_paragraph() {
     let mut doc = load_markdown("*a\n$$x$$\nb*\n", editor_options());
     let para = doc.text_leaves()[0];
     let id = doc.live_id(para).expect("live");
@@ -715,6 +712,86 @@ fn emphasis_straddling_extracted_math_stays_collapsed() {
         block: para,
         offset: 0,
     });
-    assert!(doc.focus.is_none());
-    assert_eq!(doc.display(id), "a");
+    assert!(
+        doc.focus.is_some(),
+        "the construct is intact, so the paragraph start reveals as usual"
+    );
+    assert_eq!(doc.display(id), "*a\n$$x$$\nb*");
+}
+
+#[test]
+fn entity_boundaries_stay_atomic_when_typing() {
+    use crate::doc::Doc;
+    use crate::document::edit::Command;
+
+    let mut doc = Doc::new(load_markdown("&#x4E2D;tail\n", editor_options()));
+    let block = doc.text_leaves()[0];
+    assert_eq!(doc.collapsed_text(block), Some("中tail"));
+    let caret = doc
+        .document
+        .retarget_inline_focus_biased(Caret { block, offset: 0 }, FocusBias::Neutral);
+    let _ = doc.apply(Sel::collapsed(caret), Command::Insert { text: "X".into() });
+    assert_eq!(
+        doc.document.to_markdown(),
+        "X&#x4E2D;tail\n",
+        "the insert must land before the entity, never splitting the encoding"
+    );
+
+    let mut doc = Doc::new(load_markdown("&#x4E2D;tail\n", editor_options()));
+    let block = doc.text_leaves()[0];
+    let caret = doc
+        .document
+        .retarget_inline_focus_biased(Caret { block, offset: 3 }, FocusBias::Neutral);
+    let _ = doc.apply(Sel::collapsed(caret), Command::Insert { text: "Y".into() });
+    assert_eq!(
+        doc.document.to_markdown(),
+        "&#x4E2D;Ytail\n",
+        "the insert must land after the entity, never splitting the encoding"
+    );
+}
+
+#[test]
+fn container_prefixes_do_not_blank_cross_line_constructs() {
+    use crate::doc::Doc;
+
+    for (source, revealed) in [
+        ("> **alpha\n> beta**\n", "**alpha\nbeta**"),
+        ("- **alpha\n  beta**\n", "**alpha\nbeta**"),
+    ] {
+        let mut doc = Doc::new(load_markdown(source, editor_options()));
+        let block = doc.text_leaves()[0];
+        assert_eq!(doc.collapsed_text(block), Some("alpha\nbeta"));
+        doc.document
+            .retarget_inline_focus_biased(Caret { block, offset: 1 }, FocusBias::Neutral);
+        let id = doc.document.live_id(block).expect("live");
+        assert_eq!(
+            doc.document.text_of(id.index),
+            Some(revealed),
+            "source={source:?}: a construct spanning lines must still reveal"
+        );
+    }
+}
+
+#[test]
+fn nested_math_preview_targets_the_inner_construct() {
+    for (source, caret_off) in [("**$x$**", 1usize), ("**before $x$**", 8usize)] {
+        let mut doc = load_markdown(source, editor_options());
+        let block = doc.text_leaves()[0];
+        let _ = doc.retarget_inline_focus(Caret {
+            block,
+            offset: caret_off,
+        });
+        let m = doc.revealed_math().expect("revealed");
+        assert_eq!(
+            m.latex, "x",
+            "source={source:?}: LaTeX must not carry the `$` delimiters"
+        );
+        assert!(!m.display_math);
+        let id = doc.live_id(block).expect("live");
+        assert_eq!(
+            &doc.display(id)[m.display.clone()],
+            "$x$",
+            "source={source:?}: the reveal range must cover the formula inside the revealed display"
+        );
+    }
 }

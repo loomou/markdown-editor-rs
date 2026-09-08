@@ -1,3 +1,4 @@
+use crate::doc::Doc;
 use crate::document::change::{ChangeSet, DocChange};
 use crate::document::edit::{Caret, Command, Sel, apply};
 use crate::document::{DocumentArena, editor_options, load_markdown};
@@ -117,6 +118,52 @@ fn split_leaf_emits_tree_spliced() {
 }
 
 #[test]
+fn undo_and_redo_rebuild_a_pasted_split_tail() {
+    let mut doc = Doc::new(load_markdown(
+        "# heading\n\nalph**\na **bold** b\n\n> quoted\n",
+        editor_options(),
+    ));
+    let leaves = doc.text_leaves();
+    let block = leaves[1];
+    let _ = doc.apply(
+        Sel::collapsed(Caret { block, offset: 8 }),
+        Command::Paste {
+            text: "para one\n\npara two".into(),
+            intent: crate::document::PasteIntent::IndependentFragment,
+        },
+    );
+    let edited = doc.document.to_markdown();
+    assert!(edited.contains("para two"));
+    assert!(
+        edited.contains("bold"),
+        "the pasted tail must keep its text"
+    );
+    let set = doc.take_changes();
+    assert!(
+        set.changes.iter().any(|c| matches!(
+            c,
+            DocChange::TextChanged { inserted, .. }
+                if inserted.contains("bold")
+        )),
+        "the split tail fill must be recorded: {set:?}"
+    );
+    while doc.undo().is_some() {}
+    while doc.redo().is_some() {}
+    assert_eq!(doc.document.to_markdown(), edited);
+}
+
+#[test]
+fn a_split_point_inside_an_escaped_pair_steps_back() {
+    let mut doc = load_markdown("a \\` b\n", editor_options());
+    let leaf = doc.text_leaves().into_iter().next().expect("leaf");
+    let head = doc.live_id(leaf).unwrap();
+    let (_, new_leaf) = doc.split_leaf(leaf, 2);
+    let tail = doc.live_id(new_leaf).unwrap();
+    assert_eq!(doc.leaf_source(head), "a ");
+    assert_eq!(doc.leaf_source(tail), "\\` b");
+}
+
+#[test]
 fn merge_emits_tree_spliced_on_removed_parent() {
     let mut doc = load_markdown("aa\n\nbb\n", editor_options());
     let leaves = doc.text_leaves();
@@ -193,12 +240,11 @@ fn is_text_only_excludes_structure_and_attrs() {
     let (split, _) = doc.split_leaf(leaf, 2);
     assert!(
         !split.is_text_only(),
-        "a Return carries TreeSpliced, not plain text"
+        "Enter carries a TreeSpliced, so it is not text-only"
     );
-
     assert!(
         !ChangeSet::empty(doc.revision).is_text_only(),
-        "the empty set does not count"
+        "an empty set does not count"
     );
     assert!(!ChangeSet::document_replaced(1).is_text_only());
 }
@@ -223,11 +269,11 @@ fn attrs_changed_is_not_text_only_though_it_is_not_structural() {
         set.changes
             .iter()
             .any(|c| matches!(c, DocChange::AttrsChanged { .. })),
-        "checking a task item must emit AttrsChanged, or this case tests nothing"
+        "ticking a task item must emit an AttrsChanged, or this case tests nothing"
     );
     assert!(!set.is_structural(), "it is indeed not a structural change");
     assert!(
         !set.is_text_only(),
-        "yet it must not count as plain text either"
+        "but it must not count as text-only either"
     );
 }

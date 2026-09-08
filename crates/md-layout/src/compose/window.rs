@@ -1,10 +1,10 @@
-use super::block_edit::emit_preview;
+use super::block_edit::{emit_preview, wants_preview};
 use super::emit;
 use super::flow_policy::flow_top_margin;
 use super::theme::LayoutTheme;
 use crate::box_tree::{
     BoxChildren, BoxIntern, BoxNode, BoxStore, BoxStyleStore, BoxTree, DeferredBox, LayoutBoxId,
-    TypeSlot,
+    LazyEstimator, LeafMetrics, TypeSlot,
 };
 use crate::style::BoxLayoutStyle;
 use md_core::Px;
@@ -20,29 +20,8 @@ pub struct ComposeWindow {
     pub avail_width: Px,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct LeafMetrics {
-    pub line_height: Px,
-    pub em_width: Px,
-    pub heading1_mult: Px,
-    pub heading_mult: Px,
-    pub table_row_mult: Px,
-    pub mermaid_max_height: Px,
-    pub image_placeholder_height: Px,
-    pub code_max_height: Px,
-    pub math_max_height: Px,
-    pub image_max_height: Px,
-}
-
 impl LeafMetrics {
-    fn leaf_height(
-        self,
-        theme: &LayoutTheme,
-        doc: &Document,
-        id: NodeId,
-        kind: BlockKind,
-        avail: Px,
-    ) -> Px {
+    fn text_height(self, theme: &LayoutTheme, text: &str, kind: BlockKind, avail: Px) -> Px {
         let style = theme.style_for(kind);
         if kind == BlockKind::Mermaid {
             return self.mermaid_max_height
@@ -51,7 +30,7 @@ impl LeafMetrics {
         }
         if kind == BlockKind::Image {
             let inner = (avail - style.inline_border_padding()).max(1.0);
-            let text_width = estimated_text_width(self.em_width, doc.display(id));
+            let text_width = crate::box_tree::estimated_text_width(self.em_width, text);
             let cap_rows = if text_width == 0.0 {
                 0.0
             } else {
@@ -68,8 +47,7 @@ impl LeafMetrics {
                 + style.bottom_border_padding();
         }
         let inner = (avail - style.inline_border_padding()).max(1.0);
-        let text = doc.display(id);
-        let text_width = estimated_text_width(self.em_width, text);
+        let text_width = crate::box_tree::estimated_text_width(self.em_width, text);
         let est_rows = if text_width == 0.0 {
             1.0
         } else {
@@ -87,14 +65,36 @@ impl LeafMetrics {
         }
         content + style.top_border_padding() + style.bottom_border_padding()
     }
-}
 
-fn estimated_text_width(em_width: Px, text: &str) -> Px {
-    let ems: Px = text
-        .chars()
-        .map(|ch| if ch.is_ascii() { 0.5 } else { 1.0 })
-        .sum();
-    ems * em_width
+    fn leaf_height(
+        self,
+        theme: &LayoutTheme,
+        doc: &Document,
+        id: NodeId,
+        kind: BlockKind,
+        avail: Px,
+    ) -> Px {
+        self.text_height(theme, doc.display(id), kind, avail)
+    }
+
+    fn edit_state_height(
+        self,
+        theme: &LayoutTheme,
+        doc: &Document,
+        id: NodeId,
+        kind: BlockKind,
+        avail: Px,
+    ) -> Px {
+        let source_text: &str = if kind.supports_block_edit() {
+            doc.block_source(id)
+        } else {
+            doc.display(id)
+        };
+        let frame = self.text_height(theme, source_text, kind, avail);
+        let gap = theme.style_for(BlockKind::CodeBlock).margin.top;
+        let preview = self.leaf_height(theme, doc, id, kind, avail);
+        frame + gap + preview
+    }
 }
 
 pub fn compose_window(
@@ -125,6 +125,10 @@ pub fn compose_window(
         styles,
         root,
         deferred,
+        lazy: Some(LazyEstimator {
+            metrics: *metrics,
+            viewport: window.avail_width,
+        }),
     }
 }
 
@@ -286,7 +290,7 @@ fn emit_root_windowed(
     box_id
 }
 
-fn subtree_height(
+pub(super) fn subtree_height(
     doc: &Document,
     theme: &LayoutTheme,
     metrics: &LeafMetrics,
@@ -297,40 +301,112 @@ fn subtree_height(
     if let Some(h) = cache.get(&id) {
         return *h;
     }
-    let node = doc.arena.get(id).expect("live node");
-    let height = if node.kind.is_vertical_container() {
-        let style = container_style(theme, doc, id, node.kind);
-        let child_avail = (avail - style.inline_border_padding()).max(0.0);
-        let gap = container_gap(theme, doc, id, node.kind);
-        let kids: Vec<NodeId> = doc.arena.children(id).collect();
-        let mut h = style.top_border_padding() + style.bottom_border_padding();
-        if kids.is_empty() {
-            h
-        } else {
-            let mut prev_mb: Option<Px> = None;
-            for c in &kids {
-                let ck = doc
-                    .arena
-                    .get(*c)
-                    .map(|n| n.kind)
-                    .unwrap_or(BlockKind::Paragraph);
-                let mt = node_margin_top(theme, doc, *c, ck);
-                let mb = theme.style_for(ck).margin.bottom;
-                h += match prev_mb {
-                    None => mt,
-                    Some(prev) => prev + gap + mt,
-                };
-                h += subtree_height(doc, theme, metrics, *c, child_avail, cache);
-                prev_mb = Some(mb);
-            }
-            h += prev_mb.unwrap_or(0.0);
-            h
+    struct Frame {
+        id: NodeId,
+        avail: Px,
+        acc: Px,
+        prev_mb: Option<Px>,
+        gap: Px,
+        host: Option<usize>,
+        reported: bool,
+    }
+    fn report(
+        doc: &Document,
+        theme: &LayoutTheme,
+        stack: &mut [Frame],
+        host: Option<usize>,
+        id: NodeId,
+        h: Px,
+        result: &mut Px,
+    ) {
+        let Some(host) = host else {
+            *result = h;
+            return;
+        };
+        let kind = doc
+            .arena
+            .get(id)
+            .map(|n| n.kind)
+            .unwrap_or(BlockKind::Paragraph);
+        let mt = node_margin_top(theme, doc, id, kind);
+        let mb = theme.style_for(kind).margin.bottom;
+        let (prev, gap) = {
+            let f = &stack[host];
+            (f.prev_mb, f.gap)
+        };
+        let spacing = match prev {
+            None => mt,
+            Some(prev) => prev + gap + mt,
+        };
+        let f = &mut stack[host];
+        f.acc += spacing + h;
+        f.prev_mb = Some(mb);
+    }
+    let mut stack: Vec<Frame> = vec![Frame {
+        id,
+        avail,
+        acc: 0.0,
+        prev_mb: None,
+        gap: 0.0,
+        host: None,
+        reported: false,
+    }];
+    let mut result: Px = 0.0;
+    while let Some(frame) = stack.pop() {
+        if frame.reported {
+            let h = frame.acc + frame.prev_mb.unwrap_or(0.0);
+            cache.insert(frame.id, h);
+            report(doc, theme, &mut stack, frame.host, frame.id, h, &mut result);
+            continue;
         }
-    } else {
-        metrics.leaf_height(theme, doc, id, node.kind, avail)
-    };
-    cache.insert(id, height);
-    height
+        if let Some(&h) = cache.get(&frame.id) {
+            report(doc, theme, &mut stack, frame.host, frame.id, h, &mut result);
+            continue;
+        }
+        let node = doc.arena.get(frame.id).expect("live node");
+        if !node.kind.is_vertical_container() {
+            let h = if wants_preview(doc, frame.id) {
+                metrics.edit_state_height(theme, doc, frame.id, node.kind, frame.avail)
+            } else {
+                metrics.leaf_height(theme, doc, frame.id, node.kind, frame.avail)
+            };
+            cache.insert(frame.id, h);
+            report(doc, theme, &mut stack, frame.host, frame.id, h, &mut result);
+            continue;
+        }
+        let style = container_style(theme, doc, frame.id, node.kind);
+        let child_avail = (frame.avail - style.inline_border_padding()).max(0.0);
+        let gap = container_gap(theme, doc, frame.id, node.kind);
+        let kids: Vec<NodeId> = doc.arena.children(frame.id).collect();
+        if kids.is_empty() {
+            let h = style.top_border_padding() + style.bottom_border_padding();
+            cache.insert(frame.id, h);
+            report(doc, theme, &mut stack, frame.host, frame.id, h, &mut result);
+            continue;
+        }
+        let host = stack.len();
+        stack.push(Frame {
+            id: frame.id,
+            avail: frame.avail,
+            acc: style.top_border_padding() + style.bottom_border_padding(),
+            prev_mb: None,
+            gap,
+            host: frame.host,
+            reported: true,
+        });
+        for c in kids.into_iter().rev() {
+            stack.push(Frame {
+                id: c,
+                avail: child_avail,
+                acc: 0.0,
+                prev_mb: None,
+                gap: 0.0,
+                host: Some(host),
+                reported: false,
+            });
+        }
+    }
+    result
 }
 
 fn container_style(

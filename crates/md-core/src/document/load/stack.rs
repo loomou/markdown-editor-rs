@@ -19,16 +19,19 @@ impl Builder {
         if let Some(n) = self.arena.get_mut(id) {
             n.text = Some(id.text_id());
         }
+        self.cover_floor = None;
         self.stack.push(new_frame(id, FrameKind::Leaf(kind)));
     }
 
     pub(super) fn push_html_block(&mut self) {
         let id = self.alloc(BlockKind::Paragraph);
+        self.cover_floor = None;
         self.stack.push(new_frame(id, FrameKind::Html));
     }
 
     pub(super) fn push_raw_block(&mut self, kind: BlockKind) {
         let id = self.alloc(kind);
+        self.cover_floor = None;
         self.stack.push(new_frame(id, FrameKind::Raw(kind)));
     }
 

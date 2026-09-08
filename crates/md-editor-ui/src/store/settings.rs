@@ -94,7 +94,6 @@ impl Settings {
             }
             root.insert(variant.key().into(), Value::Object(section));
         }
-
         let mut keys = Map::new();
         for (cmd, chord) in self.keymap.overrides() {
             let v = match chord {
@@ -142,7 +141,6 @@ impl Settings {
         {
             out.appearance.body_family = f;
         }
-
         if let Some(px) = root.get("body_size").and_then(Value::as_f64) {
             out.appearance = out.appearance.with_body_size_px(px as f32);
         }
@@ -211,7 +209,7 @@ fn insert_path(into: &mut Map<String, Value>, path: &str, value: Value) {
         }
         cur = next
             .as_object_mut()
-            .expect("the line above just ensured it is an object");
+            .expect("the line above just made it an object");
     }
 }
 
@@ -298,7 +296,6 @@ mod tests {
 
     fn non_default() -> Settings {
         let mut s = Settings::default();
-
         s.keymap
             .set(Cmd::Find, chord("ctrl-alt-k"))
             .expect("must be a legal binding");
@@ -373,7 +370,6 @@ mod tests {
             None
         );
         assert_eq!(Settings::parse(r#"{"theme": "one-light"}"#), None);
-
         assert_eq!(Settings::parse(r#"{"version": "1"}"#), None);
         assert_eq!(Settings::parse("{}"), None);
         assert_eq!(Settings::parse(""), None);
@@ -397,7 +393,6 @@ mod tests {
         let mut root = minimal();
         root["theme"] = "one-light".into();
         root["cursor_blink"] = "never".into();
-
         root["gruvbox"] = serde_json::json!({ "editor": { "canvas": "#000000" } });
         let parsed = Settings::parse(&root.to_string()).expect("version 1 must be recognized");
         assert_eq!(parsed.appearance.variant, ThemeVariant::OneLight);
@@ -467,7 +462,6 @@ mod tests {
             );
             assert_eq!(LanguageChoice::from_key(choice.key()), Some(choice));
         }
-
         let text = r#"{"version": 1, "language": "klingon", "theme": "one-light"}"#;
         let parsed = Settings::parse(text).expect("version must match");
         assert_eq!(parsed.language, LanguageChoice::System);
@@ -475,7 +469,7 @@ mod tests {
         assert_eq!(
             LanguageChoice::from_key("zh"),
             None,
-            "only whole labels are recognized"
+            "only the whole tag counts"
         );
     }
 
@@ -489,18 +483,18 @@ mod tests {
         };
 
         assert_eq!(LanguageChoice::System.resolve_with(probe), Lang::ZhCn);
-        assert_eq!(
-            asked.get(),
-            1,
-            "\"follow system\" must really ask the system"
-        );
+        assert_eq!(asked.get(), 1, "follow-system must really ask the system");
 
         assert_eq!(
             LanguageChoice::Fixed(Lang::En).resolve_with(probe),
             Lang::En,
-            "whoever hardcoded en must still see English on a Chinese system"
+            "someone who pinned en should still see English on a Chinese system"
         );
-        assert_eq!(asked.get(), 1, "a fixed choice must not ask the system");
+        assert_eq!(
+            asked.get(),
+            1,
+            "with a choice made it still asked the system"
+        );
         for lang in Lang::ALL {
             assert_eq!(LanguageChoice::Fixed(lang).resolve_with(probe), lang);
         }
@@ -541,12 +535,9 @@ mod tests {
             "{text}"
         );
         assert_eq!(root["one-dark"]["editor"]["body"], "#010203", "{text}");
-
         assert_eq!(root["one-dark"]["app"]["bar_bg"], "#101418", "{text}");
-
         assert!(root["one-light"]["editor"]["body"].is_null(), "{text}");
-
-        for (_, section) in root.as_object().expect("must be an object") {
+        for (_, section) in root.as_object().expect("is an object") {
             if let Some(map) = section.as_object() {
                 for k in map.keys() {
                     assert!(!k.contains('.'), "{k} was not expanded into nested objects");
@@ -594,7 +585,6 @@ mod tests {
     fn every_single_slot_survives_the_round_trip() {
         let mut s = Settings::default();
         let dark = ThemeVariant::OneDark.index();
-
         for (i, slot) in ColorSlot::ALL.iter().enumerate() {
             let v = 0x10_00_00 + i as u32 * 0x01_01_01;
             s.appearance.colors[dark].set(*slot, hex(&format!("#{v:06x}")));
@@ -641,14 +631,14 @@ mod tests {
         let text = Settings::default().encode();
         assert!(
             !text.contains("keys"),
-            "nothing changed, so this section must not exist: {text}"
+            "with nothing changed that section should not be there: {text}"
         );
 
         let mut s = Settings::default();
         s.keymap
             .set(Cmd::ToggleOutline, chord("ctrl-alt-o"))
-            .expect("must be legal");
-        let root: Value = serde_json::from_str(&s.encode()).expect("must be JSON");
+            .expect("legal");
+        let root: Value = serde_json::from_str(&s.encode()).expect("it is JSON");
         assert_eq!(root["keys"]["toggle_outline"], "ctrl-alt-o");
         assert_eq!(
             root["keys"].as_object().expect("must be an object").len(),
@@ -675,7 +665,6 @@ mod tests {
             "a cleared binding must stay cleared"
         );
         assert_eq!(back, s);
-
         let none = Settings::parse(r#"{"version": 1, "keys": {}}"#).expect("version must match");
         assert_eq!(
             none.keymap.chord_for(Cmd::Find),
@@ -697,12 +686,10 @@ mod tests {
             }
         }"#;
         let parsed = Settings::parse(text).expect("version must match");
-
         assert_eq!(
             parsed.keymap.chord_for(Cmd::Open),
             Some(&chord("ctrl-alt-p"))
         );
-
         for cmd in [Cmd::Undo, Cmd::Redo, Cmd::Quit] {
             assert_eq!(
                 parsed.keymap.chord_for(cmd),
@@ -711,7 +698,6 @@ mod tests {
                 cmd.key()
             );
         }
-
         let changed: Vec<&str> = parsed.keymap.overrides().map(|(c, _)| c.key()).collect();
         assert_eq!(changed, ["open"]);
     }
@@ -742,7 +728,6 @@ mod tests {
             Some(&reserved),
             "the file must be honored as written"
         );
-
         let mut page = Settings::default().keymap;
         assert!(page.set(Cmd::Find, reserved).is_err());
     }
@@ -750,12 +735,11 @@ mod tests {
     #[test]
     fn every_single_command_survives_the_round_trip() {
         let mut s = Settings::default();
-
         for (i, cmd) in Cmd::ALL.iter().enumerate() {
             let key = format!("ctrl-alt-f{}", i + 1);
             s.keymap
-                .set(*cmd, Chord::parse(&key).expect("f1–f24 must all parse"))
-                .unwrap_or_else(|e| panic!("{key} must be bindable: {e:?}"));
+                .set(*cmd, Chord::parse(&key).expect("f1-f24 are all accepted"))
+                .unwrap_or_else(|e| panic!("{key} should be bindable: {e:?}"));
         }
         assert_eq!(s.keymap.overrides().count(), Cmd::COUNT);
         let text = s.encode();
@@ -779,7 +763,7 @@ mod tests {
         assert_eq!(
             store.load(),
             None,
-            "nothing written yet must read back as nothing"
+            "nothing written yet, so there should be nothing"
         );
         let want = non_default();
         store.save(&want).expect("save");
@@ -809,10 +793,10 @@ mod tests {
         }
         s.keymap
             .set(Cmd::ToggleOutline, chord("ctrl-alt-o"))
-            .expect("must be legal");
+            .expect("legal");
         s.keymap
             .set(Cmd::ToggleTheme, chord("ctrl-alt-t"))
-            .expect("must be legal");
+            .expect("legal");
         s.keymap.clear(Cmd::Quit);
         s
     }
@@ -826,7 +810,7 @@ mod tests {
             assert_eq!(
                 want.appearance.colors[variant.index()].len(),
                 ColorSlot::COUNT,
-                "the {} section must list every entry",
+                "the {} section should write out every entry",
                 variant.key()
             );
         }

@@ -40,26 +40,24 @@ fn settings_load_at_boot_and_write_back_on_change(cx: &mut TestAppContext) {
     });
     assert_eq!(
         settings, want,
-        "the on-disk values must take over wholesale"
+        "the values read from disk should take over wholesale"
     );
     assert_eq!(theme, want.appearance.document_theme());
-    assert!(autosave, "autosave must follow the loaded settings");
+    assert!(autosave, "autosave must follow the configuration too");
     assert!(
         remote_images,
-        "the remote-images switch must reach the editor too"
+        "the remote images switch must be synced to the editor too"
     );
 
     cx.update(|_, app| {
         shell.update(app, |s, cx| s.toggle_variant(cx));
     });
-    let on_disk = store
-        .load()
-        .expect("the change must have been written through");
+    let on_disk = store.load().expect("the change should already be on disk");
     assert_eq!(on_disk.appearance.variant, ThemeVariant::OneDark);
     assert_eq!(
         on_disk.appearance.density,
         Density::Relaxed,
-        "the other fields must not be touched along the way"
+        "other entries must not be touched in passing"
     );
     assert!(on_disk.autosave);
     assert!(on_disk.remote_images);
@@ -78,7 +76,7 @@ fn the_settings_button_hands_over_a_file_that_exists(cx: &mut TestAppContext) {
     assert_eq!(
         cx.update(|_, app| shell.update(app, |s, _| s.settings_file_for_open())),
         None,
-        "with no settings location, nothing must be offered"
+        "with no settings file location there should be nothing to give"
     );
 
     cx.update(|_, app| {
@@ -89,15 +87,14 @@ fn the_settings_button_hands_over_a_file_that_exists(cx: &mut TestAppContext) {
             );
         });
     });
-    assert!(!path.exists(), "precondition: the file must not exist yet");
+    assert!(!path.exists(), "premise: the file should not exist yet");
 
     let got = cx.update(|_, app| shell.update(app, |s, _| s.settings_file_for_open()));
     assert_eq!(got.as_deref(), Some(path.as_path()));
-    assert!(path.exists(), "opening must drop the file as a side effect");
-
+    assert!(path.exists(), "the file should be dropped in along the way");
     let seeded = crate::store::settings::SettingsStore::at(path.clone())
         .load()
-        .expect("the file that was dropped must read back");
+        .expect("the change must have been written through");
     assert_eq!(seeded, shell.read_with(cx, |s, _| s.settings.clone()));
 
     if let Some(dir) = path.parent() {
@@ -119,17 +116,15 @@ fn the_appearance_tab_offers_one_button_instead_of_every_swatch(cx: &mut TestApp
 
     assert!(
         cx.debug_bounds("btn:open-settings").is_some(),
-        "the appearance tab must draw the \"edit settings.json\" button"
+        "the appearance tab should draw the \"edit settings.json\" button"
     );
-
     assert!(
         cx.debug_bounds("swatch:editor.canvas").is_none(),
-        "the per-slot swatches must have been folded away"
+        "the per-item swatches should already be collapsed"
     );
-
     assert!(
         cx.debug_bounds("note:no-settings-home").is_some(),
-        "when there is nowhere to save, it must say so"
+        "when saving fails it should say so"
     );
 }
 
@@ -152,20 +147,20 @@ fn the_settings_button_lines_up_with_the_controls_above_it(cx: &mut TestAppConte
 
     let btn = cx
         .debug_bounds("btn:open-settings")
-        .expect("the color row must draw its button");
+        .expect("the appearance row should have painted its buttons");
     let tgl = cx
         .debug_bounds("tgl:tgl-autosave")
-        .expect("precondition: the autosave row shares the column");
+        .expect("precondition: the autosave row is in the same column");
     assert!(
         (btn.right() - tgl.right()).abs() < px(1.),
-        "the button's right edge must line up with the controls above: {:?} vs {:?}",
+        "the button's right edge should align with the controls above: {:?} vs {:?}",
         btn.right(),
         tgl.right()
     );
 
     assert!(
         cx.debug_bounds("note:no-settings-home").is_none(),
-        "with a place to save, no note must be drawn next to the button"
+        "if saving works there should be no text next to the buttons"
     );
 
     if let Some(dir) = path.parent() {
@@ -188,10 +183,9 @@ fn every_settings_row_still_fits_in_the_other_language(cx: &mut TestAppContext) 
 
     const CELL_PAD: f32 = 12.0 * 2.0;
     const GAP: f32 = 8.0;
-
     for (row, selector, title, hint, cells) in [
         (
-            "Language",
+            "language",
             "row:SetLanguage",
             Key::SetLanguage,
             Key::SetLanguageHint,
@@ -202,21 +196,21 @@ fn every_settings_row_still_fits_in_the_other_language(cx: &mut TestAppContext) 
             ][..],
         ),
         (
-            "Theme",
+            "theme",
             "row:Theme",
             Key::Theme,
             Key::SetThemeHint,
             &[Key::SetThemeDark, Key::SetThemeLight][..],
         ),
         (
-            "Font",
+            "font",
             "row:SetBodyFont",
             Key::SetBodyFont,
             Key::SetBodyFontHint,
             &[Key::SetFontSerif, Key::SetFontSans][..],
         ),
         (
-            "Density",
+            "density",
             "row:SetDensity",
             Key::SetDensity,
             Key::SetDensityHint,
@@ -227,7 +221,7 @@ fn every_settings_row_still_fits_in_the_other_language(cx: &mut TestAppContext) 
             ][..],
         ),
         (
-            "Startup",
+            "startup",
             "row:SetStartup",
             Key::SetStartup,
             Key::SetStartupHint,
@@ -236,13 +230,13 @@ fn every_settings_row_still_fits_in_the_other_language(cx: &mut TestAppContext) 
     ] {
         let column = f32::from(
             cx.debug_bounds(selector)
-                .unwrap_or_else(|| panic!("precondition: the {row} row must be drawn"))
+                .unwrap_or_else(|| panic!("premise: the {row} row should be drawn"))
                 .size
                 .width,
         );
         assert!(
             column > 100.0,
-            "the {row} row is only {column}px wide, so the ruler is wrong"
+            "row {row} is only {column}px wide; the ruler is wrong"
         );
         for lang in Lang::ALL {
             let control: f32 = cells
@@ -254,9 +248,8 @@ fn every_settings_row_still_fits_in_the_other_language(cx: &mut TestAppContext) 
                 text_px(cx, t_in(lang, title), 13.0).max(text_px(cx, t_in(lang, hint), 11.5));
             assert!(
                 left + GAP + control <= column,
-                "under {}, the {row} row needs {}px but the content column is only {column}px — \
-                 the translation is too long and the control would crowd out the title \
-                 (title/hint {left}px + control {control}px)",
+                "row {row} needs {}px under {}, but the content column is only {column}px — the translation is too long; \
+                 the control would push the title out (title/description {left}px + control {control}px)",
                 lang.key(),
                 left + GAP + control,
             );
@@ -301,14 +294,14 @@ fn the_settings_page_paints_the_words_that_the_key_table_holds(cx: &mut TestAppC
     ] {
         let drawn = f32::from(
             cx.debug_bounds(selector)
-                .unwrap_or_else(|| panic!("{selector} must be drawn"))
+                .unwrap_or_else(|| panic!("{selector} should be painted"))
                 .size
                 .width,
         );
         let want = text_px(cx, t_in(here, key), 12.0) + PAD;
         assert!(
             (drawn - want).abs() < 1.0,
-            "{} painted {drawn}px, but by `{}` it should be {want}px — it drew some other string",
+            "{} painted {drawn}px; by `{}` it should be {want}px, so a different string was likely painted",
             key.debug_name(),
             t_in(here, key)
         );
@@ -318,7 +311,7 @@ fn the_settings_page_paints_the_words_that_the_key_table_holds(cx: &mut TestAppC
     }
     assert!(
         discriminating > 0,
-        "precondition: at least one cell on this page must measure differently between languages, or this case cannot test the language switch"
+        "premise: this page needs at least one cell whose Chinese and English widths differ, otherwise the test cannot see the language"
     );
 }
 
@@ -351,7 +344,7 @@ fn picking_a_language_writes_it_down_without_changing_this_run(cx: &mut TestAppC
     assert_eq!(
         shell.read_with(cx, |s, _| s.settings.language),
         LanguageChoice::Fixed(Lang::ZhCn),
-        "the entry in the file must be adopted"
+        "the entry in the file should take over"
     );
 
     let before = md_i18n::current();
@@ -376,12 +369,12 @@ fn picking_a_language_writes_it_down_without_changing_this_run(cx: &mut TestAppC
     assert_eq!(
         store.load().map(|s| s.language),
         Some(LanguageChoice::Fixed(Lang::En)),
-        "clicking English must persist en"
+        "clicking English should persist en"
     );
     assert_eq!(
         md_i18n::current(),
         before,
-        "this must not switch this process's language — changing language needs a restart"
+        "this press must not change the process language — switching languages needs a restart"
     );
 
     if let Some(dir) = path.parent() {
@@ -395,7 +388,7 @@ fn coming_back_to_the_window_picks_up_edits_made_outside(cx: &mut TestAppContext
     let store = crate::store::settings::SettingsStore::at(path.clone());
     store
         .save(&crate::store::settings::Settings::default())
-        .expect("write a factory-default settings file first");
+        .expect("write a factory config first");
 
     let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
     stop_blink(&shell, cx);
@@ -409,7 +402,7 @@ fn coming_back_to_the_window_picks_up_edits_made_outside(cx: &mut TestAppContext
     });
     assert!(
         shell.read_with(cx, |s, _| s.is_dark()),
-        "precondition: the factory default is dark"
+        "premise: the factory default is dark"
     );
 
     cx.update(|_, app| {
@@ -424,7 +417,7 @@ fn coming_back_to_the_window_picks_up_edits_made_outside(cx: &mut TestAppContext
     assert_eq!(
         shell.read_with(cx, |s, _| s.settings.appearance.body_size_px),
         21.0,
-        "the very write we did was read back as an external change"
+        "our own write was read back as an external change"
     );
 
     cx.update(|_, app| {
@@ -446,7 +439,7 @@ fn coming_back_to_the_window_picks_up_edits_made_outside(cx: &mut TestAppContext
             .colors()
             .get(ColorSlot::Canvas)),
         ThemeColor::from_css_hex("#123456"),
-        "the file never moved, yet an unsaved color in hand was overwritten with the stale value on disk"
+        "the file did not move, yet the in-hand color not yet saved was wiped back to the stale on-disk value"
     );
 
     let mut outside = crate::store::settings::Settings::default();
@@ -456,9 +449,8 @@ fn coming_back_to_the_window_picks_up_edits_made_outside(cx: &mut TestAppContext
         ColorSlot::Canvas,
         ThemeColor::from_css_hex("#fff8e7").expect("hex"),
     );
-
     bump_mtime_back(&path);
-    store.save(&outside).expect("an outside edit");
+    store.save(&outside).expect("change it from outside once");
 
     cx.update(|_, app| {
         shell.update(app, |s, cx| s.reload_settings_if_changed(cx));
@@ -466,27 +458,26 @@ fn coming_back_to_the_window_picks_up_edits_made_outside(cx: &mut TestAppContext
     assert_eq!(
         shell.read_with(cx, |s, _| s.settings.clone()),
         outside,
-        "the outside edit must be read back"
+        "it should be read back"
     );
     assert!(
         !shell.read_with(cx, |s, _| s.is_dark()),
-        "the shell must follow and go light"
+        "the shell should switch to light with it"
     );
-
     assert_eq!(
         shell.read_with(cx, |s, app| s.editor.read(app).state.theme),
         outside.appearance.document_theme(),
     );
 
     bump_mtime_back(&path);
-    std::fs::write(&path, b"{ this is not json").expect("corrupt the file");
+    std::fs::write(&path, b"{ this is not json").expect("write it broken");
     cx.update(|_, app| {
         shell.update(app, |s, cx| s.reload_settings_if_changed(cx));
     });
     assert_eq!(
         shell.read_with(cx, |s, _| s.settings.clone()),
         outside,
-        "when the file is unreadable the last working settings must be kept"
+        "when it cannot be parsed it should keep the last usable settings"
     );
 
     if let Some(dir) = path.parent() {

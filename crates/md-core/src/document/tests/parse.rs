@@ -266,6 +266,34 @@ fn mixed_image_stays_paragraph_with_link() {
 }
 
 #[test]
+fn editing_keeps_two_adjacent_images_with_the_same_destination() {
+    use crate::doc::Doc;
+    use crate::document::edit::{Caret, Command, Sel};
+    let mut doc = Doc::new(load_markdown(
+        "a ![one](img)![two](img) z\n",
+        editor_options(),
+    ));
+    let block = doc.text_leaves()[0];
+    let id = doc.document.live_id(block).unwrap();
+    let count = |doc: &Doc| {
+        doc.document
+            .leaf_snapshot(id)
+            .unwrap()
+            .runs
+            .iter()
+            .filter(|run| run.marks.is_image())
+            .count()
+    };
+    assert_eq!(count(&doc), 2);
+    let end = doc.text(block).unwrap().len();
+    let _ = doc.apply(
+        Sel::collapsed(Caret { block, offset: end }),
+        Command::Insert { text: "!".into() },
+    );
+    assert_eq!(count(&doc), 2);
+}
+
+#[test]
 fn inline_math_and_display_math_kinds() {
     use crate::inline::InlineMarks;
     let doc = load_markdown(
@@ -766,11 +794,11 @@ fn plain_text_paste_splits_on_blank_lines_and_stays_literal() {
             .paste(leaf, 5..5, " a\n\n**b**\n\n# c", PasteIntent::PlainText);
     assert_eq!(
         doc.document.to_markdown(),
-        "hello a world\n\n**b**\n\n# c\n"
+        "hello a\n\n\\*\\*b\\*\\*\n\n\\# c world\n"
     );
     let leaves = doc.text_leaves();
     let last = leaves[leaves.len() - 1];
-    assert_eq!(doc.document.text_of(last), Some("# c"));
+    assert_eq!(doc.document.text_of(last), Some("# c world"));
     assert_eq!(
         last_block, last,
         "the caret must land in the tail paragraph"
@@ -791,7 +819,7 @@ fn plain_text_paste_splits_on_blank_lines_and_stays_literal() {
     );
     assert_eq!(
         doc.document.to_markdown(),
-        "hello a world\n\n**b**\n\n# c\n"
+        "hello a\n\n\\*\\*b\\*\\*\n\n\\# c world\n"
     );
 
     let mut doc = Doc::new(load_markdown("x\n", editor_options()));
@@ -826,4 +854,78 @@ fn plain_text_paste_splits_on_blank_lines_and_stays_literal() {
         "hello world\n",
         "undo must remove the grafted paragraphs too"
     );
+}
+
+#[test]
+fn reprojection_does_not_grow_the_link_table_without_new_links() {
+    let mut doc = load_markdown("[go](u) end\n", editor_options());
+    let block = doc.text_leaves()[0];
+    assert_eq!(doc.links.len(), 1);
+    for _ in 0..100 {
+        let end = doc.text_of(block).unwrap_or("").len();
+        doc.replace_text(block, end..end, "x");
+    }
+    assert_eq!(
+        doc.links.len(),
+        1,
+        "the link destination did not change, so the table must not grow with reparse count"
+    );
+    assert_eq!(doc.link_at(doc.live_id(block).unwrap(), 0), Some("u"));
+}
+
+#[test]
+fn tab_list_hosts_measure_indent_in_columns() {
+    for (source, display) in [
+        ("1.\t`a\n\t    b`\n", "a     b"),
+        ("-\t`a\n\t    b`\n", "a     b"),
+        ("1. `a\n     b`\n", "a   b"),
+    ] {
+        let doc = load_markdown(source, editor_options());
+        let leaf = doc.text_leaves()[0];
+        let first = doc.text_of(leaf).unwrap().to_string();
+        assert_eq!(first, display, "src={source:?}");
+        let saved = doc.to_markdown();
+        let reloaded = load_markdown(&saved, editor_options());
+        let rleaf = reloaded.text_leaves()[0];
+        let second = reloaded.text_of(rleaf).unwrap().to_string();
+        assert_eq!(first, second, "src={source:?}; saved={saved:?}");
+    }
+}
+
+#[test]
+fn escaped_leading_backtick_on_a_continuation_line_survives_reload() {
+    let source = "\\`\\`\\`rust\nfn q() {}\n\\`\\`\\`pha **\n";
+    let doc = load_markdown(source, editor_options());
+    let leaf = doc.text_leaves()[0];
+    let id = doc.live_id(leaf).expect("live");
+    assert_eq!(
+        doc.leaf_source(id),
+        "\\`\\`\\`rust\nfn q() {}\n\\`\\`\\`pha **"
+    );
+    assert_eq!(doc.display(id), "```rust\nfn q() {}\n```pha **");
+    let saved = doc.to_markdown();
+    let reloaded = load_markdown(&saved, editor_options());
+    let rid = reloaded
+        .live_id(reloaded.text_leaves()[0])
+        .expect("reloaded");
+    assert_eq!(
+        reloaded.leaf_source(rid),
+        "\\`\\`\\`rust\nfn q() {}\n\\`\\`\\`pha **",
+        "saved={saved:?}"
+    );
+}
+
+#[test]
+fn nested_list_inline_code_preserves_content_spaces_on_save() {
+    let doc = load_markdown("- outer\n  - `a\n      b`\n", editor_options());
+    let leaves = doc.text_leaves();
+    let before = doc.text_of(leaves[1]).unwrap().to_string();
+    assert_eq!(before, "a   b");
+    let markdown = doc.to_markdown();
+    let reloaded = load_markdown(&markdown, editor_options());
+    let after = reloaded
+        .text_of(reloaded.text_leaves()[1])
+        .unwrap()
+        .to_string();
+    assert_eq!(after, before, "saved={markdown:?}");
 }

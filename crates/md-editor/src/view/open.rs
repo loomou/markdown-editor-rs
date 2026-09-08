@@ -40,7 +40,6 @@ impl EditorView {
         doc.enable_trailing_blank();
         self.discard_recovery_files(cx);
         self.mermaid.clear(cx);
-
         self.drop_zoom_raster(cx);
         self.math.clear(cx);
         self.images.clear(cx);
@@ -53,10 +52,8 @@ impl EditorView {
         self.state.selection = None;
         self.state.marked = None;
         self.state.scroll = 0.0;
-
         self.state.resolved_top = 0.0;
         self.state.shape_cache = md_content::shaper::ShapeCache::new();
-
         self.doc_maps = DocShapeMaps::empty();
         self.state.incremental = None;
         self.state.incremental_anchor_override = None;

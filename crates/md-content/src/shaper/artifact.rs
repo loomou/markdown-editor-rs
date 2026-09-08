@@ -10,11 +10,9 @@ pub struct ShapeMedia {
     pub math_metrics: Rc<MathMetrics>,
     pub math_gen: u64,
     pub image_sizes: Rc<HashMap<crate::images::SourceKey, (u32, u32)>>,
-
     pub image_failed: Rc<HashSet<crate::images::SourceKey>>,
     pub image_gen: u64,
     pub link_dests: Rc<HashMap<u32, String>>,
-
     pub link_raw: Rc<HashMap<u32, (String, String)>>,
     pub block_image_dest: Rc<HashMap<u32, String>>,
     pub block_code_lang: Rc<HashMap<u32, String>>,
@@ -46,7 +44,6 @@ pub enum ShapePart {
         slot_h: Px,
         byte_start: usize,
         byte_end: usize,
-
         fallback: Option<Box<WrappedLine>>,
     },
     Image {
@@ -58,7 +55,6 @@ pub enum ShapePart {
         slot_h: Px,
         byte_start: usize,
         byte_end: usize,
-
         fallback: Option<Box<WrappedLine>>,
     },
 }
@@ -76,7 +72,6 @@ pub struct ShapeArtifact {
     pub first_baseline: Px,
     pub row_advance: Px,
     pub max_line_width: Px,
-
     pub tab_source: Option<Rc<str>>,
 }
 

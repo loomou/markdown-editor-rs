@@ -1,5 +1,6 @@
 use super::ids::LayoutBoxId;
 use super::intern::BoxIntern;
+use super::metrics::LeafMetrics;
 use super::node::{BoxChildren, BoxNode};
 use super::store::BoxStore;
 use super::styles::BoxStyleStore;
@@ -19,6 +20,12 @@ pub struct DeferredBox {
     pub margin_bottom: Px,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct LazyEstimator {
+    pub(crate) metrics: LeafMetrics,
+    pub(crate) viewport: Px,
+}
+
 #[derive(Clone, Debug)]
 pub struct BoxTree {
     pub(crate) nodes: BoxStore,
@@ -26,6 +33,7 @@ pub struct BoxTree {
     pub(crate) styles: BoxStyleStore,
     pub(crate) root: LayoutBoxId,
     pub(crate) deferred: HashMap<LayoutBoxId, DeferredBox>,
+    pub(crate) lazy: Option<LazyEstimator>,
 }
 
 impl BoxTree {

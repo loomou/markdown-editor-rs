@@ -69,7 +69,7 @@ fn outline_scrolls_when_headings_overflow_the_panel(cx: &mut TestAppContext) {
     );
     assert!(
         scrolled.1 > 0,
-        "should be past row 0 after scrolling, still on row {}",
+        "after scrolling it still rests on row {}",
         scrolled.1
     );
 }
@@ -98,7 +98,7 @@ fn outline_y_scroll_is_auto_when_headings_fit(cx: &mut TestAppContext) {
     );
     assert!(
         !scrollable,
-        "with only a few headings the vertical scrollbar should hide per auto"
+        "with few headings the vertical scrollbar should hide on auto"
     );
     assert!(
         size.contents.width <= size.item.width + px(1.0),
@@ -118,7 +118,7 @@ fn outline_thumb_hides_when_content_fits_and_tracks_offset() {
     assert_eq!(outline_thumb(400.0, 200.0, 0.0), None);
     let (y0, h0) = outline_thumb(400.0, 2000.0, 0.0).expect("overflow should show a thumb");
     let (y1, h1) =
-        outline_thumb(400.0, 2000.0, -800.0).expect("a thumb should remain after scrolling");
+        outline_thumb(400.0, 2000.0, -800.0).expect("after scrolling there is still a thumb");
     assert!((h0 - h1).abs() < 0.01);
     assert!(
         y1 > y0,
@@ -128,7 +128,7 @@ fn outline_thumb_hides_when_content_fits_and_tracks_offset() {
 
 #[gpui::test]
 fn outline_scrolls_horizontally_when_heading_is_wide(cx: &mut TestAppContext) {
-    let long = "a very long outline heading".repeat(20);
+    let long = "a very long outline heading ".repeat(20);
     let md = format!("# {long}\n\nBody\n");
     let (shell, cx) =
         cx.add_window_view(|_, cx| Shell::new(Doc::new(load_markdown(&md, editor_options())), cx));
@@ -146,7 +146,7 @@ fn outline_scrolls_horizontally_when_heading_is_wide(cx: &mut TestAppContext) {
     let room = base.max_offset().width;
     assert!(
         room > px(0.0),
-        "the outline should scroll sideways for an over-long heading: leftover room {room:?}"
+        "the outline cannot scroll sideways past a long heading: room left {room:?}"
     );
 
     let pos = base.bounds().center();
@@ -465,7 +465,6 @@ fn outline_view(
         .iter()
         .position(|&b| Some(b) == current)
         .expect("the current row must be in the list");
-
     let top = ((-y) / OUTLINE_ROW_H).max(0.0) as usize;
     let bottom_px = (-y + item_h).max(0.0);
     let last = (bottom_px / OUTLINE_ROW_H).ceil() as usize;
@@ -508,7 +507,7 @@ fn outline_panel_keeps_the_current_row_visible(cx: &mut TestAppContext) {
     assert_eq!(ix, 0);
     assert!(
         view.contains(&ix),
-        "the first row should be in the panel view at the start: {view:?}"
+        "the first row should be in the panel's view at the start: {view:?}"
     );
 
     jump_to(&shell, cx, blocks[60]);
@@ -516,7 +515,7 @@ fn outline_panel_keeps_the_current_row_visible(cx: &mut TestAppContext) {
     assert_eq!(ix, 60);
     assert!(
         view.contains(&ix),
-        "mid-document the panel should follow the current row: row {ix} is not in {view:?}"
+        "the document scrolled to the middle, so the panel must follow the current row: {ix} is not in {view:?}"
     );
 
     assert_eq!(
@@ -534,7 +533,6 @@ fn outline_panel_keeps_the_current_row_visible(cx: &mut TestAppContext) {
         "continuing down should scroll one row at a time: view moved from {top_at_60:?} to {:?}",
         view.start
     );
-
     jump_to(&shell, cx, blocks[30]);
     let (ix, view) = outline_view(cx, &shell, &blocks);
     assert_eq!(ix, 30);
@@ -553,7 +551,6 @@ fn outline_panel_keeps_the_current_row_visible(cx: &mut TestAppContext) {
         "continuing up should scroll one row at a time: view moved from {top_at_30:?} to {:?}",
         view.start
     );
-
     let top_at_29 = view.start;
     jump_to(&shell, cx, blocks[31]);
     let (ix, view) = outline_view(cx, &shell, &blocks);
@@ -577,9 +574,8 @@ fn outline_panel_keeps_the_current_row_visible(cx: &mut TestAppContext) {
     let (_, view) = outline_view(cx, &shell, &blocks);
     assert!(
         view.contains(&31),
-        "the current row should stay visible after scrolling the panel up: {view:?}"
+        "after scrolling up a few rows the current row should still be visible: {view:?}"
     );
-
     cx.update(|_, app| {
         shell.update(app, |shell, cx| {
             shell.editor.update(cx, |view, cx| {
@@ -639,7 +635,6 @@ fn outline_switches_to_the_newly_opened_document(cx: &mut TestAppContext) {
         let editor = shell.read(app).editor.read(app);
         outline_rows(&editor.state.doc)
     });
-
     jump_to(&shell, cx, rows_a[60].block);
     assert_eq!(
         shell.read_with(cx, |s, _| s.outline_current),
@@ -693,7 +688,7 @@ fn outline_switches_to_the_newly_opened_document(cx: &mut TestAppContext) {
     });
     assert_eq!(
         top, 0.0,
-        "the panel should be back at the top after the switch"
+        "after switching documents the panel should return to the top"
     );
 }
 

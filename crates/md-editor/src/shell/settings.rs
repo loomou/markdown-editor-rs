@@ -55,7 +55,6 @@ impl Shell {
             .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
                 this.update(cx, |shell, cx| {
                     shell.settings_nav = index;
-
                     shell.cancel_recording(window, cx);
                     cx.notify();
                 });
@@ -86,7 +85,6 @@ impl Shell {
 
     fn settings_main(&self, t: ShellTheme, this: Entity<Self>) -> Stateful<Div> {
         let title = SETTINGS_NAV[self.settings_nav];
-
         let theme = self.settings.appearance.document_theme();
         div()
             .id("settings-main")
@@ -128,7 +126,6 @@ impl Shell {
                                     |shell, i, _cx| {
                                         shell.settings.language = LanguageChoice::ALL
                                             [i.min(LanguageChoice::ALL.len() - 1)];
-
                                         shell.save_settings();
                                     },
                                     &this,
@@ -519,7 +516,6 @@ impl Shell {
                     .hover(move |s| s.bg(t.hover))
                     .on_click(move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
                         let path = this.update(cx, |shell, _| shell.settings_file_for_open());
-
                         if let Some(path) = path {
                             cx.open_with_system(&path);
                         }

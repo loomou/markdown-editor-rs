@@ -119,7 +119,6 @@ fn the_editor_gets_the_new_table_too(cx: &mut TestAppContext) {
         let focus = shell.read(app).editor_focus().clone();
         focus.focus(window);
     });
-
     cx.simulate_input("x");
     cx.run_until_parked();
     let typed = cx.update(|_, app| {
@@ -134,7 +133,7 @@ fn the_editor_gets_the_new_table_too(cx: &mut TestAppContext) {
     });
     assert!(
         typed.contains('x'),
-        "precondition: the typed character should be in the document"
+        "precondition: that character should have made it in"
     );
 
     let old = key_for(Cmd::Undo);
@@ -163,7 +162,7 @@ fn the_editor_gets_the_new_table_too(cx: &mut TestAppContext) {
     assert_eq!(
         markdown(cx),
         typed,
-        "the retired old key {old} still triggers undo"
+        "the unbound old chord {old} still undoes"
     );
 
     cx.simulate_keystrokes("ctrl-alt-u");
@@ -195,7 +194,6 @@ fn find_next_works_from_the_document_too(cx: &mut TestAppContext) {
     cx.simulate_input("needle");
     cx.run_until_parked();
     settle_find(cx);
-
     cx.update(|window, app| {
         let focus = shell.read(app).editor_focus().clone();
         focus.focus(window);
@@ -209,20 +207,20 @@ fn find_next_works_from_the_document_too(cx: &mut TestAppContext) {
     });
     assert_eq!(
         total, 3,
-        "precondition: this document should have three matches"
+        "precondition: this document should hold three matches"
     );
     assert_eq!(first, Some(0));
 
     cx.simulate_keystrokes(&key_for(Cmd::FindNext));
     cx.run_until_parked();
-    assert_eq!(active(cx), Some(1), "next should step to the second match");
+    assert_eq!(active(cx), Some(1), "next should walk to the second match");
 
     cx.simulate_keystrokes(&key_for(Cmd::FindPrev));
     cx.run_until_parked();
     assert_eq!(
         active(cx),
         Some(0),
-        "prev should step back to the first match"
+        "previous should wrap back to the first match"
     );
 }
 
@@ -234,7 +232,6 @@ fn the_unsaved_dialog_takes_the_current_save_key(cx: &mut TestAppContext) {
     cx.update(|_, app| {
         shell.update(app, |s, cx| s.rebind(Cmd::Save, "ctrl-alt-w", cx));
     });
-
     let path = std::env::temp_dir().join(format!("md-test-unsaved-key-{}.md", std::process::id()));
     let _ = std::fs::remove_file(&path);
     cx.update(|window, app| {
@@ -254,7 +251,7 @@ fn the_unsaved_dialog_takes_the_current_save_key(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert!(
         pending(cx),
-        "the retired old save key {old} still works in this dialog"
+        "the unbound old save chord {old} still acts on this box"
     );
 
     cx.simulate_keystrokes("ctrl-alt-w");
@@ -275,7 +272,6 @@ fn a_key_the_editor_declines_reaches_the_shell(cx: &mut TestAppContext) {
         let focus = shell.read(app).editor_focus().clone();
         focus.focus(window);
     });
-
     cx.update(|_, app| {
         shell.update(app, |s, cx| {
             s.rebind(Cmd::ToggleOutline, "ctrl-alt-o", cx);
@@ -299,11 +295,11 @@ fn a_key_the_editor_declines_reaches_the_shell(cx: &mut TestAppContext) {
     });
     assert_eq!(
         outline_now, !outline,
-        "the outline key did not bubble up to the shell"
+        "the outline chord did not bubble to the shell"
     );
     assert_eq!(
         dark_now, !dark,
-        "the theme key did not bubble up to the shell"
+        "the theme-toggle key did not bubble up to the shell"
     );
 }
 

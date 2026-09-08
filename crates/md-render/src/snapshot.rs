@@ -34,9 +34,7 @@ pub struct TextPiece {
 
     pub content_origin_device: (Px, Px),
     pub content_width: Px,
-
     pub view_height: Px,
-
     pub art: Rc<ShapeArtifact>,
     pub align: InlineAlign,
 }
@@ -68,9 +66,7 @@ pub struct CellPiece {
 #[derive(Clone)]
 pub struct DecorationPiece {
     pub rect_device: DeviceRect,
-
     pub clip_device: Option<DeviceRect>,
-
     pub kind: BlockKind,
     pub role: BoxRole,
     pub hit_block: BlockId,
@@ -103,7 +99,6 @@ pub struct LayoutSnapshot {
     pub caret_device: Option<DeviceRect>,
     pub caret_logical_y: Option<Px>,
     pub selection_device: Vec<DeviceRect>,
-
     pub inline_code_device: Vec<DeviceRect>,
     pub search_device: Vec<DeviceRect>,
     pub search_active_device: Vec<DeviceRect>,

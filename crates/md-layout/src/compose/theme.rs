@@ -6,7 +6,6 @@ use md_core::block::BlockKind;
 pub struct FlowMetrics {
     pub paragraph_lead_top: md_core::Px,
     pub quote_paragraph_top: md_core::Px,
-
     pub quote_alert_lead: md_core::Px,
     pub quote_paragraph_slot: TypeSlot,
     pub list_item_lead_zero: bool,

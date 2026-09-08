@@ -103,9 +103,7 @@ fn edit_state_frame_takes_code_block_padding_and_shape_kind() {
         let f = frame(&hot, block);
         assert_eq!(hot.style_of(f).padding, CODE_PAD, "{kind:?} padding");
         assert_eq!(f.shape_kind(), BlockKind::CodeBlock, "{kind:?} shape kind");
-
         assert_eq!(f.kind(), kind, "{kind:?} kind");
-
         let p = hot.get(LayoutBoxId::preview(block));
         assert_eq!(p.shape_kind(), kind, "{kind:?} preview shape kind");
         assert_eq!(
@@ -173,7 +171,6 @@ fn leaving_edit_state_restores_padding() {
         let f = frame(&tree, block);
         assert_eq!(tree.style_of(f).padding, Edges::ZERO, "{kind:?} padding");
         assert_eq!(f.shape_kind(), kind, "{kind:?} shape kind");
-
         let cold = compose(&doc, &theme);
         assert_eq!(
             tree.style_of(f),
@@ -218,11 +215,11 @@ fn revealed_display_math_uses_same_edit_chrome_as_mermaid() {
     let source = hot.text(LayoutBoxId::frame(math));
     assert_eq!(
         source, "\\frac{a}{b}",
-        "source well must not include the blank line after the opening $$"
+        "the source well should not carry the blank line after the opening $$"
     );
     assert!(
         !source.contains("line1") && !source.contains("line2"),
-        "the two lines above must not end up in the source well:{source:?}"
+        "those two lines above must not enter the source well: {source:?}"
     );
 
     let p = hot.get(LayoutBoxId::preview(math));
@@ -289,6 +286,34 @@ fn attaching_without_a_child_slot_reports_nothing_and_emits_nothing() {
     );
     assert!(
         !tree.get(frame).edit_source,
-        "main box must not be in edit state"
+        "the main box did not enter edit mode"
+    );
+}
+
+#[test]
+fn entering_block_edit_attaches_the_preview_to_its_parent() {
+    use crate::box_tree::BoxChildren;
+
+    let theme = distinct_layout();
+    let mut doc = load_markdown(MERMAID_MD, editor_options());
+    let block = block_of(&doc, BlockKind::Mermaid);
+    let mut tree = compose(&doc, &theme);
+
+    enter(&mut doc, block);
+    let splices = sync_block_edit(&mut tree, &doc, &theme, None, Some(block));
+    assert_eq!(splices.len(), 1);
+    let preview = LayoutBoxId::preview(block);
+    let parent = tree.get(preview).parent.expect("preview parent");
+    let host = tree.get(parent);
+    let BoxChildren::Vertical(children) = &host.children else {
+        panic!("expected vertical parent");
+    };
+    assert!(
+        children.contains(&preview),
+        "a reported inserted preview must be reachable from its parent"
+    );
+    assert!(
+        tree.island_boxes().contains(&preview),
+        "the tree walk must see the preview through the child list"
     );
 }

@@ -52,7 +52,6 @@ impl ColorGroup {
 
 macro_rules! color_slots {
     ($( $variant:ident $key:literal $label:ident $group:ident ($($path:tt)+) )*) => {
-
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
         pub enum ColorSlot { $($variant,)* }
 
@@ -61,11 +60,9 @@ macro_rules! color_slots {
 
             pub const COUNT: usize = Self::ALL.len();
 
-
             pub fn key(self) -> &'static str {
                 match self { $(Self::$variant => $key,)* }
             }
-
 
             pub fn label(self) -> Key {
                 match self { $(Self::$variant => Key::$label,)* }
@@ -79,7 +76,6 @@ macro_rules! color_slots {
                 match key { $($key => Some(Self::$variant),)* _ => None }
             }
 
-
             pub fn read(self, theme: &DocumentTheme) -> ThemeColor {
                 match self { $(Self::$variant => theme.$($path)+,)* }
             }
@@ -92,7 +88,6 @@ macro_rules! color_slots {
 }
 
 color_slots! {
-
     Body            "editor.body"              ClrBody               Text       (type_scale.body.color)
     Heading1        "editor.h1"                ClrHeading1           Text       (type_scale.heading[0].color)
     Heading2        "editor.h2"                ClrHeading2           Text       (type_scale.heading[1].color)
@@ -113,7 +108,6 @@ color_slots! {
     Strikethrough   "editor.strike"            ClrStrikethrough      Text       (inline.strikethrough)
     SyntaxMarker    "editor.marker"            ClrSyntaxMarker       Text       (inline.syntax_marker)
 
-
     Canvas          "editor.canvas"            ClrCanvas             Surface    (paint.canvas)
     CodeFill        "editor.code_fill"         ClrCodeFill           Surface    (paint.code_fill)
     CodeBorder      "editor.code_border"       ClrCodeBorder         Surface    (paint.code_border)
@@ -127,7 +121,6 @@ color_slots! {
     ImageFill       "editor.image_fill"        ClrImageFill          Surface    (inline.image_fill)
     ImageBorder     "editor.image_border"      ClrImageBorder        Surface    (inline.image_border)
 
-
     Caret           "editor.caret"             ClrCaret              Cursor     (paint.caret)
     Selection       "editor.selection"         ClrSelection          Cursor     (paint.selection)
     Ime             "editor.ime"               ClrIme                Cursor     (paint.ime)
@@ -138,14 +131,11 @@ color_slots! {
     TaskCheck       "editor.task_check"        ClrTaskCheck          Cursor     (paint.task_check)
     GlyphFault      "editor.glyph_fault"       ClrGlyphFault         Cursor     (paint.glyph_fault)
 
-
     AlertNote       "editor.alert_note"        ClrAlertNote          Alert      (decoration.alert_note)
     AlertTip        "editor.alert_tip"         ClrAlertTip           Alert      (decoration.alert_tip)
     AlertImportant  "editor.alert_important"   ClrAlertImportant     Alert      (decoration.alert_important)
     AlertWarning    "editor.alert_warning"     ClrAlertWarning       Alert      (decoration.alert_warning)
     AlertCaution    "editor.alert_caution"     ClrAlertCaution       Alert      (decoration.alert_caution)
-
-
 
     SynDefault      "editor.syntax.default"    ClrSynDefault         Syntax     (syntax.default)
     SynComment      "editor.syntax.comment"    ClrSynComment         Syntax     (syntax.comment)
@@ -165,9 +155,6 @@ color_slots! {
     SynPunctuation  "editor.syntax.punctuation" ClrSynPunctuation    Syntax     (syntax.punctuation)
     SynLabel        "editor.syntax.label"      ClrSynLabel           Syntax     (syntax.label)
 
-
-
-
     AppEditorBg     "app.editor_bg"            ClrAppEditorBg        AppSurface (app.editor_bg)
     AppPanelBg      "app.panel_bg"             ClrAppPanelBg         AppSurface (app.panel_bg)
     AppBarBg        "app.bar_bg"               ClrAppBarBg           AppSurface (app.bar_bg)
@@ -180,7 +167,6 @@ color_slots! {
     AppCloseHover   "app.close_hover"          ClrAppCloseHover      AppSurface (app.close_hover)
     AppScrollTrack  "app.scrollbar_track"      ClrAppScrollTrack     AppSurface (chrome.scrollbar_track)
     AppScrollThumb  "app.scrollbar_thumb"      ClrAppScrollThumb     AppSurface (chrome.scrollbar_thumb)
-
 
     AppText         "app.text"                 ClrAppText            AppText    (app.text)
     AppTextMuted    "app.text_muted"           ClrAppTextMuted       AppText    (app.text_muted)
@@ -294,7 +280,6 @@ mod tests {
                     "{key}'s segment `{seg}` contains a disallowed character"
                 );
             }
-
             let is_app = matches!(slot.group(), ColorGroup::AppSurface | ColorGroup::AppText);
             assert_eq!(
                 is_app,
@@ -313,7 +298,6 @@ mod tests {
             });
             assert!(!name.starts_with("syn"), "{key} has the syn prefix again");
         }
-
         for (want, slot) in [
             ("editor.syntax.keyword", ColorSlot::SynKeyword),
             ("editor.syntax.string", ColorSlot::SynString),
@@ -331,9 +315,7 @@ mod tests {
         ColorSlot::AppBarBg.write(&mut theme, PROBE);
         let got = theme.app.bar_bg;
         assert_eq!((got.h, got.s, got.l), (PROBE.h, PROBE.s, PROBE.l));
-
         assert_eq!(theme.app.panel_bg, base.app.panel_bg);
-
         assert!(base.layout_metrics_eq(&theme));
     }
 
@@ -352,7 +334,7 @@ mod tests {
             assert_eq!(
                 slot.read(&theme).a,
                 was,
-                "{}'s alpha was changed",
+                "{}'s opacity was changed",
                 slot.key()
             );
         }
@@ -370,7 +352,7 @@ mod tests {
             assert_eq!(
                 slot.index(),
                 i,
-                "{}'s index does not match its position in the table",
+                "{}'s index disagrees with its position in the table",
                 slot.key()
             );
         }
@@ -392,7 +374,6 @@ mod tests {
         seen.sort_unstable();
         seen.dedup();
         assert_eq!(seen.len(), total, "two slots share the same label");
-
         for group in ColorGroup::ALL {
             assert!(!md_i18n::t(group.label()).is_empty());
         }
@@ -432,19 +413,17 @@ mod tests {
             assert_eq!(
                 slot.read(&theme).a,
                 was,
-                "{}'s alpha was changed",
+                "{}'s opacity was changed",
                 slot.key()
             );
             if was < 1.0 {
                 translucent += 1;
             }
         }
-
         assert!(
             translucent >= 4,
-            "found only {translucent} translucent colors"
+            "only {translucent} translucent colors were found"
         );
-
         let mut theme = base;
         ColorSlot::Canvas.write(&mut theme, PROBE);
         assert_eq!(ColorSlot::Canvas.read(&theme), PROBE);
