@@ -543,7 +543,7 @@ impl Shell {
                     .text_size(px(15.))
                     .font_weight(FontWeight(600.0))
                     .text_color(t.text)
-                    .child("md-test"),
+                    .child("Markdown Editor RS"),
             )
             .child(
                 div()

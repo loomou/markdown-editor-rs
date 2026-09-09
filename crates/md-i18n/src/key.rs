@@ -51,7 +51,7 @@ i18n_keys! {
     MenuOutline             "大纲"              "Outline"
     MenuGoToLine            "跳到行…"           "Go to Line…"
     MenuShortcuts           "键盘快捷键"        "Keyboard Shortcuts"
-    MenuAbout               "关于 md-test"      "About md-test"
+    MenuAbout               "关于 Markdown Editor RS"      "About Markdown Editor RS"
 
     MenuTable               "表格"              "Table"
     MenuInsertTable         "插入表格…"         "Insert Table…"
