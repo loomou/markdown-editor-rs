@@ -41,7 +41,7 @@ jobs:
             libxkbcommon-dev libwayland-dev libvulkan-dev \
             libx11-dev libxcb1-dev libfreetype-dev libfontconfig1-dev
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.96
         with:
           targets: ${{ matrix.target }}
 
