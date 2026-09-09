@@ -30,8 +30,18 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      # CI 不需要调试符号，去掉后 target 体积大幅缩小（否则 Ubuntu 会磁盘耗尽）
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
     steps:
       - uses: actions/checkout@v4
+
+      - name: Free disk space
+        if: runner.os == 'Linux'
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup
+          sudo docker image prune -af || true
 
       # gpui (blade-graphics/wayland/xkbcommon/x11) 及其构建依赖所需的系统库
       - name: Install Linux dependencies
