@@ -145,7 +145,10 @@ fn mermaid_font_family_maps_the_virtual_name_and_adds_a_fallback() {
     assert_eq!(spec.font_family, "system-ui, sans-serif");
     let mut serif = md_theme::DocumentTheme::one_dark();
     serif.type_scale.body.family = md_theme::SYSTEM_SERIF;
-    assert_eq!(spec_for(serif, 804, 420).font_family, "Georgia, sans-serif");
+    assert_eq!(
+        spec_for(serif, 804, 420).font_family,
+        format!("{}, sans-serif", md_theme::SYSTEM_SERIF)
+    );
 }
 
 #[test]
