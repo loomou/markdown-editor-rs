@@ -668,7 +668,9 @@ fn relative_to(from_dir: &Path, to_file: &Path) -> Option<PathBuf> {
 }
 
 fn path_to_dest(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
+    path.to_string_lossy()
+        .replace('\\', "/")
+        .replace('%', "%25")
 }
 
 fn parse_file_url(dest: &str) -> Option<PathBuf> {

@@ -4,8 +4,16 @@ use super::edit::Sel;
 use super::reference;
 use super::{Document, bind, write};
 use crate::block::{BlockId, BlockKind, NodeExtra, TextEditStrategy};
-use crate::inline::covering_runs;
+use crate::inline::{InlineMarks, InlineRun, covering_runs};
+use std::collections::HashSet;
 use std::ops::Range;
+
+#[derive(Default)]
+struct CopiedDeps {
+    links: Vec<u32>,
+    footnotes: Vec<String>,
+    promoted_footnotes: Vec<NodeId>,
+}
 
 impl Document {
     pub fn copy_markdown(&self, sel: Sel) -> String {
@@ -42,9 +50,58 @@ impl Document {
                 sel.anchor.offset.max(sel.head.offset),
             ),
         };
-        let mut used_links = Vec::new();
-        let piece = self.copy_leaf_span(&leaves, lo_i, hi_i, from, to, &mut used_links);
-        self.with_reference_definitions(&used_links, piece)
+        let mut deps = CopiedDeps::default();
+        let piece = self.copy_leaf_span(&leaves, lo_i, hi_i, from, to, &mut deps);
+        let piece = self.with_footnote_definitions(&mut deps, piece);
+        self.with_reference_definitions(&deps.links, piece)
+    }
+
+    fn with_footnote_definitions(&self, deps: &mut CopiedDeps, mut out: String) -> String {
+        if deps.footnotes.is_empty() {
+            return out;
+        }
+        let defs: Vec<(String, NodeId)> = self
+            .preorder()
+            .into_iter()
+            .filter_map(|id| {
+                if self.arena.get(id)?.kind != BlockKind::FootnoteDefinition {
+                    return None;
+                }
+                let intern = self.extra(id).footnote_label()?;
+                let label = self.footnote_label(intern)?;
+                Some((label.to_string(), id))
+            })
+            .collect();
+        let mut queue: Vec<String> = deps.footnotes.clone();
+        deps.footnotes.clear();
+        let mut visited: HashSet<String> = HashSet::new();
+        let mut carried: Vec<NodeId> = Vec::new();
+        while let Some(label) = queue.pop() {
+            if !visited.insert(label.clone()) {
+                continue;
+            }
+            let Some((_, def)) = defs.iter().find(|(l, _)| *l == label) else {
+                continue;
+            };
+            if deps.promoted_footnotes.contains(def) {
+                continue;
+            }
+            carried.push(*def);
+            let mut kids = Vec::new();
+            self.subtree_text_leaves(*def, &mut kids);
+            for kid in kids {
+                self.collect_leaf_deps(kid, &mut queue, &mut deps.links);
+            }
+        }
+        if carried.is_empty() {
+            return out;
+        }
+        for def in carried {
+            let mut piece = String::new();
+            write::write_node(self, def, &mut piece);
+            push_piece(&mut out, &piece, true);
+        }
+        out
     }
 
     fn with_reference_definitions(&self, used_links: &[u32], mut out: String) -> String {
@@ -78,19 +135,28 @@ impl Document {
         out
     }
 
-    fn collect_leaf_links(&self, id: NodeId, used: &mut Vec<u32>) {
+    fn collect_leaf_deps(&self, id: NodeId, footnotes: &mut Vec<String>, links: &mut Vec<u32>) {
+        let display = self.display(id);
         for run in self.runs(id) {
             if let Some(link) = run.link {
-                used.push(link);
+                links.push(link);
+            }
+            if let Some(label) = footnote_label_of(display, run) {
+                footnotes.push(label);
             }
         }
     }
 
-    fn collect_subtree_links(&self, item: NodeId, used: &mut Vec<u32>) {
+    fn collect_subtree_deps(
+        &self,
+        item: NodeId,
+        footnotes: &mut Vec<String>,
+        links: &mut Vec<u32>,
+    ) {
         let mut kids = Vec::new();
         self.subtree_text_leaves(item, &mut kids);
         for kid in kids {
-            self.collect_leaf_links(kid, used);
+            self.collect_leaf_deps(kid, footnotes, links);
         }
     }
 
@@ -101,7 +167,7 @@ impl Document {
         hi_i: usize,
         from: usize,
         to: usize,
-        used_links: &mut Vec<u32>,
+        deps: &mut CopiedDeps,
     ) -> String {
         let mut out = String::new();
         let mut group: Option<(NodeId, u64)> = None;
@@ -130,6 +196,15 @@ impl Document {
             let start = if i == lo_i { from.min(len) } else { 0 };
             let end = if i == hi_i { to.min(len) } else { len };
             let whole = start == 0 && end == len && (len > 0 || lo_i != hi_i);
+            if whole && let Some((def, last)) = self.covered_footnote(leaves, i, hi_i, to) {
+                let mut piece = String::new();
+                write::write_node(self, def, &mut piece);
+                self.collect_subtree_deps(def, &mut deps.footnotes, &mut deps.links);
+                push_piece(&mut out, &piece, true);
+                deps.promoted_footnotes.push(def);
+                i = last + 1;
+                continue;
+            }
             if whole && let Some((item, last)) = self.covered_item(leaves, i, hi_i, to) {
                 let list = self.arena.get(item).and_then(|n| n.parent);
                 let extra = list.map(|l| self.extra(l)).unwrap_or(NodeExtra::None);
@@ -140,7 +215,7 @@ impl Document {
                 };
                 let mut piece = String::new();
                 write::write_list_item(self, item, &mut piece, extra.list_marker(), num);
-                self.collect_subtree_links(item, used_links);
+                self.collect_subtree_deps(item, &mut deps.footnotes, &mut deps.links);
                 push_piece(&mut out, &piece, !continuing || extra.list_loose());
                 group = list.map(|l| (l, num));
                 jumped_item = Some(item);
@@ -156,13 +231,11 @@ impl Document {
             {
                 let mut piece = String::new();
                 write::write_node(self, id, &mut piece);
-                self.collect_leaf_links(id, used_links);
+                self.collect_leaf_deps(id, &mut deps.footnotes, &mut deps.links);
                 push_piece(&mut out, &piece, true);
             } else {
-                let mut piece_links = Vec::new();
-                let text = self.copy_leaf(id, start..end, &mut piece_links);
+                let text = self.copy_leaf(id, start..end, deps);
                 push_piece(&mut out, &text, true);
-                used_links.extend(piece_links);
             }
             i += 1;
         }
@@ -232,6 +305,40 @@ impl Document {
         best
     }
 
+    fn covered_footnote(
+        &self,
+        leaves: &[BlockId],
+        at: usize,
+        hi_i: usize,
+        to: usize,
+    ) -> Option<(NodeId, usize)> {
+        let leaf = self.live_id(leaves[at])?;
+        let mut up = self.arena.get(leaf).and_then(|n| n.parent);
+        while let Some(id) = up {
+            let Some(node) = self.arena.get(id) else {
+                break;
+            };
+            up = node.parent;
+            if node.kind != BlockKind::FootnoteDefinition {
+                continue;
+            }
+            let mut kids = Vec::new();
+            self.subtree_text_leaves(id, &mut kids);
+            let (Some(&first), Some(&last)) = (kids.first(), kids.last()) else {
+                continue;
+            };
+            if first != leaf {
+                continue;
+            }
+            let end = at + kids.len() - 1;
+            if end > hi_i || (end == hi_i && to < self.caret_text(last).len()) {
+                continue;
+            }
+            return Some((id, end));
+        }
+        None
+    }
+
     fn subtree_text_leaves(&self, id: NodeId, out: &mut Vec<NodeId>) {
         let mut stack = vec![id];
         while let Some(id) = stack.pop() {
@@ -246,7 +353,7 @@ impl Document {
         }
     }
 
-    fn copy_leaf(&self, id: NodeId, range: Range<usize>, used: &mut Vec<u32>) -> String {
+    fn copy_leaf(&self, id: NodeId, range: Range<usize>, deps: &mut CopiedDeps) -> String {
         let kind = self
             .arena
             .get(id)
@@ -261,16 +368,16 @@ impl Document {
         if lo == 0 && hi == text.len() && kind != BlockKind::TableCell {
             let mut out = String::new();
             write::write_node(self, id, &mut out);
-            self.collect_leaf_links(id, used);
+            self.collect_leaf_deps(id, &mut deps.footnotes, &mut deps.links);
             return out;
         }
         if kind.text_edit_strategy() == TextEditStrategy::Phrasing {
-            return self.phrasing_slice(id, lo..hi, used);
+            return self.phrasing_slice(id, lo..hi, deps);
         }
         text.get(lo..hi).unwrap_or("").to_string()
     }
 
-    fn phrasing_slice(&self, id: NodeId, range: Range<usize>, used: &mut Vec<u32>) -> String {
+    fn phrasing_slice(&self, id: NodeId, range: Range<usize>, deps: &mut CopiedDeps) -> String {
         let display = self.display(id);
         let source = self.leaf_source(id);
         let s2d = self.visual_s2d(id);
@@ -303,7 +410,10 @@ impl Document {
                 }
                 for run in &covering[i..=j] {
                     if let Some(link) = run.link {
-                        used.push(link);
+                        deps.links.push(link);
+                    }
+                    if let Some(label) = footnote_label_of(display, run) {
+                        deps.footnotes.push(label);
                     }
                 }
                 if let Some(text) = bind::source_span(source, &s2d, rs, hi) {
@@ -338,4 +448,15 @@ fn push_piece(out: &mut String, piece: &str, blank: bool) {
         }
     }
     out.push_str(piece);
+}
+
+fn footnote_label_of(display: &str, run: &InlineRun) -> Option<String> {
+    if !run.marks.contains(InlineMarks::FOOTNOTE) {
+        return None;
+    }
+    let rs = run.display_range.start as usize;
+    let re = run.display_range.end as usize;
+    let text = display.get(rs..re)?;
+    let label = text.strip_prefix("[^")?.strip_suffix(']')?;
+    (!label.is_empty()).then(|| label.to_string())
 }

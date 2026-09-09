@@ -137,9 +137,11 @@ async fn response_to_gpui(
         }
         bytes.extend_from_slice(&chunk);
     }
-    Ok(Response::builder()
-        .status(status)
-        .body(AsyncBody::from(bytes))?)
+    let mut builder = Response::builder().status(status);
+    for (name, value) in response.headers().iter() {
+        builder = builder.header(name.as_str(), value.as_bytes());
+    }
+    Ok(builder.body(AsyncBody::from(bytes))?)
 }
 
 fn blocked_hostname(host: &str) -> bool {
@@ -188,6 +190,48 @@ mod tests {
     #[test]
     fn http_client_is_a_process_wide_singleton() {
         assert!(Arc::ptr_eq(&http_client(), &http_client()));
+    }
+
+    #[test]
+    fn retry_after_survives_response_conversion() {
+        futures::executor::block_on(async {
+            let incoming = gpui::http_client::http::Response::builder()
+                .status(429)
+                .header("Retry-After", "32")
+                .body(Vec::<u8>::new())
+                .unwrap();
+            let response = super::response_to_gpui(reqwest::Response::from(incoming))
+                .await
+                .unwrap();
+            assert_eq!(response.status().as_u16(), 429);
+            let retry_after = response
+                .headers()
+                .get("Retry-After")
+                .map(|value| value.to_str().unwrap());
+            eprintln!("converted Retry-After={retry_after:?}");
+            assert_eq!(retry_after, Some("32"));
+        });
+    }
+
+    #[test]
+    fn content_type_survives_response_conversion() {
+        futures::executor::block_on(async {
+            let incoming = gpui::http_client::http::Response::builder()
+                .status(200)
+                .header("Content-Type", "image/png")
+                .body(Vec::<u8>::new())
+                .unwrap();
+            let response = super::response_to_gpui(reqwest::Response::from(incoming))
+                .await
+                .unwrap();
+            assert_eq!(
+                response
+                    .headers()
+                    .get("Content-Type")
+                    .map(|value| value.to_str().unwrap()),
+                Some("image/png")
+            );
+        });
     }
 
     #[test]

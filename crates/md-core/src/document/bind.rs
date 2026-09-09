@@ -1,6 +1,7 @@
 use super::chars::floor_char_boundary;
+use super::load::strip_html;
 use super::{Document, NodeId, sanitized_editor_options};
-use crate::block::BlockKind;
+use crate::block::{BlockKind, NodeExtra};
 use crate::inline::{InlineMarks, InlineRun};
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use std::borrow::Cow;
@@ -92,6 +93,15 @@ pub(crate) fn quote_lead_paragraph(frag: &Document) -> Option<Option<NodeId>> {
             }
         }
     }
+}
+
+pub(crate) fn quote_alert_extra(frag: &Document) -> Option<NodeExtra> {
+    let (quote, kind) = unique_root(frag)?;
+    if kind != BlockKind::BlockQuote {
+        return None;
+    }
+    let extra = frag.extra(quote);
+    extra.quote_alert().map(|_| extra)
 }
 
 pub(crate) fn matching_leaf(frag: &Document, current: BlockKind) -> Option<NodeId> {
@@ -362,6 +372,40 @@ pub(crate) fn html_line_break_before(source: &str, at: usize) -> Option<Range<us
     None
 }
 
+pub(crate) fn extend_end_past_encoded_token(source: &str, s0: usize, s1: usize) -> usize {
+    if s1 == 0 || s1 >= source.len() {
+        return s1;
+    }
+    let bytes = source.as_bytes();
+    let lo = s1.saturating_sub(10);
+    for t0 in (lo..s1).rev() {
+        match bytes[t0] {
+            b'<' => {
+                for len in [6, 5, 4] {
+                    if t0 + len <= source.len()
+                        && is_html_line_break(source.get(t0..t0 + len).unwrap_or(""))
+                        && t0 >= s0
+                        && t0 + len > s1
+                    {
+                        return t0 + len;
+                    }
+                }
+            }
+            b'&' => {
+                let window_end = source.len().min(t0 + 10);
+                if let Some(semi) = source[t0..window_end].find(';')
+                    && t0 >= s0
+                    && t0 + semi + 1 > s1
+                {
+                    return t0 + semi + 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    s1
+}
+
 pub(crate) fn source_to_display(s2d: &[usize], s: usize) -> usize {
     let i = s.min(s2d.len().saturating_sub(1));
     s2d.get(i).copied().unwrap_or(0)
@@ -383,6 +427,21 @@ pub(crate) fn display_to_source_inner(s2d: &[usize], d: usize) -> usize {
 
 pub(crate) fn display_to_source_outer(s2d: &[usize], d: usize) -> usize {
     s2d.partition_point(|&md| md <= d).saturating_sub(1)
+}
+
+pub(crate) fn display_to_source_content_end(s2d: &[usize], d: usize) -> usize {
+    if s2d.is_empty() {
+        return 0;
+    }
+    let max_d = *s2d.last().unwrap_or(&0);
+    let d = d.min(max_d);
+    let upper = s2d.partition_point(|&md| md <= d);
+    let first_eq = s2d[..upper].partition_point(|&md| md < d);
+    if first_eq < upper {
+        first_eq
+    } else {
+        upper.saturating_sub(1)
+    }
 }
 
 pub(crate) fn display_to_source_first(s2d: &[usize], d: usize) -> usize {
@@ -586,6 +645,10 @@ fn source_to_display_map_impl(
                 assign(&mut s2d, lo, disp);
                 disp = disp.saturating_add(1);
                 fill(&mut s2d, lo.saturating_add(1), hi, disp);
+            }
+            Event::Html(t) | Event::InlineHtml(t) => {
+                let shown = strip_html(&t);
+                map_shown(source, &mut s2d, lo, hi, &shown, &mut disp);
             }
             _ => {}
         }

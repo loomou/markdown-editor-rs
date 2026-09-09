@@ -229,3 +229,82 @@ fn long_token_keeps_last_wrap_row_open(cx: &mut gpui::TestAppContext) {
         );
     });
 }
+
+#[gpui::test]
+fn multiline_script_retains_its_first_line(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let theme = DocumentTheme::one_dark();
+        let shaper = GpuiShaper::new(window, app, &theme, 1.0, ShapeCache::new(), media());
+
+        let doc = md_core::document::load_markdown(
+            "before ^first\nsecond^ after\n",
+            md_core::document::editor_options(),
+        );
+        let block = doc.text_leaves()[0];
+        let node = doc.live_id(block).unwrap();
+        let text = doc.text_of(block).unwrap();
+        assert_eq!(text, "before first\nsecond after");
+        assert!(
+            doc.runs(node).iter().any(|run| run.marks.is_script()),
+            "fixture: the script run must span the hard line"
+        );
+        let art = shaper.artifact(
+            text,
+            doc.runs(node),
+            800.0,
+            doc.kind(block).unwrap(),
+            ShapeIdentity::default(),
+        );
+        let retained: String = art
+            .bands
+            .iter()
+            .flat_map(|band| &band.parts)
+            .filter_map(|part| match part {
+                ShapePart::Text { line, .. } => Some(line.text.as_ref()),
+                _ => None,
+            })
+            .collect();
+        eprintln!("retained={retained:?}, rows={}", art.rows);
+        assert_eq!(retained, text.replace('\n', ""));
+        assert!(
+            art.rows >= 2,
+            "a hard line inside the atom must break the row"
+        );
+    });
+}
+
+#[gpui::test]
+fn multiline_subscript_retains_its_first_line(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let theme = DocumentTheme::one_dark();
+        let shaper = GpuiShaper::new(window, app, &theme, 1.0, ShapeCache::new(), media());
+
+        let doc = md_core::document::load_markdown(
+            "before ~first\nsecond~ after\n",
+            md_core::document::editor_options(),
+        );
+        let block = doc.text_leaves()[0];
+        let node = doc.live_id(block).unwrap();
+        let text = doc.text_of(block).unwrap();
+        let art = shaper.artifact(
+            text,
+            doc.runs(node),
+            800.0,
+            doc.kind(block).unwrap(),
+            ShapeIdentity::default(),
+        );
+        let retained: String = art
+            .bands
+            .iter()
+            .flat_map(|band| &band.parts)
+            .filter_map(|part| match part {
+                ShapePart::Text { line, .. } => Some(line.text.as_ref()),
+                _ => None,
+            })
+            .collect();
+        eprintln!("retained={retained:?}, rows={}", art.rows);
+        assert_eq!(retained, text.replace('\n', ""));
+    });
+}

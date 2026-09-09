@@ -1,5 +1,6 @@
 use md_core::doc::Doc;
 use md_core::document::{Caret, Command, Sel, editor_options, load_markdown};
+use md_core::inline::InlineMarks;
 
 fn fresh(source: &str) -> Doc {
     Doc::new(load_markdown(source, editor_options()))
@@ -403,4 +404,41 @@ fn repeated_edge_spaces_round_trip_and_survive_further_edits() {
         Some("  a !"),
         "resaved={resaved:?}"
     );
+}
+
+#[test]
+fn leading_html_break_does_not_shift_bold_after_edit() {
+    let mut doc = Doc::new(load_markdown(
+        "| h |\n| --- |\n| <br>**ab** |\n",
+        editor_options(),
+    ));
+    let block = doc.text_leaves()[1];
+    doc.apply(
+        Sel::collapsed(Caret { block, offset: 3 }),
+        Command::Insert { text: "!".into() },
+    );
+    assert_eq!(doc.text(block), Some("\nab!"));
+    let id = doc.document.live_id(block).unwrap();
+    let bold = doc
+        .document
+        .runs(id)
+        .iter()
+        .find(|run| run.marks.contains(InlineMarks::STRONG))
+        .unwrap();
+    assert_eq!(bold.display_range, 1..3);
+}
+
+#[test]
+fn leading_html_break_does_not_move_link_after_edit() {
+    let mut doc = Doc::new(load_markdown(
+        "| h |\n| --- |\n| <br><br>[ab](/target) |\n",
+        editor_options(),
+    ));
+    let block = doc.text_leaves()[1];
+    doc.apply(
+        Sel::collapsed(Caret { block, offset: 4 }),
+        Command::Insert { text: "!".into() },
+    );
+    assert_eq!(doc.text(block), Some("\n\nab!"));
+    assert_eq!(doc.link_at(Caret { block, offset: 2 }), Some("/target"));
 }

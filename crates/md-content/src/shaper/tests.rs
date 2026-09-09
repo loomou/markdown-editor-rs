@@ -166,3 +166,42 @@ fn slice_runs_matches_the_reference_on_every_window() {
         reference_slice_runs(&runs, 24, 30)
     );
 }
+
+#[gpui::test]
+fn fallback_multiline_text_retains_every_character(cx: &mut gpui::TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        use super::GpuiShaper;
+        use super::artifact::ShapeMedia;
+        use super::cache::ShapeCache;
+        use md_core::block::BlockKind;
+        use md_theme::DocumentTheme;
+        use std::rc::Rc;
+
+        let media = ShapeMedia {
+            mermaid_fitted: Rc::new(Default::default()),
+            math_metrics: Rc::new(Default::default()),
+            math_gen: 0,
+            image_sizes: Rc::new(Default::default()),
+            image_failed: Rc::new(Default::default()),
+            image_gen: 0,
+            link_dests: Rc::new(Default::default()),
+            link_raw: Rc::new(Default::default()),
+            block_image_dest: Rc::new(Default::default()),
+            block_code_lang: Rc::new(Default::default()),
+        };
+        let shaper = GpuiShaper::new(
+            window,
+            app,
+            &DocumentTheme::one_dark(),
+            1.0,
+            ShapeCache::new(),
+            media,
+        );
+        let role = shaper.roles.for_kind(BlockKind::Paragraph);
+        let raw = "$\\notacommand\nsecond$";
+        let line = shaper.shape_fallback(raw, role, 800.0);
+        eprintln!("fallback={:?}", line.text);
+        assert_eq!(line.text.as_ref(), "$\\notacommand second$");
+    });
+}

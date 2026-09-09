@@ -3,7 +3,7 @@ use crate::block::BlockId;
 
 mod delete;
 mod list;
-mod normalize;
+pub(crate) mod normalize;
 mod path;
 mod span;
 mod structure;

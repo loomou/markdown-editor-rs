@@ -20,10 +20,10 @@ pub struct DeferredBox {
     pub margin_bottom: Px,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct LazyEstimator {
     pub(crate) metrics: LeafMetrics,
-    pub(crate) viewport: Px,
+    pub(crate) viewport: std::cell::Cell<Px>,
 }
 
 #[derive(Clone, Debug)]
@@ -59,6 +59,12 @@ impl BoxTree {
 
     pub fn has_deferred(&self) -> bool {
         !self.deferred.is_empty()
+    }
+
+    pub fn set_lazy_viewport(&self, w: Px) {
+        if let Some(lazy) = &self.lazy {
+            lazy.viewport.set(w);
+        }
     }
 
     pub(crate) fn flow_margins(&self, id: LayoutBoxId) -> (Px, Px) {

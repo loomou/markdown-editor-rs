@@ -1,5 +1,6 @@
+use md_core::block::{AlertKind, BlockKind};
 use md_core::doc::Doc;
-use md_core::document::{Caret, Command, Sel, editor_options, load_markdown};
+use md_core::document::{Caret, Command, PasteIntent, Sel, editor_options, load_markdown};
 use pulldown_cmark::{Event, Parser};
 use std::time::Instant;
 
@@ -565,4 +566,892 @@ fn fence_keeps_minimum_length_without_long_runs() {
     let saved = d.to_markdown();
     println!("plain={saved:?}");
     assert_eq!(saved, "```\nplain body\n```\n");
+}
+
+#[test]
+fn html_block_insert_uses_the_visible_text_offset() {
+    let mut doc = Doc::new(load_markdown("<div>hello</div>\n", editor_options()));
+    let block = doc.text_leaves()[0];
+    let caret = doc.retarget_focus(Caret { block, offset: 1 });
+    doc.apply(Sel::collapsed(caret), Command::Insert { text: "X".into() });
+    assert_eq!(doc.text(block), Some("hXello"));
+}
+
+#[test]
+fn html_block_backspace_preserves_closing_tag() {
+    let mut doc = Doc::new(load_markdown("<div>hello</div>\n", editor_options()));
+    let block = doc.text_leaves()[0];
+    let caret = doc.retarget_focus(Caret { block, offset: 1 });
+    doc.apply(Sel::collapsed(caret), Command::DeleteBackward);
+    assert_eq!(doc.document.to_markdown(), "<div>ello</div>\n");
+}
+
+#[test]
+fn html_block_delete_forward_eats_visible_text() {
+    let mut doc = Doc::new(load_markdown("<div>hello</div>\n", editor_options()));
+    let block = doc.text_leaves()[0];
+    let caret = doc.retarget_focus(Caret { block, offset: 0 });
+    doc.apply(Sel::collapsed(caret), Command::DeleteForward);
+    assert_eq!(doc.document.to_markdown(), "<div>ello</div>\n");
+}
+
+#[test]
+fn html_block_multiline_maps_to_collapsed_visible_text() {
+    let mut doc = Doc::new(load_markdown("<div>\nhello\n</div>\n", editor_options()));
+    let block = doc.text_leaves()[0];
+    assert_eq!(doc.text(block), Some("hello"));
+    let caret = doc.retarget_focus(Caret { block, offset: 1 });
+    doc.apply(Sel::collapsed(caret), Command::Insert { text: "X".into() });
+    assert_eq!(doc.document.to_markdown(), "<div>\nhXello\n</div>\n");
+}
+
+#[test]
+fn html_block_unicode_caret_lands_on_char_boundary() {
+    let mut doc = Doc::new(load_markdown("<div>中文</div>\n", editor_options()));
+    let block = doc.text_leaves()[0];
+    let caret = doc.retarget_focus(Caret { block, offset: 3 });
+    doc.apply(Sel::collapsed(caret), Command::Insert { text: "X".into() });
+    assert_eq!(doc.document.to_markdown(), "<div>中X文</div>\n");
+}
+
+#[test]
+fn html_block_undo_redo_preserves_tags() {
+    let mut doc = Doc::new(load_markdown("<div>hello</div>\n", editor_options()));
+    let block = doc.text_leaves()[0];
+    let caret = doc.retarget_focus(Caret { block, offset: 1 });
+    doc.apply(Sel::collapsed(caret), Command::Insert { text: "X".into() });
+    assert_eq!(doc.document.to_markdown(), "<div>hXello</div>\n");
+    doc.undo();
+    assert_eq!(doc.document.to_markdown(), "<div>hello</div>\n");
+    doc.redo();
+    assert_eq!(doc.document.to_markdown(), "<div>hXello</div>\n");
+}
+
+#[test]
+fn inline_html_text_edit_misses_the_tags() {
+    let mut doc = Doc::new(load_markdown("a <b>bold</b> tail\n", editor_options()));
+    let block = doc.text_leaves()[0];
+    let caret = doc.retarget_focus(Caret { block, offset: 2 });
+    doc.apply(Sel::collapsed(caret), Command::Insert { text: "X".into() });
+    assert_eq!(doc.document.to_markdown(), "a <b>Xbold</b> tail\n");
+}
+
+#[test]
+fn copied_footnote_reference_keeps_its_definition() {
+    let d = Doc::new(load_markdown("note[^a]\n\n[^a]: body\n", editor_options()));
+    let block = d.first_text_leaf().unwrap();
+    let len = d.text(block).unwrap().len();
+    let copied = d.copy_markdown(Sel {
+        anchor: Caret { block, offset: 0 },
+        head: Caret { block, offset: len },
+    });
+    println!("copied={copied:?}");
+    assert!(
+        copied.contains("[^a]: body"),
+        "clipboard must carry the definition, got {copied:?}"
+    );
+}
+
+#[test]
+fn copied_footnote_definition_keeps_its_container() {
+    let d = Doc::new(load_markdown("note[^a]\n\n[^a]: body\n", editor_options()));
+    let ids = d.text_leaves();
+    let last = ids.last().unwrap();
+    let len = d.text(*last).unwrap().len();
+    let copied = d.copy_markdown(Sel {
+        anchor: Caret {
+            block: ids[0],
+            offset: 0,
+        },
+        head: Caret {
+            block: *last,
+            offset: len,
+        },
+    });
+    println!("copied={copied:?}");
+    assert!(
+        copied.contains("[^a]: body"),
+        "directly selected definition must keep its container, got {copied:?}"
+    );
+}
+
+#[test]
+fn copied_repeated_footnote_references_carry_one_definition() {
+    let d = Doc::new(load_markdown(
+        "x[^a] y[^a]\n\n[^a]: body\n",
+        editor_options(),
+    ));
+    let block = d.first_text_leaf().unwrap();
+    let len = d.text(block).unwrap().len();
+    let copied = d.copy_markdown(Sel {
+        anchor: Caret { block, offset: 0 },
+        head: Caret { block, offset: len },
+    });
+    println!("copied={copied:?}");
+    assert_eq!(
+        copied.matches("[^a]: body").count(),
+        1,
+        "one definition per label, got {copied:?}"
+    );
+}
+
+#[test]
+fn copied_footnote_body_transits_its_own_references() {
+    let d = Doc::new(load_markdown(
+        "top[^a]\n\n[^a]: uses [^b]\n\n[^b]: leaf\n",
+        editor_options(),
+    ));
+    let block = d.first_text_leaf().unwrap();
+    let len = d.text(block).unwrap().len();
+    let copied = d.copy_markdown(Sel {
+        anchor: Caret { block, offset: 0 },
+        head: Caret { block, offset: len },
+    });
+    println!("copied={copied:?}");
+    assert!(
+        copied.contains("[^a]: uses [^b]"),
+        "definition a must be carried, got {copied:?}"
+    );
+    assert!(
+        copied.contains("[^b]: leaf"),
+        "transitive dependency b must be carried, got {copied:?}"
+    );
+}
+
+#[test]
+fn copied_self_referential_footnote_terminates() {
+    let d = Doc::new(load_markdown(
+        "top[^a]\n\n[^a]: loop [^a]\n",
+        editor_options(),
+    ));
+    let block = d.first_text_leaf().unwrap();
+    let len = d.text(block).unwrap().len();
+    let copied = d.copy_markdown(Sel {
+        anchor: Caret { block, offset: 0 },
+        head: Caret { block, offset: len },
+    });
+    println!("copied={copied:?}");
+    assert_eq!(
+        copied.matches("[^a]: loop [^a]").count(),
+        1,
+        "cycle must terminate with exactly one definition, got {copied:?}"
+    );
+}
+
+#[test]
+fn copied_footnote_fragment_reloads_self_contained() {
+    let d = Doc::new(load_markdown("note[^a]\n\n[^a]: body\n", editor_options()));
+    let block = d.first_text_leaf().unwrap();
+    let len = d.text(block).unwrap().len();
+    let copied = d.copy_markdown(Sel {
+        anchor: Caret { block, offset: 0 },
+        head: Caret { block, offset: len },
+    });
+    let reloaded = load_markdown(&copied, editor_options());
+    let saved = reloaded.to_markdown();
+    println!("reloaded={saved:?}");
+    assert!(
+        saved.contains("[^a]: body"),
+        "reloaded fragment must keep the definition, got {saved:?}"
+    );
+}
+
+#[test]
+fn copied_footnote_body_carries_its_link_definitions() {
+    let d = Doc::new(load_markdown(
+        "top[^a]\n\n[^a]: uses [l][r]\n\n[r]: /t\n",
+        editor_options(),
+    ));
+    let block = d.first_text_leaf().unwrap();
+    let len = d.text(block).unwrap().len();
+    let copied = d.copy_markdown(Sel {
+        anchor: Caret { block, offset: 0 },
+        head: Caret { block, offset: len },
+    });
+    println!("copied={copied:?}");
+    assert!(
+        copied.contains("[^a]: uses [l][r]"),
+        "footnote definition must be carried, got {copied:?}"
+    );
+    assert!(
+        copied.contains("[r]: /t"),
+        "link definition inside the note body must be carried, got {copied:?}"
+    );
+}
+
+#[test]
+fn copied_list_item_footnote_carries_definition() {
+    let d = Doc::new(load_markdown(
+        "- item[^a]\n\n[^a]: body\n",
+        editor_options(),
+    ));
+    let block = d.first_text_leaf().unwrap();
+    let len = d.text(block).unwrap().len();
+    let copied = d.copy_markdown(Sel {
+        anchor: Caret { block, offset: 0 },
+        head: Caret { block, offset: len },
+    });
+    println!("copied={copied:?}");
+    assert!(
+        copied.contains("- item[^a]"),
+        "list item must keep its marker, got {copied:?}"
+    );
+    assert!(
+        copied.contains("[^a]: body"),
+        "footnote referenced inside a list item must carry its definition, got {copied:?}"
+    );
+}
+
+#[test]
+fn collapsed_selection_still_copies_nothing() {
+    let d = Doc::new(load_markdown("note[^a]\n\n[^a]: body\n", editor_options()));
+    let block = d.first_text_leaf().unwrap();
+    let copied = d.copy_markdown(Sel {
+        anchor: Caret { block, offset: 3 },
+        head: Caret { block, offset: 3 },
+    });
+    println!("copied={copied:?}");
+    assert_eq!(copied, "");
+}
+
+#[test]
+fn quote_promotion_preserves_alert_kind() {
+    let source = "> [!NOTE]";
+    let loaded = load_markdown(source, editor_options());
+    let loaded_quote = loaded
+        .preorder()
+        .into_iter()
+        .find(|&id| loaded.arena.get(id).unwrap().kind == BlockKind::BlockQuote)
+        .unwrap();
+    assert_eq!(
+        loaded.extra(loaded_quote).quote_alert(),
+        Some(AlertKind::Note)
+    );
+
+    let mut doc = Doc::new(load_markdown("", editor_options()));
+    let block = doc.text_leaves()[0];
+    doc.apply(
+        Sel::collapsed(Caret { block, offset: 0 }),
+        Command::Insert {
+            text: source.into(),
+        },
+    );
+    let quote = doc
+        .document
+        .preorder()
+        .into_iter()
+        .find(|&id| doc.document.arena.get(id).unwrap().kind == BlockKind::BlockQuote)
+        .unwrap();
+    assert_eq!(
+        doc.document.extra(quote).quote_alert(),
+        Some(AlertKind::Note),
+        "saved={:?}",
+        doc.document.to_markdown()
+    );
+    assert!(
+        doc.document.to_markdown().contains("[!NOTE]"),
+        "saved={:?}",
+        doc.document.to_markdown()
+    );
+}
+
+#[test]
+fn quote_promotion_preserves_alert_marker_case() {
+    let mut doc = Doc::new(load_markdown("", editor_options()));
+    let block = doc.text_leaves()[0];
+    doc.apply(
+        Sel::collapsed(Caret { block, offset: 0 }),
+        Command::Insert {
+            text: "> [!warning]".into(),
+        },
+    );
+    let saved = doc.document.to_markdown();
+    println!("saved={saved:?}");
+    assert!(
+        saved.contains("[!warning]"),
+        "lowercase marker must survive, saved={saved:?}"
+    );
+}
+
+#[test]
+fn quote_promotion_alert_survives_undo_redo() {
+    let mut doc = Doc::new(load_markdown("", editor_options()));
+    let block = doc.text_leaves()[0];
+    doc.apply(
+        Sel::collapsed(Caret { block, offset: 0 }),
+        Command::Insert {
+            text: "> [!NOTE]".into(),
+        },
+    );
+    doc.undo();
+    let after_undo = doc.document.to_markdown();
+    println!("after_undo={after_undo:?}");
+    doc.redo();
+    let quote = doc
+        .document
+        .preorder()
+        .into_iter()
+        .find(|&id| doc.document.arena.get(id).unwrap().kind == BlockKind::BlockQuote)
+        .unwrap();
+    assert_eq!(
+        doc.document.extra(quote).quote_alert(),
+        Some(AlertKind::Note),
+        "saved={:?}",
+        doc.document.to_markdown()
+    );
+}
+
+#[test]
+fn quote_promotion_plain_quote_keeps_text() {
+    let mut doc = Doc::new(load_markdown("", editor_options()));
+    let block = doc.text_leaves()[0];
+    doc.apply(
+        Sel::collapsed(Caret { block, offset: 0 }),
+        Command::Insert {
+            text: "> hello".into(),
+        },
+    );
+    let quote = doc
+        .document
+        .preorder()
+        .into_iter()
+        .find(|&id| doc.document.arena.get(id).unwrap().kind == BlockKind::BlockQuote)
+        .unwrap();
+    assert_eq!(doc.document.extra(quote).quote_alert(), None);
+    assert!(doc.document.to_markdown().contains("hello"));
+}
+
+#[test]
+fn undo_rich_paste_inside_image_restores_source() {
+    let source = "![long alternative text](/target)\n\ntail\n";
+    let mut doc = Doc::new(load_markdown(source, editor_options()));
+    let block = doc.text_leaves()[0];
+    let caret = doc.retarget_focus(Caret { block, offset: 16 });
+    doc.apply(
+        Sel::collapsed(caret),
+        Command::Paste {
+            text: "# inserted\n\n- child\n".into(),
+            intent: PasteIntent::IndependentFragment,
+        },
+    );
+    println!("after paste={:?}", doc.document.to_markdown());
+    assert!(doc.undo().is_some());
+    assert_eq!(doc.document.to_markdown(), source);
+}
+
+#[test]
+fn rich_paste_next_to_image_keeps_the_image_intact() {
+    let mut doc = Doc::new(load_markdown(
+        "![long alternative text](/target)\n\ntail\n",
+        editor_options(),
+    ));
+    let block = doc.text_leaves()[0];
+    let caret = doc.retarget_focus(Caret { block, offset: 16 });
+    doc.apply(
+        Sel::collapsed(caret),
+        Command::Paste {
+            text: "# inserted\n\n- child\n".into(),
+            intent: PasteIntent::IndependentFragment,
+        },
+    );
+    let saved = doc.document.to_markdown();
+    println!("saved={saved:?}");
+    assert!(
+        saved.contains("![long alternative text](/target)"),
+        "the image must survive structurally, saved={saved:?}"
+    );
+    assert!(saved.contains("# inserted") && saved.contains("- child"));
+}
+
+#[test]
+fn rich_paste_at_image_url_segment_keeps_the_image_intact() {
+    let source = "![alt](/target)\n\ntail\n";
+    let mut doc = Doc::new(load_markdown(source, editor_options()));
+    let block = doc.text_leaves()[0];
+    let caret = doc.retarget_focus(Caret { block, offset: 9 });
+    doc.apply(
+        Sel::collapsed(caret),
+        Command::Paste {
+            text: "# inserted\n".into(),
+            intent: PasteIntent::IndependentFragment,
+        },
+    );
+    let saved = doc.document.to_markdown();
+    println!("saved={saved:?}");
+    assert!(
+        saved.contains("![alt](/target)"),
+        "the image must survive, saved={saved:?}"
+    );
+    assert!(doc.undo().is_some());
+    assert_eq!(doc.document.to_markdown(), source);
+}
+
+#[test]
+fn rich_paste_replacing_image_selection_restores_source() {
+    let source = "![alt text](/target)\n\ntail\n";
+    let mut doc = Doc::new(load_markdown(source, editor_options()));
+    let block = doc.text_leaves()[0];
+    let a = doc.retarget_focus(Caret { block, offset: 3 });
+    let b = doc.retarget_focus(Caret { block, offset: 6 });
+    doc.apply(
+        Sel { anchor: a, head: b },
+        Command::Paste {
+            text: "# inserted\n".into(),
+            intent: PasteIntent::IndependentFragment,
+        },
+    );
+    println!("saved={:?}", doc.document.to_markdown());
+    assert!(doc.undo().is_some());
+    assert_eq!(doc.document.to_markdown(), source);
+}
+
+#[test]
+fn plain_text_paste_inside_image_still_restores() {
+    let source = "![alt text](/target)\n\ntail\n";
+    let mut doc = Doc::new(load_markdown(source, editor_options()));
+    let block = doc.text_leaves()[0];
+    let caret = doc.retarget_focus(Caret { block, offset: 5 });
+    doc.apply(
+        Sel::collapsed(caret),
+        Command::Paste {
+            text: "X".into(),
+            intent: PasteIntent::PlainText,
+        },
+    );
+    assert!(doc.undo().is_some());
+    assert_eq!(doc.document.to_markdown(), source);
+}
+
+#[test]
+fn multiline_insert_alert_keeps_one_quote() {
+    let mut doc = Doc::new(load_markdown("", editor_options()));
+    let block = doc.text_leaves()[0];
+    doc.apply(
+        Sel::collapsed(Caret { block, offset: 0 }),
+        Command::Insert {
+            text: "> [!TIP]\n> body".into(),
+        },
+    );
+    let quote = doc
+        .document
+        .preorder()
+        .into_iter()
+        .find(|&id| doc.document.arena.get(id).unwrap().kind == BlockKind::BlockQuote)
+        .unwrap();
+    assert_eq!(
+        doc.document.extra(quote).quote_alert(),
+        Some(AlertKind::Tip),
+        "saved={:?}",
+        doc.document.to_markdown()
+    );
+    assert!(
+        doc.document.to_markdown().contains("[!TIP]"),
+        "saved={:?}",
+        doc.document.to_markdown()
+    );
+    assert!(
+        doc.document.to_markdown().contains("body"),
+        "saved={:?}",
+        doc.document.to_markdown()
+    );
+}
+
+#[test]
+fn multiline_insert_plain_quote_keeps_one_quote() {
+    let mut doc = Doc::new(load_markdown("", editor_options()));
+    let block = doc.text_leaves()[0];
+    doc.apply(
+        Sel::collapsed(Caret { block, offset: 0 }),
+        Command::Insert {
+            text: "> hello\n> world".into(),
+        },
+    );
+    let saved = doc.document.to_markdown();
+    println!("saved={saved:?}");
+    assert_eq!(saved, "> hello\n> world\n", "saved={saved:?}");
+}
+
+#[test]
+fn multiline_insert_plain_paragraphs_stay_literal() {
+    let mut doc = Doc::new(load_markdown("", editor_options()));
+    let block = doc.text_leaves()[0];
+    doc.apply(
+        Sel::collapsed(Caret { block, offset: 0 }),
+        Command::Insert {
+            text: "a\n**b**".into(),
+        },
+    );
+    let saved = doc.document.to_markdown();
+    println!("saved={saved:?}");
+    assert_eq!(saved, "a\n**b**\n");
+    let leaf = doc.first_text_leaf().unwrap();
+    assert_eq!(doc.text(leaf), Some("a\n**b**"));
+}
+
+#[test]
+fn multiline_insert_alert_undo_restores_empty() {
+    let mut doc = Doc::new(load_markdown("", editor_options()));
+    let block = doc.text_leaves()[0];
+    doc.apply(
+        Sel::collapsed(Caret { block, offset: 0 }),
+        Command::Insert {
+            text: "> [!TIP]\n> body".into(),
+        },
+    );
+    assert!(doc.undo().is_some());
+    let saved = doc.document.to_markdown();
+    println!("after undo={saved:?}");
+    let blocks = doc
+        .document
+        .preorder()
+        .into_iter()
+        .filter(|&id| {
+            doc.document.arena.get(id).unwrap().kind != BlockKind::DocRoot
+                && doc.document.arena.get(id).unwrap().kind != BlockKind::DocStart
+        })
+        .count();
+    assert_eq!(
+        blocks, 1,
+        "only the original empty paragraph, saved={saved:?}"
+    );
+    assert!(!saved.contains("TIP") && !saved.contains("body"));
+}
+
+#[test]
+fn multiline_insert_list_keeps_continuation() {
+    let mut doc = Doc::new(load_markdown("", editor_options()));
+    let block = doc.text_leaves()[0];
+    doc.apply(
+        Sel::collapsed(Caret { block, offset: 0 }),
+        Command::Insert {
+            text: "- item\n  cont".into(),
+        },
+    );
+    let saved = doc.document.to_markdown();
+    println!("saved={saved:?}");
+    assert!(
+        doc.document
+            .preorder()
+            .into_iter()
+            .any(|id| doc.document.arena.get(id).unwrap().kind == BlockKind::List),
+        "one batched list item must land as a real list, saved={saved:?}"
+    );
+    assert_eq!(saved, "- item\n  cont\n");
+}
+
+#[test]
+fn multiline_insert_fence_lands_as_code_block() {
+    let mut doc = Doc::new(load_markdown("", editor_options()));
+    let block = doc.text_leaves()[0];
+    doc.apply(
+        Sel::collapsed(Caret { block, offset: 0 }),
+        Command::Insert {
+            text: "```\ncode\n```".into(),
+        },
+    );
+    let saved = doc.document.to_markdown();
+    println!("saved={saved:?}");
+    assert!(
+        doc.document
+            .preorder()
+            .into_iter()
+            .any(|id| doc.document.arena.get(id).unwrap().kind == BlockKind::CodeBlock),
+        "one batched fence must land as a code block, saved={saved:?}"
+    );
+    assert_eq!(saved, "```\ncode\n```\n");
+}
+
+#[test]
+fn multiline_insert_into_heading_roundtrips() {
+    let mut doc = Doc::new(load_markdown("# title\n", editor_options()));
+    let block = doc.text_leaves()[0];
+    doc.apply(
+        Sel::collapsed(Caret { block, offset: 2 }),
+        Command::Insert {
+            text: "a\nb".into(),
+        },
+    );
+    let saved = doc.document.to_markdown();
+    println!("saved={saved:?}");
+    let reloaded = load_markdown(&saved, editor_options());
+    assert_eq!(reloaded.to_markdown(), saved, "resave must be byte-stable");
+    let kinds: Vec<_> = reloaded
+        .preorder()
+        .into_iter()
+        .filter_map(|id| reloaded.arena.get(id).map(|n| n.kind))
+        .collect();
+    assert!(
+        !kinds.contains(&BlockKind::Paragraph),
+        "heading must not split on reload, kinds={kinds:?}, saved={saved:?}"
+    );
+    assert_eq!(
+        kinds
+            .iter()
+            .filter(|k| matches!(k, BlockKind::Heading(_)))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn paste_into_heading_flattens_soft_breaks() {
+    let mut doc = Doc::new(load_markdown("# title\n", editor_options()));
+    let block = doc.text_leaves()[0];
+    doc.apply(
+        Sel::collapsed(Caret { block, offset: 2 }),
+        Command::Paste {
+            text: "a\nb".into(),
+            intent: PasteIntent::IndependentFragment,
+        },
+    );
+    assert_eq!(doc.document.to_markdown(), "# tia btle\n");
+}
+
+#[test]
+fn multiline_insert_with_blanks_into_heading_roundtrips() {
+    let mut doc = Doc::new(load_markdown("# title\n", editor_options()));
+    let block = doc.text_leaves()[0];
+    doc.apply(
+        Sel::collapsed(Caret { block, offset: 2 }),
+        Command::Insert {
+            text: "a\nb\n\nc d".into(),
+        },
+    );
+    let saved = doc.document.to_markdown();
+    assert_eq!(saved, "# tia b\n\nc dtle\n");
+    let reloaded = load_markdown(&saved, editor_options());
+    assert_eq!(reloaded.to_markdown(), saved);
+}
+
+#[test]
+fn multiline_insert_splice_in_list_item_roundtrips() {
+    let mut doc = Doc::new(load_markdown("- item\n", editor_options()));
+    let block = doc.text_leaves()[0];
+    doc.apply(
+        Sel::collapsed(Caret { block, offset: 2 }),
+        Command::Insert {
+            text: "> [!TIP]\n> body".into(),
+        },
+    );
+    let saved = doc.document.to_markdown();
+    assert_eq!(saved, "- it\n  \n  > [!TIP]\n  > body\n  \n  em\n");
+    let reloaded = load_markdown(&saved, editor_options());
+    assert_eq!(reloaded.to_markdown(), saved, "resave must be byte-stable");
+    assert_loose_in_sync(&doc.document, &reloaded);
+}
+
+#[test]
+fn paste_fragment_splice_in_list_item_roundtrips() {
+    let mut doc = Doc::new(load_markdown("- item\n", editor_options()));
+    let block = doc.text_leaves()[0];
+    doc.apply(
+        Sel::collapsed(Caret { block, offset: 2 }),
+        Command::Paste {
+            text: "> [!TIP]\n> body".into(),
+            intent: PasteIntent::IndependentFragment,
+        },
+    );
+    let saved = doc.document.to_markdown();
+    assert_eq!(saved, "- it\n  \n  > [!TIP]\n  > body\n  \n  em\n");
+    let reloaded = load_markdown(&saved, editor_options());
+    assert_eq!(reloaded.to_markdown(), saved, "resave must be byte-stable");
+    assert_loose_in_sync(&doc.document, &reloaded);
+}
+
+#[test]
+fn multiline_insert_nested_list_in_item_roundtrips() {
+    let mut doc = Doc::new(load_markdown("- item\n", editor_options()));
+    let block = doc.text_leaves()[0];
+    doc.apply(
+        Sel::collapsed(Caret { block, offset: 2 }),
+        Command::Insert {
+            text: "- n1\n- n2".into(),
+        },
+    );
+    let saved = doc.document.to_markdown();
+    assert_eq!(saved, "- it\n  \n  - n1\n  - n2\n  \n  em\n");
+    let reloaded = load_markdown(&saved, editor_options());
+    assert_eq!(reloaded.to_markdown(), saved, "resave must be byte-stable");
+    assert_loose_in_sync(&doc.document, &reloaded);
+}
+
+fn assert_loose_in_sync(mem: &md_core::document::Document, reloaded: &md_core::document::Document) {
+    let loose_of = |doc: &md_core::document::Document| {
+        doc.preorder()
+            .into_iter()
+            .filter(|&id| doc.arena.get(id).is_some_and(|n| n.kind == BlockKind::List))
+            .map(|id| doc.extra(id).list_loose())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(loose_of(mem), loose_of(reloaded));
+}
+
+#[test]
+fn collapsed_replace_keeps_code_span_closer() {
+    let mut doc = Doc::new(load_markdown("`code` tail\n", editor_options()));
+    let block = doc.first_text_leaf().unwrap();
+    doc.apply(
+        Sel {
+            anchor: Caret { block, offset: 0 },
+            head: Caret { block, offset: 4 },
+        },
+        Command::Insert { text: "x".into() },
+    );
+    assert_eq!(doc.document.to_markdown(), "`x` tail\n");
+}
+
+#[test]
+fn collapsed_replace_keeps_strong_closer() {
+    let mut doc = Doc::new(load_markdown("**bold** tail\n", editor_options()));
+    let block = doc.first_text_leaf().unwrap();
+    doc.apply(
+        Sel {
+            anchor: Caret { block, offset: 0 },
+            head: Caret { block, offset: 4 },
+        },
+        Command::Insert { text: "x".into() },
+    );
+    assert_eq!(doc.document.to_markdown(), "**x** tail\n");
+}
+
+#[test]
+fn collapsed_replace_keeps_link_destination() {
+    let mut doc = Doc::new(load_markdown("[link](url) tail\n", editor_options()));
+    let block = doc.first_text_leaf().unwrap();
+    doc.apply(
+        Sel {
+            anchor: Caret { block, offset: 0 },
+            head: Caret { block, offset: 4 },
+        },
+        Command::Insert { text: "x".into() },
+    );
+    assert_eq!(doc.document.to_markdown(), "[x](url) tail\n");
+}
+
+#[test]
+fn collapsed_replace_keeps_html_closing_tag() {
+    let mut doc = Doc::new(load_markdown("a<b>hello</b> tail\n", editor_options()));
+    let block = doc.first_text_leaf().unwrap();
+    doc.apply(
+        Sel {
+            anchor: Caret { block, offset: 1 },
+            head: Caret { block, offset: 6 },
+        },
+        Command::Insert { text: "x".into() },
+    );
+    assert_eq!(doc.document.to_markdown(), "a<b>x</b> tail\n");
+}
+
+#[test]
+fn collapsed_replace_keeps_adjacent_construct() {
+    let mut doc = Doc::new(load_markdown("**bold**`code` tail\n", editor_options()));
+    let block = doc.first_text_leaf().unwrap();
+    doc.apply(
+        Sel {
+            anchor: Caret { block, offset: 0 },
+            head: Caret { block, offset: 4 },
+        },
+        Command::Insert { text: "x".into() },
+    );
+    assert_eq!(doc.document.to_markdown(), "**x**`code` tail\n");
+}
+
+#[test]
+fn collapsed_replace_utf8_keeps_closer() {
+    let mut doc = Doc::new(load_markdown("**中文** tail\n", editor_options()));
+    let block = doc.first_text_leaf().unwrap();
+    doc.apply(
+        Sel {
+            anchor: Caret { block, offset: 0 },
+            head: Caret { block, offset: 3 },
+        },
+        Command::Insert { text: "x".into() },
+    );
+    assert_eq!(doc.document.to_markdown(), "**x文** tail\n");
+}
+
+#[test]
+fn collapsed_replace_at_block_end_consumes_hidden_syntax() {
+    let mut doc = Doc::new(load_markdown("a<b>hello</b>\n", editor_options()));
+    let block = doc.first_text_leaf().unwrap();
+    doc.apply(
+        Sel {
+            anchor: Caret { block, offset: 0 },
+            head: Caret { block, offset: 6 },
+        },
+        Command::Insert { text: "x".into() },
+    );
+    assert_eq!(doc.document.to_markdown(), "x\n");
+}
+
+#[test]
+fn collapsed_caret_insert_stays_outside_span() {
+    let mut doc = Doc::new(load_markdown("`code` tail\n", editor_options()));
+    let block = doc.first_text_leaf().unwrap();
+    doc.apply(
+        Sel::collapsed(Caret { block, offset: 4 }),
+        Command::Insert { text: "x".into() },
+    );
+    assert_eq!(doc.document.to_markdown(), "`code`x tail\n");
+}
+
+#[test]
+fn collapsed_replace_undo_restores_source() {
+    let mut doc = Doc::new(load_markdown("`code` tail\n", editor_options()));
+    let block = doc.first_text_leaf().unwrap();
+    doc.apply(
+        Sel {
+            anchor: Caret { block, offset: 0 },
+            head: Caret { block, offset: 4 },
+        },
+        Command::Insert { text: "x".into() },
+    );
+    assert_eq!(doc.document.to_markdown(), "`x` tail\n");
+    while doc.undo().is_some() {}
+    assert_eq!(doc.document.to_markdown(), "`code` tail\n");
+}
+
+#[test]
+fn collapsed_replace_across_line_break_token_consumes_whole_br() {
+    let mut doc = Doc::new(load_markdown(
+        "| a | b |\n| --- | --- |\n| c<br>d | e |\n",
+        editor_options(),
+    ));
+    let cell = doc
+        .text_leaves()
+        .into_iter()
+        .find(|&id| doc.text(id) == Some("c\nd"))
+        .expect("cell with a soft break");
+    doc.apply(
+        Sel {
+            anchor: Caret {
+                block: cell,
+                offset: 1,
+            },
+            head: Caret {
+                block: cell,
+                offset: 2,
+            },
+        },
+        Command::Insert { text: "x".into() },
+    );
+    assert_eq!(
+        doc.document.to_markdown(),
+        "| a | b |\n| --- | --- |\n| cxd | e |\n"
+    );
+}
+
+#[test]
+fn collapsed_replace_entity_consumes_whole_token() {
+    let mut doc = Doc::new(load_markdown("a &amp; b\n", editor_options()));
+    let block = doc.first_text_leaf().unwrap();
+    assert_eq!(doc.text(block), Some("a & b"));
+    doc.apply(
+        Sel {
+            anchor: Caret { block, offset: 2 },
+            head: Caret { block, offset: 3 },
+        },
+        Command::Insert { text: "x".into() },
+    );
+    assert_eq!(doc.document.to_markdown(), "a x b\n");
 }

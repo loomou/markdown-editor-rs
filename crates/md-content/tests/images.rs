@@ -257,3 +257,57 @@ fn http_not_found_stays_fatal(cx: &mut gpui::TestAppContext) {
         "retrying a 404 just gets the same answer again; stay Fatal: {result:?}"
     );
 }
+
+#[test]
+fn generated_image_target_preserves_literal_percent() {
+    let dir = std::env::current_dir().unwrap();
+    let source = dir.join("review-note.md");
+    let image = dir.join("review-literal%20name.png");
+    let dest = images::markdown_dest(&image, Some(&source));
+    let images::Resolved::Local(actual) = images::resolve(&dest, Some(&source)).unwrap() else {
+        panic!("expected a local target");
+    };
+    eprintln!("destination={dest:?}, actual={actual:?}, expected={image:?}");
+    assert_eq!(
+        actual, image,
+        "the generated destination must identify the input file"
+    );
+}
+
+#[test]
+fn generated_absolute_target_preserves_literal_percent() {
+    let image = std::env::current_dir()
+        .unwrap()
+        .join("review-literal%20name.png");
+    let dest = images::markdown_dest(&image, None);
+    let images::Resolved::Local(actual) = images::resolve(&dest, None).unwrap() else {
+        panic!("expected a local target");
+    };
+    assert_eq!(actual, image);
+}
+
+#[test]
+fn generated_target_preserves_literal_percent_2f() {
+    let dir = std::env::current_dir().unwrap();
+    let source = dir.join("review-note.md");
+    let image = dir.join("review-literal%2Fname.png");
+    let dest = images::markdown_dest(&image, Some(&source));
+    let images::Resolved::Local(actual) = images::resolve(&dest, Some(&source)).unwrap() else {
+        panic!("expected a local target");
+    };
+    assert_eq!(actual, image);
+}
+
+#[test]
+fn generated_target_round_trips_invalid_and_plain_names() {
+    let dir = std::env::current_dir().unwrap();
+    let source = dir.join("review-note.md");
+    for name in ["review-100%.png", "plain-name.png", "中文 图.png"] {
+        let image = dir.join(name);
+        let dest = images::markdown_dest(&image, Some(&source));
+        let images::Resolved::Local(actual) = images::resolve(&dest, Some(&source)).unwrap() else {
+            panic!("expected a local target for {name}");
+        };
+        assert_eq!(actual, image, "roundtrip failed for {name}");
+    }
+}

@@ -266,6 +266,7 @@ impl IncrementalEngine {
         self.viewport_params_gen += 1;
         self.store.set_viewport_epoch(self.viewport_params_gen);
         self.spine.set_viewport_width(w);
+        self.tree.set_lazy_viewport(w);
         self.clear_table_cons();
     }
 

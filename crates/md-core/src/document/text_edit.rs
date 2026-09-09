@@ -346,7 +346,7 @@ impl Document {
             let mut b = if end == display_len {
                 bind::display_to_source_outer(s2d, end)
             } else {
-                bind::display_to_source_inner(s2d, end)
+                bind::display_to_source_content_end(s2d, end)
             };
             if a > b {
                 std::mem::swap(&mut a, &mut b);
@@ -398,14 +398,16 @@ impl Document {
             };
             (keep, source.len())
         } else {
-            Self::display_range_to_source(
+            let (s0, s1) = Self::display_range_to_source(
                 display.len(),
                 source.len(),
                 &s2d,
                 start,
                 end,
                 leading_construct,
-            )
+            );
+            let s1 = bind::extend_end_past_encoded_token(&source, s0, s1);
+            (s0, s1)
         };
         let (mut change, caret) = self.apply_source_edit(id, s0, s1, s, true);
         if padded

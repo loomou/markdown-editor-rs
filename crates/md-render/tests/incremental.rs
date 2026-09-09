@@ -2,11 +2,12 @@ use gpui::TestAppContext;
 use md_content::shaper::{GpuiShaper, ShapeCache, ShapeMedia};
 use md_core::block::BlockKind;
 use md_core::doc::{Cursor, Doc};
-use md_core::document::{editor_options, load_markdown};
+use md_core::document::{Caret, Command, Sel, editor_options, load_markdown};
 use md_core::inline::InlineRun;
 use md_layout::box_tree::LayoutBoxId;
 use md_layout::island::FallbackSolver;
 use md_layout::shaper::{MeasureKind, MeasureResult, ShapeIdentity, TextMeasure};
+use md_layout::spine::FlowItemKind;
 use md_layout::style::BoxLayoutEnvironment;
 use md_render::frame::{FrameContext, FrameRequest, from_assembly};
 use md_render::incremental::{Estimator, IncrementalEngine, ScrollAnchor};
@@ -259,5 +260,193 @@ fn deleting_two_deferred_leaves_accumulates_no_height() {
         engine.total_height(),
         cold.total_height(),
         "two deferred deletions must both leave the spine",
+    );
+}
+
+#[test]
+fn cold_edit_after_resize_uses_current_width() {
+    let markdown = format!("head\n\n{}\n\ntail\n", "word ".repeat(500));
+    let mut doc = Doc::new(load_markdown(&markdown, editor_options()));
+    let theme = DocumentTheme::formal();
+    let mut engine = IncrementalEngine::with_window(
+        &doc.document,
+        BoxLayoutEnvironment {
+            viewport_width: 800.0,
+        },
+        Estimator::from_theme(&theme),
+        theme.layout_theme(),
+        0.0,
+        0.0,
+    );
+    engine.set_viewport_width(200.0);
+    let block = doc.text_leaves()[1];
+    doc.apply(
+        Sel::collapsed(Caret { block, offset: 0 }),
+        Command::Insert {
+            text: "more ".into(),
+        },
+    );
+    let changes = doc.take_changes();
+    engine.apply_changes(&doc.document, &changes);
+
+    let rebuilt = IncrementalEngine::with_window(
+        &doc.document,
+        BoxLayoutEnvironment {
+            viewport_width: 200.0,
+        },
+        Estimator::from_theme(&theme),
+        theme.layout_theme(),
+        0.0,
+        0.0,
+    );
+    println!(
+        "resized={:?} rebuilt={:?}",
+        engine.total_height(),
+        rebuilt.total_height()
+    );
+    assert_eq!(
+        engine.total_height(),
+        rebuilt.total_height(),
+        "a cold edit after resizing must estimate with the current width"
+    );
+}
+
+#[test]
+fn cold_edit_without_resize_still_matches_cold_window() {
+    let markdown = format!("head\n\n{}\n\ntail\n", "word ".repeat(500));
+    let mut doc = Doc::new(load_markdown(&markdown, editor_options()));
+    let theme = DocumentTheme::formal();
+    let mut engine = IncrementalEngine::with_window(
+        &doc.document,
+        BoxLayoutEnvironment {
+            viewport_width: 400.0,
+        },
+        Estimator::from_theme(&theme),
+        theme.layout_theme(),
+        0.0,
+        0.0,
+    );
+    let block = doc.text_leaves()[1];
+    doc.apply(
+        Sel::collapsed(Caret { block, offset: 0 }),
+        Command::Insert {
+            text: "more ".into(),
+        },
+    );
+    let changes = doc.take_changes();
+    engine.apply_changes(&doc.document, &changes);
+    let rebuilt = IncrementalEngine::with_window(
+        &doc.document,
+        BoxLayoutEnvironment {
+            viewport_width: 400.0,
+        },
+        Estimator::from_theme(&theme),
+        theme.layout_theme(),
+        0.0,
+        0.0,
+    );
+    assert_eq!(engine.total_height(), rebuilt.total_height());
+}
+
+struct PreviewMeasure;
+
+impl TextMeasure for PreviewMeasure {
+    fn begin_island(&self) {}
+
+    fn measure(
+        &self,
+        text: &str,
+        _: &[InlineRun],
+        width: f64,
+        _: MeasureKind,
+        kind: BlockKind,
+        ident: ShapeIdentity,
+    ) -> MeasureResult {
+        let height = if kind == BlockKind::Image && !ident.edit_source {
+            1000.0
+        } else {
+            (text.chars().count() as f64 * 8.0 / width.max(1.0))
+                .ceil()
+                .max(1.0)
+                * 20.0
+        };
+        MeasureResult {
+            width,
+            height,
+            rows: (height / 20.0) as u32,
+            first_baseline: 15.0,
+        }
+    }
+}
+
+#[test]
+fn return_to_preview_reconstructs_its_frame() {
+    let markdown = format!("![alt](/image.png)\n\n{}", "tail\n\n".repeat(200));
+    let mut doc = Doc::new(load_markdown(&markdown, editor_options()));
+    let block = doc.text_leaves()[0];
+    doc.retarget_focus(Caret { block, offset: 0 });
+    assert_eq!(doc.block_edit(), Some(block));
+    let theme = DocumentTheme::formal();
+    let mut engine = IncrementalEngine::with_window(
+        &doc.document,
+        BoxLayoutEnvironment {
+            viewport_width: 800.0,
+        },
+        Estimator::from_theme(&theme),
+        theme.layout_theme(),
+        0.0,
+        1200.0,
+    );
+    let preview = LayoutBoxId::preview(block);
+    let (first, _) = engine.assemble_with_doc(
+        &doc.document,
+        ScrollAnchor::top(),
+        1200.0,
+        &PreviewMeasure,
+        &FallbackSolver,
+    );
+    let preview_top = first
+        .window
+        .as_ref()
+        .unwrap()
+        .entries
+        .iter()
+        .find_map(|entry| {
+            matches!(entry.kind, FlowItemKind::Content { box_id } if box_id == preview)
+                .then_some(entry.top)
+        })
+        .unwrap();
+    drop(first);
+
+    for _ in 0..10 {
+        let far = engine.anchor_at_y(5000.0, &PreviewMeasure, &FallbackSolver);
+        let _ =
+            engine.assemble_with_doc(&doc.document, far, 100.0, &PreviewMeasure, &FallbackSolver);
+    }
+    let far = engine.anchor_at_y(5000.0, &PreviewMeasure, &FallbackSolver);
+    let (away, _) =
+        engine.assemble_with_doc(&doc.document, far, 100.0, &PreviewMeasure, &FallbackSolver);
+    assert!(!away.tree.nodes().contains_key(&preview));
+    assert!(
+        !away.tree.nodes().contains_key(&LayoutBoxId::frame(block)),
+        "fixture: the frame must actually be released"
+    );
+    drop(away);
+
+    let inside = engine.anchor_at_y(preview_top + 600.0, &PreviewMeasure, &FallbackSolver);
+    let (back, published) = engine.assemble_with_doc(
+        &doc.document,
+        inside,
+        100.0,
+        &PreviewMeasure,
+        &FallbackSolver,
+    );
+    eprintln!(
+        "top={}, iterations={}",
+        published.resolved_top, published.iterations
+    );
+    assert!(
+        back.geometries.contains_key(&preview),
+        "returning into the preview must reconstruct it before publishing"
     );
 }

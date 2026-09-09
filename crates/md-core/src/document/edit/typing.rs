@@ -1,7 +1,9 @@
 use super::span::{clear_same_block_span, insert_span};
 use super::{Caret, Command, Sel, apply, list, path};
 use crate::block::BlockKind;
-use crate::document::{Document, PasteIntent, bind, floor_char_boundary};
+use crate::document::{
+    Document, PasteIntent, bind, editor_options, floor_char_boundary, load_markdown,
+};
 
 pub(super) fn insert(doc: &mut Document, sel: Sel, text: &str) -> Caret {
     let sel = if sel.anchor.block != sel.head.block {
@@ -18,8 +20,26 @@ pub(super) fn insert(doc: &mut Document, sel: Sel, text: &str) -> Caret {
             None => return sel.head,
         },
     };
-    let (_, block, offset) = doc.paste(block, range, text, PasteIntent::PlainText);
+    let intent = if text.contains('\n')
+        && doc.kind(block) == Some(BlockKind::Paragraph)
+        && batched_insert_is_structural(text)
+    {
+        PasteIntent::IndependentFragment
+    } else {
+        PasteIntent::PlainText
+    };
+    let (_, block, offset) = doc.paste(block, range, text, intent);
     after_paragraph_insert(doc, Caret { block, offset })
+}
+
+fn batched_insert_is_structural(text: &str) -> bool {
+    let frag = load_markdown(text, editor_options());
+    frag.arena.children(frag.root).any(|id| {
+        !matches!(
+            frag.arena.get(id).map(|n| n.kind),
+            Some(BlockKind::Paragraph | BlockKind::Heading(_) | BlockKind::Image)
+        )
+    })
 }
 
 pub(super) fn after_paragraph_insert(doc: &mut Document, caret: Caret) -> Caret {

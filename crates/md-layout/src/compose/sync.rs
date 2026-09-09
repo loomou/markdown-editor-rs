@@ -69,13 +69,13 @@ fn refresh_deferred_estimate(
     let Some((deferred_box, root)) = deferred_ancestor_of(tree, doc, id) else {
         return false;
     };
-    let Some(lazy) = tree.lazy else {
+    let Some(ref lazy) = tree.lazy else {
         return false;
     };
     let Some(parent) = tree.deferred(deferred_box).and_then(|d| d.parent) else {
         return false;
     };
-    let avail = tree.content_width(parent, lazy.viewport);
+    let avail = tree.content_width(parent, lazy.viewport.get());
     let h = subtree_height(doc, theme, &lazy.metrics, root, avail, &mut HashMap::new());
     tree.deferred
         .get_mut(&deferred_box)

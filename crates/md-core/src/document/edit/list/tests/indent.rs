@@ -22,7 +22,7 @@ fn outdent_mid_list_item_with_a_pasted_tail_keeps_the_rest() {
     let pasted = doc.document.to_markdown();
     assert_eq!(
         pasted,
-        "- first item> quoted\n  \n  \\`\\`\\`rust\n  fn q() {}\n  \\`\\`\\`\n- second item\n"
+        "- first item> quoted\n  \n  \\`\\`\\`rust\n  fn q() {}\n  \\`\\`\\`\n\n- second item\n"
     );
 
     let _ = doc.apply(Sel::collapsed(pasted_caret), Command::Outdent);

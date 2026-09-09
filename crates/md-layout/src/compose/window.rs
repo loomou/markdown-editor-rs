@@ -127,7 +127,7 @@ pub fn compose_window(
         deferred,
         lazy: Some(LazyEstimator {
             metrics: *metrics,
-            viewport: window.avail_width,
+            viewport: std::cell::Cell::new(window.avail_width),
         }),
     }
 }

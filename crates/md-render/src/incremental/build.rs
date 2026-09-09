@@ -4,7 +4,7 @@ use super::store::{EvictionPolicy, SolveRequest};
 use md_core::Px;
 use md_core::block::BlockKind;
 use md_layout::assembly::Assembly;
-use md_layout::box_tree::LayoutBoxId;
+use md_layout::box_tree::{BoxRole, LayoutBoxId};
 use md_layout::compose::compose_into;
 use md_layout::flow::HeightState;
 use md_layout::island::{IslandSolver, TableColumnConstraintSet};
@@ -115,6 +115,7 @@ impl IncrementalEngine {
                         FlowItemKind::Collapsed { box_id } => {
                             if self.tree.deferred_height(box_id).is_some()
                                 || self.tree.nodes().contains_key(&box_id)
+                                || self.realize_target(box_id).is_some()
                             {
                                 collapsed_in_window = true;
                             }
@@ -365,9 +366,9 @@ impl IncrementalEngine {
         for pos in self.spine.visible(lo, hi) {
             let item = self.spine.item_at(pos);
             if let FlowItemKind::Collapsed { box_id } = item.kind
-                && self.tree.deferred_height(box_id).is_some()
+                && let Some(target) = self.realize_target(box_id)
             {
-                pending.push(box_id);
+                pending.push(target);
                 if let Some(n) = limit
                     && pending.len() as u32 >= n
                 {
@@ -380,6 +381,19 @@ impl IncrementalEngine {
             self.compose_box(doc, id);
         }
         n
+    }
+
+    fn realize_target(&self, box_id: LayoutBoxId) -> Option<LayoutBoxId> {
+        if self.tree.deferred_height(box_id).is_some() {
+            return Some(box_id);
+        }
+        if box_id.role == BoxRole::Preview
+            && let Some(frame) = box_id.block().map(LayoutBoxId::frame)
+            && self.tree.deferred_height(frame).is_some()
+        {
+            return Some(frame);
+        }
+        None
     }
 
     fn compose_block(&mut self, doc: &md_core::document::Document, block: md_core::block::BlockId) {

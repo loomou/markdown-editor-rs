@@ -253,3 +253,53 @@ fn fence_info_ampersand_is_not_decoded_twice() {
         "saved={saved:?}"
     );
 }
+
+#[test]
+fn html_projection_excludes_quoted_attributes() {
+    let doc = load_markdown("<div data-note=\"1 > 2\">Hello</div>\n", editor_options());
+    assert_eq!(doc.text_of(doc.text_leaves()[0]), Some("Hello"));
+}
+
+#[test]
+fn html_projection_excludes_single_quoted_attributes() {
+    let doc = load_markdown("<div data-note='1 > 2'>Hello</div>\n", editor_options());
+    assert_eq!(doc.text_of(doc.text_leaves()[0]), Some("Hello"));
+}
+
+#[test]
+fn html_projection_excludes_comment_contents() {
+    let doc = load_markdown("<!-- > private -->\n<div>Hello</div>\n", editor_options());
+    let visible: String = doc
+        .text_leaves()
+        .iter()
+        .map(|&block| doc.text_of(block).unwrap())
+        .collect();
+    assert_eq!(visible, "Hello");
+}
+
+#[test]
+fn html_projection_plain_attribute_stays_excluded() {
+    let doc = load_markdown("<div data-note=\"plain\">Hello</div>\n", editor_options());
+    assert_eq!(doc.text_of(doc.text_leaves()[0]), Some("Hello"));
+}
+
+#[test]
+fn html_projection_adjacent_text_keeps_spacing() {
+    let doc = load_markdown("<div>a<br>b</div>\n", editor_options());
+    assert_eq!(doc.text_of(doc.text_leaves()[0]), Some("a b"));
+}
+
+#[test]
+fn html_projection_does_not_touch_serialized_source() {
+    let doc = load_markdown(
+        "<!-- note -->\n<div data-note=\"1 > 2\">Hello</div>\n",
+        editor_options(),
+    );
+    let saved = doc.to_markdown();
+    println!("saved={saved:?}");
+    assert!(saved.contains("<!-- note -->"), "saved={saved:?}");
+    assert!(
+        saved.contains("<div data-note=\"1 > 2\">Hello</div>"),
+        "saved={saved:?}"
+    );
+}

@@ -320,21 +320,9 @@ impl LeafText {
             return Vec::new();
         }
 
-        let lead = display.len() - display.trim_start_matches('\n').len();
-        let shift_lead = lead > 0
-            && runs
-                .first()
-                .is_some_and(|r| r.display_range.start < lead as u32);
         let prepared = runs.into_iter().filter_map(|mut r| {
-            let mut start = r.display_range.start;
-            let mut end = r.display_range.end;
-            if shift_lead {
-                start = start.saturating_add(lead as u32);
-                end = end.saturating_add(lead as u32);
-                r.source_range = None;
-            }
-            start = start.min(len);
-            end = end.min(len).max(start);
+            let start = r.display_range.start.min(len);
+            let end = r.display_range.end.min(len).max(start);
             if start == end {
                 None
             } else {

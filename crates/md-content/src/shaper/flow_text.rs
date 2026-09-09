@@ -8,6 +8,7 @@ use gpui::{Pixels, TextRun, WrappedLine, px};
 use md_core::Px;
 use md_core::block::BlockKind;
 use md_core::inline::InlineRun;
+use std::borrow::Cow;
 use std::ops::Range;
 
 impl GpuiShaper {
@@ -28,6 +29,31 @@ impl GpuiShaper {
         let Some(slice) = text.get(start..end) else {
             return;
         };
+        if slice.contains('\n') {
+            let mut seg_start = start;
+            for (i, b) in slice.bytes().enumerate() {
+                if b != b'\n' {
+                    continue;
+                }
+                let seg_end = start + i;
+                self.place_text_slice(text, runs, seg_start..seg_end, font_size, dy, flow);
+                if flow.pending.is_empty() && *flow.x == 0.0 {
+                    let line =
+                        self.shape_slice(text, runs, seg_end..seg_end, flow.role, font_size, None);
+                    flow.pending.push(Pending::Text {
+                        line: Box::new(line),
+                        x: 0.0,
+                        start: seg_end,
+                        end: seg_end,
+                        dy,
+                    });
+                }
+                flow.flush();
+                seg_start = seg_end + 1;
+            }
+            self.place_text_slice(text, runs, seg_start..end, font_size, dy, flow);
+            return;
+        }
         let is_ws = slice.chars().all(char::is_whitespace);
         let line = self.shape_slice(text, runs, start..end, flow.role, font_size, None);
         let w = f32::from(line.width());
@@ -112,6 +138,12 @@ impl GpuiShaper {
         font_size: Pixels,
         wrap: Option<Pixels>,
     ) -> WrappedLine {
+        let single_line = if text.contains('\n') {
+            Cow::Owned(text.replace('\n', " "))
+        } else {
+            Cow::Borrowed(text)
+        };
+        let text: &str = &single_line;
         let run = TextRun {
             len: text.len(),
             font: role.font.clone(),

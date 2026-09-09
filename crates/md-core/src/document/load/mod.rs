@@ -214,30 +214,70 @@ fn empty_quote_line(line: &str) -> bool {
     quoted && rest.is_empty()
 }
 
-fn strip_html(s: &str) -> String {
+pub(crate) fn strip_html(s: &str) -> String {
     let mut out = String::new();
-    let mut in_tag = false;
     let mut last_space = true;
-    for c in s.chars() {
-        match c {
-            '<' => in_tag = true,
-            '>' => {
-                in_tag = false;
-                if !last_space {
-                    out.push(' ');
-                    last_space = true;
+    #[derive(PartialEq)]
+    enum St {
+        Text,
+        Tag,
+        Comment,
+    }
+    let mut st = St::Text;
+    let mut quote = b'\0';
+    let mut i = 0;
+    while i < s.len() {
+        match st {
+            St::Comment => {
+                if s.is_char_boundary(i) && s[i..].starts_with("-->") {
+                    st = St::Text;
+                    i += 3;
+                } else {
+                    i += 1;
                 }
             }
-            _ if in_tag => {}
-            c if c.is_whitespace() => {
-                if !last_space {
-                    out.push(' ');
-                    last_space = true;
+            St::Tag => {
+                let c = s.as_bytes()[i];
+                if quote != b'\0' {
+                    if c == quote {
+                        quote = b'\0';
+                    }
+                    i += 1;
+                } else if c == b'"' || c == b'\'' {
+                    quote = c;
+                    i += 1;
+                } else if c == b'>' {
+                    st = St::Text;
+                    if !last_space {
+                        out.push(' ');
+                        last_space = true;
+                    }
+                    i += 1;
+                } else {
+                    i += 1;
                 }
             }
-            c => {
-                out.push(c);
-                last_space = false;
+            St::Text => {
+                if s[i..].starts_with("<!--") {
+                    st = St::Comment;
+                    i += 4;
+                } else if s.as_bytes()[i] == b'<' {
+                    st = St::Tag;
+                    quote = b'\0';
+                    i += 1;
+                } else {
+                    let c = s[i..].chars().next().unwrap();
+                    if c.is_whitespace() {
+                        if !last_space {
+                            out.push(' ');
+                            last_space = true;
+                        }
+                    } else {
+                        out.push(c);
+                        last_space = false;
+                    }
+                    i += c.len_utf8();
+                }
             }
         }
     }

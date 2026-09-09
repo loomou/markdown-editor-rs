@@ -522,6 +522,9 @@ impl Document {
             leaf.s2d = collapsed;
         }
         let quote = self.alloc_container(BlockKind::BlockQuote);
+        if let Some(alert) = bind::quote_alert_extra(&frag) {
+            self.set_extra(quote, alert);
+        }
         self.arena.detach(id);
         self.arena.append_child(quote, id);
         self.arena.insert_after(parent, prev, quote);

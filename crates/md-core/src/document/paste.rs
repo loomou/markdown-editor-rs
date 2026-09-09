@@ -1,9 +1,11 @@
 use super::arena::NodeId;
 use super::change::{ChangeSet, DocChange};
 use super::chars::floor_char_boundary;
+use super::edit::normalize;
 use super::reference;
 use super::{Document, PasteIntent, bind, editor_options, load, load_markdown, write};
 use crate::block::{BlockId, BlockKind, NodeExtra, TextEditStrategy};
+use std::borrow::Cow;
 use std::ops::Range;
 
 impl Document {
@@ -52,7 +54,8 @@ impl Document {
                 } else {
                     parts[0]
                 };
-                let (changes, caret) = self.rewrite_text(id, range, text);
+                let text = flattened_soft_breaks(self.arena.get(id).map(|n| n.kind), text);
+                let (changes, caret) = self.rewrite_text(id, range, &text);
                 let set = self.commit(before, changes);
                 (set, index, caret)
             }
@@ -75,8 +78,9 @@ impl Document {
         } else {
             (range.end, String::new())
         };
+        let first = flattened_soft_breaks(self.arena.get(id).map(|n| n.kind), parts[0]);
         let (changes, mut caret) =
-            self.rewrite_text_spanning_constructs(id, start..full_end, parts[0]);
+            self.rewrite_text_spanning_constructs(id, start..full_end, &first);
         let mut changes = changes;
         let parent = self.arena.get(id).and_then(|n| n.parent);
         let mut anchor = Some(id);
@@ -117,6 +121,7 @@ impl Document {
             }
             self.arena.insert_after(parent, anchor, leaf);
             self.bump_structure(parent);
+            normalize::sync_loose_up(self, parent, &mut changes);
             changes.push(DocChange::TreeSpliced {
                 parent,
                 before: anchor,
@@ -173,19 +178,27 @@ impl Document {
         let before = self.revision;
         let mut changes = Vec::new();
         let parent = self.arena.get(id).and_then(|n| n.parent).expect("parent");
+        let image = self.arena.get(id).map(|n| n.kind) == Some(BlockKind::Image);
         let off = if range.start != range.end {
             let (chs, start) = self.rewrite_text(id, range, "");
             changes.extend(chs);
             start
+        } else if image {
+            let source = self.leaf_source(id);
+            floor_char_boundary(source, range.start.min(source.len()))
         } else {
             let display = self.display(id);
             floor_char_boundary(display, range.start.min(display.len()))
         };
-        let len = self.display(id).len();
+        let len = if image {
+            self.leaf_source(id).len()
+        } else {
+            self.display(id).len()
+        };
         let splice_before;
         let caret_src;
         let mut inserted;
-        if off > 0 && off < len {
+        if !image && off > 0 && off < len {
             let (tc, tail) = self.split_leaf_nodes(id, off);
             changes.push(tc);
             splice_before = Some(id);
@@ -205,6 +218,7 @@ impl Document {
             caret_src = grafted.1;
         }
         self.bump_structure(parent);
+        normalize::sync_loose_up(self, parent, &mut changes);
         let caret = caret_src
             .and_then(|n| self.last_text_caret(n))
             .unwrap_or((index, off));
@@ -343,6 +357,8 @@ impl Document {
             return None;
         }
         let text = write::phrasing_source(fragment, root);
+        let text = flattened_soft_breaks(self.arena.get(id).map(|n| n.kind), &text);
+        let text = text.as_ref();
         let definition_change = reference::merged_definition_change(
             &self.reference_definitions,
             &fragment.reference_definitions,
@@ -351,7 +367,7 @@ impl Document {
             self.reference_definitions = std::sync::Arc::clone(new);
         }
         let before = self.revision;
-        let (text_changes, caret) = self.rewrite_text(id, range, &text);
+        let (text_changes, caret) = self.rewrite_text(id, range, text);
         let mut changes = text_changes;
         if let Some(change) = definition_change {
             changes.push(change);
@@ -514,6 +530,14 @@ fn split_plain_paragraphs(text: &str) -> Vec<&str> {
         }
     }
     parts
+}
+
+fn flattened_soft_breaks(kind: Option<BlockKind>, text: &str) -> Cow<'_, str> {
+    if matches!(kind, Some(BlockKind::Heading(_))) && text.contains('\n') {
+        Cow::Owned(text.replace('\n', " "))
+    } else {
+        Cow::Borrowed(text)
+    }
 }
 
 fn source_has_reference_syntax(source: &str) -> bool {
