@@ -97,7 +97,7 @@ impl EditorView {
         self.media_zoom = None;
     }
 
-    pub(super) fn open_from_path(
+    pub(crate) fn open_from_path(
         &mut self,
         path: std::path::PathBuf,
         window: &mut Window,

@@ -1,7 +1,7 @@
 use crate::keymap::Cmd;
 use crate::shell::Shell;
 use crate::shell::menu::MenuEntry::{Item, Separator, Submenu};
-use crate::shell::menu::{MenuId, entries_for};
+use crate::shell::menu::{MenuEntry::RecentSubmenu, MenuId, entries_for};
 use crate::ui::theme::MONO_FONT;
 use crate::ui::theme::UI_FONT;
 use gpui::VisualTestContext;
@@ -44,10 +44,11 @@ pub(super) fn key_for(cmd: Cmd) -> String {
 }
 
 pub(super) fn context_labels(in_table: bool) -> Vec<&'static str> {
-    entries_for(MenuId::Context, in_table)
+    entries_for(MenuId::Context, in_table, 0)
         .iter()
         .map(|e| match e {
             Item { label, .. } | Submenu { label, .. } => md_i18n::t_in(md_i18n::Lang::En, *label),
+            RecentSubmenu => md_i18n::t_in(md_i18n::Lang::En, md_i18n::Key::MenuOpenRecent),
             Separator => "---",
         })
         .collect()

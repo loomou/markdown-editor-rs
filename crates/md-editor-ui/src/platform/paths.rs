@@ -74,6 +74,10 @@ pub(crate) fn settings_path() -> Option<PathBuf> {
     Some(app_state_dir()?.join("settings.json"))
 }
 
+pub(crate) fn recent_path() -> Option<PathBuf> {
+    Some(app_state_dir()?.join("recent.json"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{macos_state_dir, windows_state_dir, xdg_state_dir};

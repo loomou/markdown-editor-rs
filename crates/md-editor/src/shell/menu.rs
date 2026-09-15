@@ -17,6 +17,8 @@ pub(super) const MENU_W: f32 = 210.0;
 
 const TABLE_FLYOUT_W: f32 = 186.0;
 
+const RECENT_FLYOUT_W: f32 = 240.0;
+
 pub(super) const MENU_PAD: f32 = 4.0;
 
 pub(super) const FLYOUT_GAP: f32 = 4.0;
@@ -36,6 +38,7 @@ pub(super) enum MenuAction {
     Nothing,
     Cmd(Cmd),
     Table(TableOp),
+    OpenRecent(usize),
 }
 
 #[derive(Clone, Copy)]
@@ -49,16 +52,17 @@ pub(super) enum MenuEntry {
         label: Key,
         items: &'static [TableMenuEntry],
     },
+    RecentSubmenu,
 }
 
-use MenuEntry::{Item, Separator, Submenu};
+use MenuEntry::{Item, RecentSubmenu, Separator, Submenu};
 
 impl MenuAction {
     fn chord_cmd(self) -> Option<Cmd> {
         match self {
             MenuAction::Cmd(cmd) => Some(cmd),
             MenuAction::Table(op) => table_op_chord_cmd(op),
-            MenuAction::Nothing => None,
+            MenuAction::Nothing | MenuAction::OpenRecent(_) => None,
         }
     }
 }
@@ -200,31 +204,45 @@ fn context_entries(in_table: bool) -> Vec<MenuEntry> {
     out
 }
 
-pub(super) fn entries_for(id: MenuId, in_table: bool) -> Vec<MenuEntry> {
+pub(super) fn entries_for(id: MenuId, in_table: bool, recents: usize) -> Vec<MenuEntry> {
     if id == MenuId::Context {
-        context_entries(in_table)
-    } else {
-        menu_entries(id).to_vec()
+        return context_entries(in_table);
     }
+    let mut out = menu_entries(id).to_vec();
+    if id == MenuId::File && recents > 0 {
+        out.insert(2, RecentSubmenu);
+    }
+    out
 }
 
 fn menu_entry_kind_height(entry: &MenuEntry) -> f32 {
     match entry {
         Separator => 9.0,
-        Item { .. } | Submenu { .. } => 26.0,
+        Item { .. } | Submenu { .. } | RecentSubmenu => 26.0,
     }
 }
 
-fn menu_height(id: MenuId, in_table: bool) -> f32 {
-    entries_for(id, in_table)
+fn menu_height(id: MenuId, in_table: bool, recents: usize) -> f32 {
+    entries_for(id, in_table, recents)
         .iter()
         .map(menu_entry_kind_height)
         .sum::<f32>()
         + 8.0
 }
 
-fn bar_menu_anchor(left: Pixels, id: MenuId, viewport: Size<Pixels>) -> Point<Pixels> {
-    clamp_menu_pos(point(left, px(TITLE_BAR_H + 2.)), id, viewport, false)
+fn bar_menu_anchor(
+    left: Pixels,
+    id: MenuId,
+    viewport: Size<Pixels>,
+    recents: usize,
+) -> Point<Pixels> {
+    clamp_menu_pos(
+        point(left, px(TITLE_BAR_H + 2.)),
+        id,
+        viewport,
+        false,
+        recents,
+    )
 }
 
 pub(super) fn clamp_menu_pos(
@@ -232,9 +250,11 @@ pub(super) fn clamp_menu_pos(
     id: MenuId,
     viewport: Size<Pixels>,
     in_table: bool,
+    recents: usize,
 ) -> Point<Pixels> {
     let max_x = (viewport.width - px(MENU_W + VIEW_MARGIN)).max(px(0.));
-    let max_y = (viewport.height - px(menu_height(id, in_table) + VIEW_MARGIN)).max(px(0.));
+    let max_y =
+        (viewport.height - px(menu_height(id, in_table, recents) + VIEW_MARGIN)).max(px(0.));
     point(pos.x.max(px(0.)).min(max_x), pos.y.max(px(0.)).min(max_y))
 }
 
@@ -249,10 +269,14 @@ fn table_flyout_height() -> f32 {
     h + 2.0
 }
 
-pub(super) fn submenu_row_top(id: MenuId, in_table: bool) -> f32 {
+fn recent_flyout_height(count: usize) -> f32 {
+    MENU_PAD * 2.0 + count as f32 * 26.0 + 2.0
+}
+
+pub(super) fn submenu_row_top(id: MenuId, in_table: bool, recents: usize) -> f32 {
     let mut y = MENU_PAD;
-    for e in entries_for(id, in_table) {
-        if matches!(e, Submenu { .. }) {
+    for e in entries_for(id, in_table, recents) {
+        if matches!(e, Submenu { .. } | RecentSubmenu) {
             return y;
         }
         y += menu_entry_kind_height(&e);
@@ -266,34 +290,61 @@ pub(super) struct FlyoutPlace {
     pub(super) y: f32,
 }
 
+fn place_flyout(
+    popup: Point<Pixels>,
+    viewport: Size<Pixels>,
+    row_top: f32,
+    flyout_w: f32,
+    flyout_h: f32,
+) -> FlyoutPlace {
+    let origin_x = f32::from(popup.x) + MENU_PAD;
+    let origin_y = f32::from(popup.y) + row_top;
+    let row_w = MENU_W - MENU_PAD * 2.0;
+    let vw = f32::from(viewport.width);
+    let vh = f32::from(viewport.height);
+    let right_x = origin_x + row_w + FLYOUT_GAP;
+    let left_x = origin_x - FLYOUT_GAP - flyout_w;
+    let mut screen_x = right_x;
+    if right_x + flyout_w > vw - VIEW_MARGIN && left_x >= VIEW_MARGIN {
+        screen_x = left_x;
+    }
+    let max_x = (vw - VIEW_MARGIN - flyout_w).max(VIEW_MARGIN);
+    screen_x = screen_x.clamp(VIEW_MARGIN, max_x);
+    let mut screen_y = origin_y - 5.0;
+    let max_y = (vh - VIEW_MARGIN - flyout_h).max(VIEW_MARGIN);
+    screen_y = screen_y.clamp(VIEW_MARGIN, max_y);
+    FlyoutPlace {
+        x: screen_x - origin_x,
+        y: screen_y - origin_y,
+    }
+}
+
+fn flyout_screen_rect_at(
+    popup: Point<Pixels>,
+    viewport: Size<Pixels>,
+    row_top: f32,
+    flyout_w: f32,
+    flyout_h: f32,
+) -> (f32, f32, f32, f32) {
+    let origin_x = f32::from(popup.x) + MENU_PAD;
+    let origin_y = f32::from(popup.y) + row_top;
+    let place = place_flyout(popup, viewport, row_top, flyout_w, flyout_h);
+    (origin_x + place.x, origin_y + place.y, flyout_w, flyout_h)
+}
+
 pub(super) fn place_table_flyout(
     popup: Point<Pixels>,
     viewport: Size<Pixels>,
     id: MenuId,
     in_table: bool,
 ) -> FlyoutPlace {
-    let origin_x = f32::from(popup.x) + MENU_PAD;
-    let origin_y = f32::from(popup.y) + submenu_row_top(id, in_table);
-    let row_w = MENU_W - MENU_PAD * 2.0;
-    let fw = TABLE_FLYOUT_W;
-    let fh = table_flyout_height();
-    let vw = f32::from(viewport.width);
-    let vh = f32::from(viewport.height);
-    let right_x = origin_x + row_w + FLYOUT_GAP;
-    let left_x = origin_x - FLYOUT_GAP - fw;
-    let mut screen_x = right_x;
-    if right_x + fw > vw - VIEW_MARGIN && left_x >= VIEW_MARGIN {
-        screen_x = left_x;
-    }
-    let max_x = (vw - VIEW_MARGIN - fw).max(VIEW_MARGIN);
-    screen_x = screen_x.clamp(VIEW_MARGIN, max_x);
-    let mut screen_y = origin_y - 5.0;
-    let max_y = (vh - VIEW_MARGIN - fh).max(VIEW_MARGIN);
-    screen_y = screen_y.clamp(VIEW_MARGIN, max_y);
-    FlyoutPlace {
-        x: screen_x - origin_x,
-        y: screen_y - origin_y,
-    }
+    place_flyout(
+        popup,
+        viewport,
+        submenu_row_top(id, in_table, 0),
+        TABLE_FLYOUT_W,
+        table_flyout_height(),
+    )
 }
 
 pub(super) fn flyout_screen_rect(
@@ -302,14 +353,40 @@ pub(super) fn flyout_screen_rect(
     id: MenuId,
     in_table: bool,
 ) -> (f32, f32, f32, f32) {
-    let origin_x = f32::from(popup.x) + MENU_PAD;
-    let origin_y = f32::from(popup.y) + submenu_row_top(id, in_table);
-    let place = place_table_flyout(popup, viewport, id, in_table);
-    (
-        origin_x + place.x,
-        origin_y + place.y,
+    flyout_screen_rect_at(
+        popup,
+        viewport,
+        submenu_row_top(id, in_table, 0),
         TABLE_FLYOUT_W,
         table_flyout_height(),
+    )
+}
+
+fn place_recent_flyout(
+    popup: Point<Pixels>,
+    viewport: Size<Pixels>,
+    recents: usize,
+) -> FlyoutPlace {
+    place_flyout(
+        popup,
+        viewport,
+        submenu_row_top(MenuId::File, false, recents.max(1)),
+        RECENT_FLYOUT_W,
+        recent_flyout_height(recents),
+    )
+}
+
+fn recent_flyout_screen_rect(
+    popup: Point<Pixels>,
+    viewport: Size<Pixels>,
+    recents: usize,
+) -> (f32, f32, f32, f32) {
+    flyout_screen_rect_at(
+        popup,
+        viewport,
+        submenu_row_top(MenuId::File, false, recents.max(1)),
+        RECENT_FLYOUT_W,
+        recent_flyout_height(recents),
     )
 }
 
@@ -337,17 +414,18 @@ impl Shell {
         cx.notify();
     }
 
-    fn hit_table_flyout(&self, pos: Point<Pixels>, viewport: Size<Pixels>) -> bool {
+    fn hit_flyout(&self, pos: Point<Pixels>, viewport: Size<Pixels>) -> bool {
         if !self.table_submenu_open {
             return false;
         }
         let Some((id, popup)) = self.open_menu else {
             return false;
         };
-        if id != MenuId::Context {
-            return false;
-        }
-        let (x, y, w, h) = flyout_screen_rect(popup, viewport, id, true);
+        let (x, y, w, h) = match id {
+            MenuId::File => recent_flyout_screen_rect(popup, viewport, self.recent_files.len()),
+            MenuId::Context => flyout_screen_rect(popup, viewport, MenuId::Context, true),
+            _ => return false,
+        };
         let px = f32::from(pos.x);
         let py = f32::from(pos.y);
         px >= x && px < x + w && py >= y && py < y + h
@@ -395,7 +473,12 @@ impl Shell {
                             && open_id != MenuId::Context
                             && open_id != id
                         {
-                            let anchor = bar_menu_anchor(left.get(), id, window.viewport_size());
+                            let anchor = bar_menu_anchor(
+                                left.get(),
+                                id,
+                                window.viewport_size(),
+                                shell.recent_files.len(),
+                            );
                             shell.clear_table_submenu_state(cx);
                             shell.open_menu = Some((id, anchor));
                             cx.notify();
@@ -411,7 +494,12 @@ impl Shell {
                             shell.close_menu(cx);
                             cx.notify();
                         } else if shell.menu_available() {
-                            let anchor = bar_menu_anchor(left.get(), id, window.viewport_size());
+                            let anchor = bar_menu_anchor(
+                                left.get(),
+                                id,
+                                window.viewport_size(),
+                                shell.recent_files.len(),
+                            );
                             shell.clear_table_submenu_state(cx);
                             shell.open_menu = Some((id, anchor));
                             cx.notify();
@@ -469,7 +557,7 @@ impl Shell {
                 let this = this.clone();
                 move |ev: &MouseDownEvent, window: &mut Window, cx: &mut App| {
                     this.update(cx, |shell, cx| {
-                        if shell.hit_table_flyout(ev.position, window.viewport_size()) {
+                        if shell.hit_flyout(ev.position, window.viewport_size()) {
                             return;
                         }
                         shell.close_menu(cx);
@@ -477,17 +565,22 @@ impl Shell {
                     });
                 }
             })
-            .children(entries_for(id, in_table).into_iter().map(|entry| {
-                match entry {
-                    Separator => self.menu_separator(t).into_any_element(),
-                    Item { label, action } => self
-                        .menu_row(t, label, action, false, this.clone())
-                        .into_any_element(),
-                    Submenu { label, items } => self
-                        .table_submenu(t, label, items, pos, viewport, this.clone())
-                        .into_any_element(),
-                }
-            }))
+            .children(
+                entries_for(id, in_table, self.recent_files.len())
+                    .into_iter()
+                    .map(|entry| match entry {
+                        Separator => self.menu_separator(t).into_any_element(),
+                        Item { label, action } => self
+                            .menu_row(t, label, action, false, this.clone())
+                            .into_any_element(),
+                        Submenu { label, items } => self
+                            .table_submenu(t, label, items, pos, viewport, this.clone())
+                            .into_any_element(),
+                        RecentSubmenu => self
+                            .recent_submenu(t, pos, viewport, this.clone())
+                            .into_any_element(),
+                    }),
+            )
     }
 
     fn menu_separator(&self, t: ShellTheme) -> Div {
@@ -527,7 +620,9 @@ impl Shell {
             .on_hover({
                 let this = this.clone();
                 move |hovered, _, cx| {
-                    if !*hovered || matches!(action, MenuAction::Table(_)) {
+                    if !*hovered
+                        || matches!(action, MenuAction::Table(_) | MenuAction::OpenRecent(_))
+                    {
                         return;
                     }
                     this.update(cx, |shell, cx| {
@@ -641,6 +736,124 @@ impl Shell {
             }))
     }
 
+    fn recent_submenu(
+        &self,
+        t: ShellTheme,
+        popup: Point<Pixels>,
+        viewport: Size<Pixels>,
+        this: Entity<Self>,
+    ) -> Stateful<Div> {
+        let open = self.table_submenu_open;
+        div()
+            .id("menu-recent")
+            .debug_selector(|| "menusub:MenuOpenRecent".into())
+            .relative()
+            .h(px(26.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .px(px(10.))
+            .rounded(px(5.))
+            .text_size(px(12.5))
+            .text_color(if open { t.text } else { t.text_muted })
+            .when(open, |d| d.bg(t.hover))
+            .hover(move |s| s.bg(t.hover).text_color(t.text))
+            .on_hover({
+                let this = this.clone();
+                move |hovered, _, cx| {
+                    if *hovered {
+                        this.update(cx, |shell, cx| {
+                            shell.set_table_submenu_open(true, cx);
+                        });
+                    }
+                }
+            })
+            .child(t18(Key::MenuOpenRecent))
+            .child(
+                div()
+                    .ml_auto()
+                    .text_size(px(10.5))
+                    .text_color(if open { t.text } else { t.text_disabled })
+                    .child("▸"),
+            )
+            .when(open, |d| {
+                d.child(self.recent_flyout(t, popup, viewport, this))
+            })
+    }
+
+    fn recent_flyout(
+        &self,
+        t: ShellTheme,
+        popup: Point<Pixels>,
+        viewport: Size<Pixels>,
+        this: Entity<Self>,
+    ) -> Stateful<Div> {
+        let place = place_recent_flyout(popup, viewport, self.recent_files.len());
+        div()
+            .id("menu-recent-flyout")
+            .absolute()
+            .left(px(place.x))
+            .top(px(place.y))
+            .w(px(RECENT_FLYOUT_W))
+            .flex()
+            .flex_col()
+            .p(px(4.))
+            .bg(t.panel_bg)
+            .border_1()
+            .border_color(t.border)
+            .rounded(px(RADIUS))
+            .shadow(vec![BoxShadow {
+                color: rgba(0x00000080).into(),
+                offset: point(px(0.), px(14.)),
+                blur_radius: px(40.),
+                spread_radius: px(0.),
+            }])
+            .occlude()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .children(self.recent_files.iter().enumerate().map(|(index, path)| {
+                self.recent_row(t, path, index, this.clone())
+                    .into_any_element()
+            }))
+    }
+
+    fn recent_row(
+        &self,
+        t: ShellTheme,
+        path: &std::path::Path,
+        index: usize,
+        this: Entity<Self>,
+    ) -> Stateful<Div> {
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .filter(|n| !n.is_empty())
+            .or_else(|| path.to_str())
+            .unwrap_or("")
+            .to_string();
+        let action = MenuAction::OpenRecent(index);
+        div()
+            .id(("menu-recent-row", index))
+            .debug_selector(move || format!("menurecent:{index}"))
+            .h(px(26.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .px(px(10.))
+            .rounded(px(5.))
+            .text_size(px(12.5))
+            .text_color(t.text_muted)
+            .hover(move |s| s.bg(t.hover).text_color(t.text))
+            .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                cx.stop_propagation();
+                this.update(cx, |shell, cx| {
+                    shell.close_menu(cx);
+                    shell.run_menu_action(action, window, cx);
+                    cx.notify();
+                });
+            })
+            .child(name)
+    }
+
     pub(super) fn run_menu_action(
         &mut self,
         action: MenuAction,
@@ -655,6 +868,13 @@ impl Shell {
                 self.editor.update(cx, |editor, cx| {
                     editor.apply_table_toolbar(op, window, cx);
                 });
+            }
+            MenuAction::OpenRecent(index) => {
+                if let Some(path) = self.recent_files.get(index).cloned() {
+                    self.editor.update(cx, |editor, cx| {
+                        editor.open_from_path(path, window, cx);
+                    });
+                }
             }
             MenuAction::Nothing => {}
         }

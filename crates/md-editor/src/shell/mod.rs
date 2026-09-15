@@ -55,6 +55,8 @@ pub struct Shell {
     open_menu: Option<(MenuId, Point<Pixels>)>,
     table_submenu_open: bool,
     menu_closed_at: Option<std::time::Instant>,
+    recent_store: Option<crate::store::recent::RecentStore>,
+    recent_files: Vec<std::path::PathBuf>,
     find: Entity<FindBar>,
     show_settings: bool,
     settings_nav: usize,
@@ -108,6 +110,7 @@ impl Shell {
         });
         cx.observe(&editor, |shell, editor, cx| {
             let editor = editor.read(cx);
+            shell.note_recent_file(editor.state.doc.source_path.as_deref());
             let key = EditorChromeKey {
                 identity: editor.state.doc.identity(),
                 revision: editor.state.doc.document.revision(),
@@ -140,6 +143,8 @@ impl Shell {
             open_menu: None,
             table_submenu_open: false,
             menu_closed_at: None,
+            recent_store: None,
+            recent_files: Vec::new(),
             find,
             show_settings: false,
             settings_nav: 0,
@@ -185,6 +190,12 @@ impl Shell {
         cx: &mut Context<'_, Self>,
     ) {
         self.load_settings(cx);
+        if let Some(store) = crate::store::recent::RecentStore::discover() {
+            self.recent_files = store.load();
+            self.recent_store = Some(store);
+        }
+        let startup_path = self.editor.read(cx).state.doc.source_path.clone();
+        self.note_recent_file(startup_path.as_deref());
         self._activation = Some(cx.observe_window_activation(window, |shell, window, cx| {
             if window.is_window_active() {
                 shell.reload_settings_if_changed(cx);
@@ -204,6 +215,19 @@ impl Shell {
         ShellTheme::from_app(&self.settings.appearance.document_theme().app)
     }
 
+    fn note_recent_file(&mut self, path: Option<&std::path::Path>) {
+        let Some(path) = path else {
+            return;
+        };
+        if self.recent_files.first().is_some_and(|p| p == path) {
+            return;
+        }
+        crate::store::recent::push(&mut self.recent_files, path);
+        if let Some(store) = &self.recent_store {
+            let _ = store.save(&self.recent_files);
+        }
+    }
+
     fn body(&self, this: Entity<Self>) -> Div {
         div()
             .flex_1()
@@ -218,6 +242,7 @@ impl Shell {
                             MenuId::Context,
                             window.viewport_size(),
                             in_table,
+                            0,
                         );
                         shell.clear_table_submenu_state(cx);
                         shell.open_menu = Some((MenuId::Context, pos));
