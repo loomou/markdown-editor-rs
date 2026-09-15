@@ -10,7 +10,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   # macOS .app bundle 标识符，可按需修改
-  BUNDLE_ID: dev.md-editor.app
+  BUNDLE_ID: dev.markdown-editor-rs.app
 
 jobs:
   build:
@@ -83,17 +83,17 @@ jobs:
         run: |
           $VERSION = $env:GITHUB_REF_NAME.TrimStart("v")
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Compress-Archive -Path "target/${{ matrix.target }}/release/md-editor.exe" `
-            -DestinationPath "dist/md-editor-$VERSION-${{ matrix.target }}.zip"
+          Compress-Archive -Path "target/${{ matrix.target }}/release/markdown-editor-rs.exe" `
+            -DestinationPath "dist/markdown-editor-rs-$VERSION-${{ matrix.target }}.zip"
 
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p dist
-          APP="md-editor.app"
+          APP="Markdown Editor RS.app"
           mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-          cp "target/${{ matrix.target }}/release/md-editor" "$APP/Contents/MacOS/md-editor"
+          cp "target/${{ matrix.target }}/release/markdown-editor-rs" "$APP/Contents/MacOS/markdown-editor-rs"
           cp crates/md-editor/resources/macos/app-icon.icns "$APP/Contents/Resources/app-icon.icns"
           cat > "$APP/Contents/Info.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
@@ -101,11 +101,11 @@ jobs:
           <plist version="1.0">
           <dict>
             <key>CFBundleName</key>
-            <string>md-editor</string>
+            <string>Markdown Editor RS</string>
             <key>CFBundleDisplayName</key>
-            <string>md-editor</string>
+            <string>Markdown Editor RS</string>
             <key>CFBundleExecutable</key>
-            <string>md-editor</string>
+            <string>markdown-editor-rs</string>
             <key>CFBundleIdentifier</key>
             <string>$BUNDLE_ID</string>
             <key>CFBundleVersion</key>
@@ -124,19 +124,19 @@ jobs:
           </plist>
           EOF
           ditto -c -k --sequesterRsrc --keepParent "$APP" \
-            "dist/md-editor-$VERSION-${{ matrix.target }}.zip"
+            "dist/markdown-editor-rs-$VERSION-${{ matrix.target }}.zip"
 
       - name: Package (Linux)
         if: runner.os == 'Linux'
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p dist
-          tar -czf "dist/md-editor-$VERSION-${{ matrix.target }}.tar.gz" \
-            -C "target/${{ matrix.target }}/release" md-editor
+          tar -czf "dist/markdown-editor-rs-$VERSION-${{ matrix.target }}.tar.gz" \
+            -C "target/${{ matrix.target }}/release" markdown-editor-rs
 
       - uses: actions/upload-artifact@v4
         with:
-          name: md-editor-${{ matrix.target }}
+          name: markdown-editor-rs-${{ matrix.target }}
           path: dist/*
           if-no-files-found: error
 
@@ -147,7 +147,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: md-editor-*
+          pattern: markdown-editor-rs-*
           path: dist
           merge-multiple: true
 

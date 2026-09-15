@@ -23,14 +23,17 @@ Requires Rust 1.96 or newer:
 cargo build --release --locked
 ```
 
-The binary is produced at `target/release/md-editor` (`md-editor.exe` on Windows).
+The binary is produced at `target/release/markdown-editor-rs`
+(`markdown-editor-rs.exe` on Windows).
 
 ### From a release
 
 Prebuilt binaries are published on the [releases page](https://github.com/loomou/markdown-editor-rs/releases) for Windows x64, macOS (Apple Silicon and Intel), and Linux x64.
 
-- **Windows** — unzip and run `md-editor.exe`; it is statically linked and needs no extra runtime
-- **macOS** — unzip and move `md-editor.app` to `Applications`; the bundle is unsigned, so open it via right-click → Open on first launch
+- **Windows** — unzip and run `markdown-editor-rs.exe`; it is statically linked and needs no
+  extra runtime
+- **macOS** — unzip and move `Markdown Editor RS.app` to `Applications`; the bundle is
+  unsigned, so open it via right-click → Open on first launch
 - **Linux** — extract the tarball; windowing and font libraries (wayland, xkbcommon, x11, fontconfig, …) must be present on the system
 
 ## Platform status
