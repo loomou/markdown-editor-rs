@@ -17,6 +17,10 @@ mod macos {
     const PNG: &[u8] = include_bytes!("../resources/app-icon.png");
 
     pub(super) fn apply() {
+        // SAFETY: PNG is 'static; dataWithBytes:length: / initWithData: /
+        // setApplicationIconImage: are public AppKit messages. image can be
+        // nil (decode failure) and is checked before the next send;
+        // setApplicationIconImage: retains, so the alloc'd one is released.
         unsafe {
             let data: *mut Object = msg_send![
                 class!(NSData),

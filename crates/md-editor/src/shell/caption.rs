@@ -20,6 +20,8 @@ fn raise_gpui_window() {
     if target.is_null() {
         return;
     }
+    // SAFETY: target is a gpui window visible to this process; AttachThreadInput
+    // is attached and detached as a pair.
     unsafe {
         let mut target_pid = 0u32;
         let target_tid = GetWindowThreadProcessId(target, &mut target_pid);
@@ -71,6 +73,7 @@ fn set_gpui_topmost(topmost: bool) {
     } else {
         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
     };
+    // SAFETY: target is a gpui window visible to this process.
     unsafe {
         SetWindowPos(target, insert_after, 0, 0, 0, 0, flags);
     }
@@ -83,6 +86,7 @@ fn restore_zorder_after_caption_drag() {
     let _ = std::thread::spawn(|| {
         for _ in 0..600 {
             std::thread::sleep(std::time::Duration::from_millis(16));
+            // SAFETY: only reads the current left-button state.
             let down = unsafe { GetAsyncKeyState(VK_LBUTTON as i32) as u16 } & 0x8000 != 0;
             if !down {
                 break;
@@ -107,6 +111,7 @@ fn start_caption_drag(window: &Window) {
         set_gpui_topmost(false);
         return;
     }
+    // SAFETY: target is a gpui window visible to this process.
     unsafe {
         ReleaseCapture();
         PostMessageW(
@@ -136,6 +141,11 @@ fn start_caption_drag(window: &Window) {
     };
     let ns_view = appkit.ns_view.as_ptr().cast::<Object>();
 
+    // SAFETY: ns_view is an NSView handed out by gpui that is still alive for
+    // this frame. -window, -sharedApplication, -currentEvent, and
+    // -performWindowDragWithEvent: are public AppKit messages whose signatures
+    // match these msg_send!s; both spots that can yield nil (no attached
+    // window, no current event) are checked before the next message is sent.
     unsafe {
         let ns_window: *mut Object = msg_send![ns_view, window];
         if ns_window.is_null() {
@@ -173,6 +183,7 @@ pub(super) fn toggle_zoom(window: &Window) {
         } else {
             SW_MAXIMIZE
         };
+        // SAFETY: hwnd is a gpui window visible to this process.
         unsafe {
             ShowWindowAsync(hwnd, cmd);
         }
