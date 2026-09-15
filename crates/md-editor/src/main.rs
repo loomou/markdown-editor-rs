@@ -2,6 +2,7 @@
 
 use md_core::doc::Doc;
 use md_core::document::{dump_structure, editor_options, load_markdown};
+use md_editor::APP_NAME;
 use md_editor::Error;
 use md_editor::app::{RunConfig, run};
 use md_render::cold_trace;
@@ -54,7 +55,7 @@ fn main() {
                 tracing::error!(error = %err);
                 (
                     Doc::new(load_markdown("", editor_options())),
-                    String::new(),
+                    APP_NAME.to_string(),
                     Some(err),
                 )
             }
@@ -63,7 +64,7 @@ fn main() {
             Some((doc, title)) => (doc, title, None),
             None => (
                 Doc::new(load_markdown("", editor_options())),
-                String::new(),
+                APP_NAME.to_string(),
                 None,
             ),
         },

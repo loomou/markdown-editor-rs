@@ -29,9 +29,7 @@ pub(crate) fn unsaved_file_name(doc: &Doc) -> &str {
 }
 
 pub(crate) fn window_title(doc: &Doc) -> String {
-    let Some(name) = doc_file_name(doc) else {
-        return String::new();
-    };
+    let name = doc_file_name(doc).unwrap_or(crate::APP_NAME);
     if doc.is_dirty() {
         format!("{name} •")
     } else {
@@ -192,7 +190,7 @@ mod tests {
     #[test]
     fn window_title_marks_dirty_and_untitled() {
         let mut doc = Doc::new(load_markdown("hi\n", editor_options()));
-        assert_eq!(window_title(&doc), "");
+        assert_eq!(window_title(&doc), crate::APP_NAME);
         doc.source_path = Some(std::path::PathBuf::from("notes.md"));
         assert_eq!(window_title(&doc), "notes.md");
         let leaf = doc.text_leaves()[0];
