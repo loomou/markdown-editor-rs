@@ -164,5 +164,5 @@ fn recovered_document_opens_dirty_with_source_path(cx: &mut TestAppContext) {
             assert!(view.state.doc.document.to_markdown().contains("recovered"));
         })
     });
-    assert_eq!(cx.window_title().as_deref(), Some("md-test · notes.md •"));
+    assert_eq!(cx.window_title().as_deref(), Some("notes.md •"));
 }

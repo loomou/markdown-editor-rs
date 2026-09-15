@@ -16,7 +16,7 @@ fn ctrl_n_opens_blank_untitled(cx: &mut TestAppContext) {
             let leaves = view.state.doc.text_leaves();
             assert_eq!(leaves.len(), 1);
             assert_eq!(view.state.doc.text(leaves[0]).unwrap(), "");
-            assert_eq!(window_title(&view.state.doc), "md-test · untitled");
+            assert_eq!(window_title(&view.state.doc), "");
         })
     });
 }

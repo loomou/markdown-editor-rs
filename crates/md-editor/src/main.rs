@@ -47,18 +47,14 @@ fn main() {
                     .and_then(|n| n.to_str())
                     .unwrap_or("markdown")
                     .to_string();
-                (
-                    Doc::with_path(loaded, Some(path)),
-                    format!("md-test · {name}"),
-                    None,
-                )
+                (Doc::with_path(loaded, Some(path)), name, None)
             }
             Err(source) => {
                 let err = Error::Read { path, source };
                 tracing::error!(error = %err);
                 (
                     Doc::new(load_markdown("", editor_options())),
-                    "md-test · untitled".into(),
+                    String::new(),
                     Some(err),
                 )
             }
@@ -67,7 +63,7 @@ fn main() {
             Some((doc, title)) => (doc, title, None),
             None => (
                 Doc::new(load_markdown("", editor_options())),
-                "md-test · untitled".into(),
+                String::new(),
                 None,
             ),
         },

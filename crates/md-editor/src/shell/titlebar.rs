@@ -12,7 +12,13 @@ use gpui::{
 use md_i18n::Key;
 
 impl Shell {
-    pub(super) fn title_bar(&self, t: ShellTheme, this: Entity<Self>, window: &Window) -> Div {
+    pub(super) fn title_bar(
+        &self,
+        t: ShellTheme,
+        this: Entity<Self>,
+        window: &Window,
+        file_name: Option<&str>,
+    ) -> Div {
         div()
             .h(px(TITLE_BAR_H))
             .flex_none()
@@ -33,7 +39,7 @@ impl Shell {
                     this.clone(),
                 )
                 .child(self.logo(t))
-                .child(self.brand(t)),
+                .children(file_name.map(|name| self.file_title(t, name))),
             )
             .child(
                 div().flex().flex_row().text_size(px(13.)).children(
@@ -98,7 +104,7 @@ impl Shell {
             .child("M")
     }
 
-    fn brand(&self, t: ShellTheme) -> Div {
+    fn file_title(&self, t: ShellTheme, name: &str) -> Div {
         div()
             .px(px(8.))
             .flex()
@@ -106,7 +112,7 @@ impl Shell {
             .text_size(px(13.))
             .font_weight(FontWeight(600.0))
             .text_color(t.text)
-            .child("md-test")
+            .child(name.to_string())
     }
 
     fn icon_button(&self, t: ShellTheme, id: &'static str, path: &'static str) -> Stateful<Div> {

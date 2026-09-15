@@ -36,7 +36,7 @@ use crate::keymap::Cmd;
 use crate::store::settings::{Settings, SettingsStore};
 use crate::ui::text_input::{TextInput, TextInputHost};
 use crate::view::find_bar::FindBar;
-use crate::view::{EditorView, SaveConflictChoice, UnsavedChoice};
+use crate::view::{EditorView, SaveConflictChoice, UnsavedChoice, doc_file_name};
 
 const VIEW_MARGIN: f32 = 8.0;
 
@@ -235,6 +235,7 @@ impl Render for Shell {
         let t = self.theme();
         let this = cx.entity();
         let editor = self.editor.read(cx);
+        let file_name = doc_file_name(&editor.state.doc);
         let show_outline =
             self.outline_open && window.viewport_size().width >= px(OUTLINE_MIN_VIEWPORT);
         let status = if self.show_settings {
@@ -325,7 +326,7 @@ impl Render for Shell {
                 this.find.update(cx, |find, cx| find.close(window, cx));
                 cx.notify();
             }))
-            .child(self.title_bar(t, this.clone(), window))
+            .child(self.title_bar(t, this.clone(), window, file_name))
             .children(self.notice_bar(
                 t,
                 this.clone(),

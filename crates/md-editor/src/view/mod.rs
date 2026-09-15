@@ -51,7 +51,7 @@ pub(crate) mod table_toolbar;
 
 pub(crate) use insert_table::InsertTableField;
 pub(crate) use save::SaveConflictChoice;
-pub(crate) use unsaved::{PendingNav, UnsavedChoice, unsaved_file_name};
+pub(crate) use unsaved::{PendingNav, UnsavedChoice, doc_file_name, unsaved_file_name};
 
 #[cfg(test)]
 mod tests;

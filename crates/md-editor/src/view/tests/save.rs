@@ -483,12 +483,12 @@ fn dirty_title_adds_bullet_after_filename(cx: &mut TestAppContext) {
             view.sync_os_title(window);
         })
     });
-    assert_eq!(cx.window_title().as_deref(), Some("md-test · notes.md"));
+    assert_eq!(cx.window_title().as_deref(), Some("notes.md"));
     cx.update(|window, app| {
         editor.update(app, |view, _| {
             view.apply_cmd(Command::Insert { text: "x".into() });
             view.sync_os_title(window);
         })
     });
-    assert_eq!(cx.window_title().as_deref(), Some("md-test · notes.md •"));
+    assert_eq!(cx.window_title().as_deref(), Some("notes.md •"));
 }
