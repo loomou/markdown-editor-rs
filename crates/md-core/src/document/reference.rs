@@ -1,6 +1,6 @@
 use super::change::DocChange;
 use super::load;
-use pulldown_cmark::{Options, Parser};
+use pulldown_cmark::{Options, Parsed};
 use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -33,8 +33,9 @@ pub(crate) fn parse_definition(line: &str) -> Option<Definition> {
     let source = normalize_line(line)?;
     let mut opts = Options::empty();
     opts.remove(Options::ENABLE_DEFINITION_LIST);
-    let parser = Parser::new_ext(&source, opts);
-    for (label, def) in parser.reference_definitions().iter() {
+    crate::document::metrics::note_parser();
+    let parsed = Parsed::new(&source, opts);
+    for (label, def) in parsed.reference_definitions().iter() {
         let Some(raw) = source.get(def.span.clone()) else {
             continue;
         };

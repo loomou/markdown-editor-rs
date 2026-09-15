@@ -2,15 +2,12 @@ use super::Document;
 #[cfg(test)]
 use super::text::{LeafText, TextPiece};
 use crate::block::{AlertKind, CodeFenceMarker, ListMarker, NodeExtra};
-use pulldown_cmark::{Alignment, BlockQuoteKind, HeadingLevel, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{Alignment, BlockQuoteKind, HeadingLevel, Options};
 use std::ops::Range;
 
 mod builder;
-mod events;
-mod stack;
-mod tags;
-
-use builder::Builder;
+mod leaf;
+mod walk;
 
 #[derive(Clone, Debug, Default)]
 pub struct Link {
@@ -18,26 +15,12 @@ pub struct Link {
     pub title: String,
 }
 
-pub fn load(md: &str, mut opts: Options) -> Document {
-    opts.remove(Options::ENABLE_DEFINITION_LIST);
-    let source = normalize_markdown_source(md);
-    let mut builder = Builder::new();
-    let mut parser = Parser::new_ext(&source, opts).into_offset_iter();
-    for (event, range) in parser.by_ref() {
-        builder.handle(&source, event, range);
-    }
-    let mut spans: Vec<_> = parser
-        .reference_definitions()
-        .iter()
-        .map(|(_, definition)| definition.span.clone())
-        .collect();
-    spans.sort_unstable_by_key(|span| (span.start, span.end));
-    spans.dedup();
-    let reference_definitions = spans
-        .into_iter()
-        .filter_map(|span| source.get(span).map(str::to_string))
-        .collect();
-    builder.finish(source, reference_definitions)
+pub fn load(md: &str, opts: Options) -> Document {
+    walk::load_via_tree(md, opts)
+}
+
+pub(crate) fn load_parsed(parsed: &pulldown_cmark::Parsed<'_>, source: String) -> Document {
+    walk::document_of(parsed, source)
 }
 
 pub(crate) fn fold_cr(md: &str) -> String {
@@ -66,36 +49,6 @@ fn intern_push(intern: &mut String, s: &str) -> Range<u32> {
     let start = intern.len() as u32;
     intern.push_str(s);
     start..(intern.len() as u32)
-}
-
-fn covers_start(tag: &Tag<'_>) -> bool {
-    matches!(
-        tag,
-        Tag::Heading { .. }
-            | Tag::Emphasis
-            | Tag::Strong
-            | Tag::Strikethrough
-            | Tag::Superscript
-            | Tag::Subscript
-            | Tag::Link { .. }
-            | Tag::Image { .. }
-            | Tag::MetadataBlock(_)
-    )
-}
-
-fn covers_end(end: TagEnd) -> bool {
-    matches!(
-        end,
-        TagEnd::Heading(_)
-            | TagEnd::Emphasis
-            | TagEnd::Strong
-            | TagEnd::Strikethrough
-            | TagEnd::Superscript
-            | TagEnd::Subscript
-            | TagEnd::Link
-            | TagEnd::Image
-            | TagEnd::MetadataBlock(_)
-    )
 }
 
 fn source_piece(source: &str, text: &str, range: Range<usize>) -> Option<Range<u32>> {
@@ -212,6 +165,74 @@ fn empty_quote_line(line: &str) -> bool {
         rest = after.strip_prefix(' ').unwrap_or(after).trim_start();
     }
     quoted && rest.is_empty()
+}
+
+pub(super) fn item_host_indent(source: &str, at: usize) -> u16 {
+    let bytes = source.as_bytes();
+    let mut i = at;
+    if i >= bytes.len() {
+        return 0;
+    }
+    let line_start = source[..at].rfind('\n').map(|p| p + 1).unwrap_or(0);
+    let mut col = 0usize;
+    for &b in &bytes[line_start..at] {
+        col = expand_column(col, b);
+    }
+    if matches!(bytes[i], b'-' | b'+' | b'*') {
+        col += 1;
+        i += 1;
+    } else if bytes[i].is_ascii_digit() {
+        while i < bytes.len() && bytes[i].is_ascii_digit() {
+            col += 1;
+            i += 1;
+        }
+        if i < bytes.len() && matches!(bytes[i], b'.' | b')') {
+            col += 1;
+            i += 1;
+        }
+    } else {
+        return 0;
+    }
+    let mut pad = 0usize;
+    while i < bytes.len() && pad < 5 && matches!(bytes[i], b' ' | b'\t') {
+        let step = if bytes[i] == b'\t' {
+            next_tab_stop(col + pad) - (col + pad)
+        } else {
+            1
+        };
+        if pad + step > 5 {
+            break;
+        }
+        pad += step;
+        i += 1;
+    }
+    col += if pad >= 5 { 1 } else { pad };
+    col.min(u16::MAX as usize) as u16
+}
+
+pub(super) fn expand_column(col: usize, byte: u8) -> usize {
+    if byte == b'\t' {
+        next_tab_stop(col)
+    } else {
+        col + 1
+    }
+}
+
+pub(super) fn next_tab_stop(col: usize) -> usize {
+    (col / 4 + 1) * 4
+}
+
+pub(super) fn standalone_image_source_range(source: &str, range: &Range<usize>) -> (u32, u32) {
+    let start = source
+        .get(..range.start)
+        .and_then(|prefix| prefix.rfind('\n').map(|newline| newline + 1))
+        .unwrap_or(0);
+    let end = range
+        .end
+        .checked_sub(1)
+        .filter(|end| source.as_bytes().get(*end) == Some(&b'\n'))
+        .unwrap_or(range.end);
+    (start as u32, end as u32)
 }
 
 pub(crate) fn strip_html(s: &str) -> String {

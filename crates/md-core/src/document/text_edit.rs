@@ -71,7 +71,13 @@ impl Document {
             } else {
                 source.as_str()
             };
-            let frag = load_markdown(&bind::with_definitions(stripped, &defs), editor_options());
+            let parse_source = bind::with_definitions(stripped, &defs);
+            crate::document::metrics::note_parser();
+            let parsed = pulldown_cmark::Parsed::inline_only(
+                parse_source.as_ref(),
+                super::sanitized_editor_options(),
+            );
+            let frag = super::load::load_parsed(&parsed, parse_source.to_string());
             let parsed_kind = match current {
                 BlockKind::TableCell => BlockKind::Paragraph,
                 kind => kind,
@@ -82,7 +88,7 @@ impl Document {
                 let s2d = if current == BlockKind::TableCell {
                     bind::source_to_display_map_for_kind(&source, current, &defs)
                 } else {
-                    let mut s2d = bind::source_to_display_map(stripped, &defs);
+                    let mut s2d = bind::map_from_parsed(stripped, false, &parsed);
                     let pad = source.len() - stripped.len();
                     s2d.splice(0..0, std::iter::repeat_n(0, pad));
                     s2d
@@ -99,7 +105,7 @@ impl Document {
                     })
                 } else {
                     Some(
-                        super::focus::raw_constructs(stripped, &defs)
+                        super::focus::constructs_from_parsed(stripped, &parsed)
                             .into_iter()
                             .map(|c| super::focus::RawConstruct {
                                 source: c.source.start + pad..c.source.end + pad,
@@ -425,7 +431,14 @@ impl Document {
 
     fn rewrite_literal(&mut self, id: NodeId, range: Range<usize>, s: &str) -> (DocChange, usize) {
         let old_revision = self.arena.get(id).map(|n| n.content_revision).unwrap_or(1);
-        let display = self.display(id).to_string();
+        let display = match self.arena.get(id) {
+            Some(_) => self.display(id).to_string(),
+            None => self
+                .texts
+                .get(id.text_id())
+                .map(|l| l.display().to_string())
+                .unwrap_or_default(),
+        };
         let start = floor_char_boundary(&display, range.start.min(display.len()));
         let end = floor_char_boundary(&display, range.end.min(display.len())).max(start);
         let deleted = display.get(start..end).unwrap_or("").to_string();
@@ -473,7 +486,13 @@ impl Document {
         source.replace_range(start..end, s);
 
         let defs = std::sync::Arc::clone(&self.reference_definitions);
-        let frag = load_markdown(&bind::with_definitions(&source, &defs), editor_options());
+        let parse_source = bind::with_definitions(&source, &defs);
+        crate::document::metrics::note_parser();
+        let parsed = pulldown_cmark::Parsed::inline_only(
+            parse_source.as_ref(),
+            super::sanitized_editor_options(),
+        );
+        let frag = super::load::load_parsed(&parsed, parse_source.to_string());
         let (display, runs, extra, constructs) = match bind::matching_leaf(&frag, BlockKind::Image)
         {
             Some(leaf) => {
@@ -882,6 +901,7 @@ impl Document {
             .arena
             .get(id)
             .map(|n| n.kind)
+            .or_else(|| self.arena.frozen_node(id).map(|n| n.kind))
             .unwrap_or(BlockKind::Paragraph);
         let start = range.start as usize;
         let end = range.end as usize;

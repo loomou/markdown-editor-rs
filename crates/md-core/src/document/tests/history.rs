@@ -666,3 +666,25 @@ fn undo_cannot_reach_past_the_depth_cap() {
     assert_eq!(again, 128);
     assert_eq!(leaf_text(&d), format!("{}hello", "x".repeat(72)));
 }
+
+#[test]
+fn split_code_tail_round_trips_undo_redo_verbatim() {
+    let initial = "```rust\nfn m🙂\n\n```\n";
+    let mut d = doc(initial);
+    let leaf = d.text_leaves()[0];
+    let _ = d.apply(
+        at(leaf, 8),
+        Command::Paste {
+            text: "> quoted\n\n```rust\nfn q() {}\n```".into(),
+            intent: PasteIntent::IndependentFragment,
+        },
+    );
+    let edited = d.document.to_markdown();
+    assert!(edited.contains("```\n\n\n```\n"), "tail fence: {edited:?}");
+
+    let _ = d.undo().expect("undo");
+    assert_eq!(d.document.to_markdown(), initial, "undo lost the source");
+
+    let _ = d.redo().expect("redo");
+    assert_eq!(d.document.to_markdown(), edited, "redo diverged");
+}

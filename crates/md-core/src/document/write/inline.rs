@@ -47,6 +47,7 @@ fn is_fence_marker_line(line: &str) -> bool {
 }
 
 fn would_reparse_as_fence(source: &str) -> bool {
+    crate::document::metrics::note_parser();
     Parser::new_ext(source, editor_options())
         .any(|event| matches!(event, Event::Start(Tag::CodeBlock(_))))
 }
