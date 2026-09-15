@@ -76,9 +76,7 @@ fn log_dir() -> Option<std::path::PathBuf> {
 }
 
 fn env_filter() -> EnvFilter {
-    EnvFilter::try_from_env("MD_TEST_LOG")
-        .or_else(|_| EnvFilter::try_from_default_env())
-        .unwrap_or_else(|_| EnvFilter::new("warn,md_editor=info"))
+    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn,md_editor=info"))
 }
 
 fn panic_payload(info: &std::panic::PanicHookInfo<'_>) -> String {
@@ -143,7 +141,10 @@ pub fn init() -> Guard {
         .with(stderr_layer)
         .try_init();
     install_panic_hook();
-    tracing::info!(version = env!("CARGO_PKG_VERSION"), "md-test starting");
+    tracing::info!(
+        version = env!("CARGO_PKG_VERSION"),
+        "markdown-editor-rs starting"
+    );
     Guard { _file: file_guard }
 }
 
@@ -159,7 +160,10 @@ mod tests {
         static N: AtomicU64 = AtomicU64::new(0);
         let n = N.fetch_add(1, Ordering::Relaxed);
         let mut p = std::env::temp_dir();
-        p.push(format!("md-test-log-{tag}-{}-{n}", std::process::id()));
+        p.push(format!(
+            "markdown-editor-rs-log-{tag}-{}-{n}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&p);
         fs::create_dir_all(&p).unwrap();
         p
@@ -195,7 +199,7 @@ mod tests {
         for i in 0..15u64 {
             write_at(&format!("2026-09-01_00-00-{i:02}Z.log"), 1000 + i);
         }
-        write_at("md-test.log", 1);
+        write_at("markdown-editor-rs.log", 1);
 
         let live = dir.join("2026-09-15_00-00-00Z.log");
         fs::write(&live, b"live").unwrap();
@@ -220,7 +224,7 @@ mod tests {
             "the file being written is exempt by path: {left:?}"
         );
         assert!(
-            !left.contains(&"md-test.log".to_owned()),
+            !left.contains(&"markdown-editor-rs.log".to_owned()),
             "the old single file must be collected"
         );
         assert!(

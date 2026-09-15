@@ -1,4 +1,4 @@
-pub const APP_ID: &str = "md-test";
+pub const APP_ID: &str = "markdown-editor-rs";
 
 pub fn apply() {
     #[cfg(target_os = "macos")]

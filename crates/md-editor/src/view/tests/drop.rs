@@ -17,7 +17,7 @@ const PIXEL_PNG: &[u8] = &[
 #[gpui::test]
 fn dropping_a_png_beside_the_markdown_inserts_a_relative_image(cx: &mut TestAppContext) {
     let dir = std::env::temp_dir().join(format!(
-        "md-test-editor-img-drop-{}-{}",
+        "markdown-editor-rs-editor-img-drop-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

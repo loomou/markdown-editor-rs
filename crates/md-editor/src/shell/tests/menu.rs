@@ -390,7 +390,10 @@ fn the_file_menu_lists_recent_documents_in_a_flyout(cx: &mut TestAppContext) {
     stop_blink(&shell, cx);
     cx.run_until_parked();
 
-    let file = std::env::temp_dir().join(format!("md-test-recent-menu-{}.md", std::process::id()));
+    let file = std::env::temp_dir().join(format!(
+        "markdown-editor-rs-recent-menu-{}.md",
+        std::process::id()
+    ));
     std::fs::write(&file, "# recent\n").expect("seed");
     cx.update(|_, app| {
         shell.update(app, |s, cx| {

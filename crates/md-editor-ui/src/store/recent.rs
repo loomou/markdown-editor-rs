@@ -89,7 +89,7 @@ mod tests {
         let n = N.fetch_add(1, Ordering::Relaxed);
         let mut p = std::env::temp_dir();
         p.push(format!(
-            "md-test-recent-{tag}-{}-{n}.json",
+            "markdown-editor-rs-recent-{tag}-{}-{n}.json",
             std::process::id()
         ));
         let _ = std::fs::remove_file(&p);

@@ -30,7 +30,7 @@ pub(super) fn temp_settings_path(tag: &str) -> std::path::PathBuf {
     let n = N.fetch_add(1, Ordering::Relaxed);
     let mut p = std::env::temp_dir();
     p.push(format!(
-        "md-test-shell-set-{tag}-{}-{n}",
+        "markdown-editor-rs-shell-set-{tag}-{}-{n}",
         std::process::id()
     ));
     p.push("settings.json");

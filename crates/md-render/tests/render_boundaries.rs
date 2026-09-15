@@ -1049,8 +1049,8 @@ fn frame_signature(frame: &Frame) -> String {
 
 #[gpui::test]
 fn random_edits_keep_the_shape_cache_honest(cx: &mut TestAppContext) {
-    let cases = cache_dose("MD_TEST_SHAPE_CACHE_CASES", 6);
-    let steps = cache_dose("MD_TEST_SHAPE_CACHE_STEPS", 24);
+    let cases = cache_dose("MARKDOWN_EDITOR_RS_SHAPE_CACHE_CASES", 6);
+    let steps = cache_dose("MARKDOWN_EDITOR_RS_SHAPE_CACHE_STEPS", 24);
     let cx = cx.add_empty_window();
     cx.update(|window, app| {
         let theme = DocumentTheme::one_dark();

@@ -203,7 +203,7 @@ mod tests {
         static N: AtomicU64 = AtomicU64::new(0);
         let n = N.fetch_add(1, Ordering::Relaxed);
         std::env::temp_dir().join(format!(
-            "md-test-checked-save-{}-{n}.md",
+            "markdown-editor-rs-checked-save-{}-{n}.md",
             std::process::id()
         ))
     }
@@ -212,7 +212,10 @@ mod tests {
         static N: AtomicU64 = AtomicU64::new(0);
         let n = N.fetch_add(1, Ordering::Relaxed);
         std::env::temp_dir()
-            .join(format!("md-test-atomic-{tag}-{}-{n}", std::process::id()))
+            .join(format!(
+                "markdown-editor-rs-atomic-{tag}-{}-{n}",
+                std::process::id()
+            ))
             .join("café.md")
     }
 

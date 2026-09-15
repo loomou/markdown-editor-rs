@@ -133,7 +133,7 @@ fn save_failure_cancels_pending_navigation(cx: &mut TestAppContext) {
     let (editor, cx) = editor_with_doc("hello\n", cx);
     let mut path = std::env::temp_dir();
     path.push(format!(
-        "md-test-editor-save-fail-dir-{}-{}",
+        "markdown-editor-rs-editor-save-fail-dir-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

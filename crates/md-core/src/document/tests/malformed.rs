@@ -83,7 +83,7 @@ fn env_count(name: &str, default: usize, max: usize) -> usize {
 
 #[test]
 fn randomly_corrupted_sources_never_panic() {
-    let cases = env_count("MD_TEST_MALFORMED_CASES", 256, 4096);
+    let cases = env_count("MARKDOWN_EDITOR_RS_MALFORMED_CASES", 256, 4096);
     let seeds = [
         "# heading\n\nalpha **bold** beta\n\n- first item\n- second item\n",
         "| a | b |\n| --- | --- |\n| c | d |\n",

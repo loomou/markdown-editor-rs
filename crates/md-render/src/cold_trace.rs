@@ -6,7 +6,7 @@ static SINK: OnceLock<fn(&str)> = OnceLock::new();
 static ENABLED: OnceLock<bool> = OnceLock::new();
 
 pub fn enabled() -> bool {
-    *ENABLED.get_or_init(|| std::env::var_os("MD_TEST_COLD_ONCE").is_some())
+    *ENABLED.get_or_init(|| std::env::var_os("MARKDOWN_EDITOR_RS_COLD_ONCE").is_some())
 }
 
 pub fn mark_gpui() {

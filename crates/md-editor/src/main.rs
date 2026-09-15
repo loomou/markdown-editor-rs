@@ -9,11 +9,12 @@ use md_render::cold_trace;
 use std::path::PathBuf;
 
 fn main() {
+    md_editor::platform::paths::migrate_legacy_state_dir();
     let _log = md_editor::platform::log::init();
     md_editor::store::settings::init_language();
     let t_boot = std::time::Instant::now();
-    let md_test_path = std::env::var_os("MD_TEST_PATH").map(PathBuf::from);
-    let (doc, title, notice) = match md_test_path {
+    let startup_path = std::env::var_os("MARKDOWN_EDITOR_RS_PATH").map(PathBuf::from);
+    let (doc, title, notice) = match startup_path {
         Some(path) => match std::fs::read_to_string(&path) {
             Ok(md) => {
                 let t_parse = std::time::Instant::now();

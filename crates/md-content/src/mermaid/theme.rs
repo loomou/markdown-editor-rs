@@ -150,7 +150,7 @@ struct PadViewBox;
 
 impl SvgPostprocessor for PadViewBox {
     fn name(&self) -> &'static str {
-        "md-test-pad-viewbox"
+        "markdown-editor-rs-pad-viewbox"
     }
 
     fn process<'a>(

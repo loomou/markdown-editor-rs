@@ -119,7 +119,7 @@ pub(super) fn temp_md(tag: &str) -> std::path::PathBuf {
     let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let mut p = std::env::temp_dir();
     p.push(format!(
-        "md-test-editor-save-{tag}-{}-{n}.md",
+        "markdown-editor-rs-editor-save-{tag}-{}-{n}.md",
         std::process::id()
     ));
     p
