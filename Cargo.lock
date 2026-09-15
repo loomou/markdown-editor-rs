@@ -3471,7 +3471,7 @@ dependencies = [
 
 [[package]]
 name = "md-content"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64",
  "flate2",
@@ -3514,7 +3514,7 @@ dependencies = [
 
 [[package]]
 name = "md-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "pulldown-cmark 0.13.4",
  "unicode-segmentation",
@@ -3522,7 +3522,7 @@ dependencies = [
 
 [[package]]
 name = "md-editor"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64",
  "embed-resource",
@@ -3546,7 +3546,7 @@ dependencies = [
 
 [[package]]
 name = "md-editor-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "gpui",
  "md-content",
@@ -3563,21 +3563,21 @@ dependencies = [
 
 [[package]]
 name = "md-i18n"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "sys-locale",
 ]
 
 [[package]]
 name = "md-layout"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "md-core",
 ]
 
 [[package]]
 name = "md-render"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "gpui",
  "md-content",
@@ -3588,7 +3588,7 @@ dependencies = [
 
 [[package]]
 name = "md-theme"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "md-core",
  "md-i18n",
