@@ -385,6 +385,7 @@ pub struct EditorView {
     well_scroll: HashMap<BlockId, WellScroll>,
     well_bar_drag: Option<(BlockId, bool, Px)>,
     pending_open: Option<String>,
+    pub(crate) pending_open_path: Option<std::path::PathBuf>,
     open_epoch: u64,
     ime_stale: bool,
     save: SaveState,

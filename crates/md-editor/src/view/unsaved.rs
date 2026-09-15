@@ -103,6 +103,7 @@ impl EditorView {
         match choice {
             UnsavedChoice::Cancel => {
                 self.save.pending_after_save = None;
+                self.pending_open_path = None;
                 window.focus(&self.focus);
                 cx.notify();
             }
@@ -131,7 +132,13 @@ impl EditorView {
         self.save.pending_after_save = None;
         match nav {
             PendingNav::New => self.new_untitled(window, cx),
-            PendingNav::Open => self.prompt_open_markdown(window, cx),
+            PendingNav::Open => {
+                if let Some(path) = self.pending_open_path.take() {
+                    self.open_from_path(path, window, cx);
+                } else {
+                    self.prompt_open_markdown(window, cx);
+                }
+            }
             PendingNav::Close => {
                 self.discard_recovery_files(cx);
                 self.force_close = true;

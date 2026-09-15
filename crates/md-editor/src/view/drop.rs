@@ -6,6 +6,28 @@ use md_core::document::{Command, PasteIntent};
 use std::path::Path;
 
 impl EditorView {
+    pub(super) fn drop_paths(
+        &mut self,
+        paths: &[std::path::PathBuf],
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        window.focus(&self.focus);
+        if let Some(path) = paths
+            .iter()
+            .find(|path| crate::platform::open_markdown::is_markdown_path(path))
+        {
+            if self.state.doc.is_dirty() {
+                self.pending_open_path = Some(path.clone());
+                self.request_nav(super::PendingNav::Open, window, cx);
+            } else {
+                self.open_from_path(path.clone(), window, cx);
+            }
+            return;
+        }
+        self.drop_images(paths, window, cx);
+    }
+
     pub(super) fn drop_images(
         &mut self,
         paths: &[std::path::PathBuf],

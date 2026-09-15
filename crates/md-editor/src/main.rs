@@ -13,7 +13,11 @@ fn main() {
     let _log = md_editor::platform::log::init();
     md_editor::store::settings::init_language();
     let t_boot = std::time::Instant::now();
-    let startup_path = std::env::var_os("MARKDOWN_EDITOR_RS_PATH").map(PathBuf::from);
+    let startup_path = std::env::args_os()
+        .skip(1)
+        .map(PathBuf::from)
+        .find(|path| md_editor::platform::open_markdown::is_markdown_path(path))
+        .or_else(|| std::env::var_os("MARKDOWN_EDITOR_RS_PATH").map(PathBuf::from));
     let (doc, title, notice) = match startup_path {
         Some(path) => match std::fs::read_to_string(&path) {
             Ok(md) => {
