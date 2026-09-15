@@ -40,6 +40,8 @@ use crate::view::{EditorView, SaveConflictChoice, UnsavedChoice, doc_file_name};
 
 const VIEW_MARGIN: f32 = 8.0;
 
+const GEOMETRY_SAVE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
+
 actions!(md_editor, [CloseFind]);
 
 pub struct Shell {
@@ -57,6 +59,11 @@ pub struct Shell {
     menu_closed_at: Option<std::time::Instant>,
     recent_store: Option<crate::store::recent::RecentStore>,
     recent_files: Vec<std::path::PathBuf>,
+    window_store: Option<crate::store::window::WindowStore>,
+    window_geometry: crate::store::window::WindowGeometry,
+    geometry_saved_at: Option<std::time::Instant>,
+    geometry_generation: u64,
+    _window_bounds: Option<gpui::Subscription>,
     find: Entity<FindBar>,
     show_settings: bool,
     settings_nav: usize,
@@ -145,6 +152,11 @@ impl Shell {
             menu_closed_at: None,
             recent_store: None,
             recent_files: Vec::new(),
+            window_store: None,
+            window_geometry: Default::default(),
+            geometry_saved_at: None,
+            geometry_generation: 0,
+            _window_bounds: None,
             find,
             show_settings: false,
             settings_nav: 0,
@@ -196,6 +208,19 @@ impl Shell {
         }
         let startup_path = self.editor.read(cx).state.doc.source_path.clone();
         self.note_recent_file(startup_path.as_deref());
+        let window_store = crate::store::window::WindowStore::discover();
+        if let Some(geometry) = window_store.as_ref().and_then(|store| store.load()) {
+            self.window_geometry = geometry;
+        } else {
+            self.window_geometry = crate::store::window::WindowGeometry::from_window(
+                window.bounds(),
+                window.is_maximized(),
+            );
+        }
+        self.window_store = window_store;
+        self._window_bounds = Some(cx.observe_window_bounds(window, |shell, window, cx| {
+            shell.note_window_bounds(window, cx);
+        }));
         self._activation = Some(cx.observe_window_activation(window, |shell, window, cx| {
             if window.is_window_active() {
                 shell.reload_settings_if_changed(cx);
@@ -213,6 +238,43 @@ impl Shell {
 
     fn theme(&self) -> ShellTheme {
         ShellTheme::from_app(&self.settings.appearance.document_theme().app)
+    }
+
+    fn note_window_bounds(&mut self, window: &Window, cx: &mut Context<'_, Self>) {
+        if window.is_maximized() {
+            self.window_geometry.maximized = true;
+        } else {
+            self.window_geometry =
+                crate::store::window::WindowGeometry::from_window(window.bounds(), false);
+        }
+        self.geometry_generation += 1;
+        if self
+            .geometry_saved_at
+            .is_none_or(|at| at.elapsed() >= GEOMETRY_SAVE_INTERVAL)
+        {
+            self.flush_window_geometry();
+            return;
+        }
+        let generation = self.geometry_generation;
+        cx.spawn(async move |shell, cx| {
+            cx.background_executor().timer(GEOMETRY_SAVE_INTERVAL).await;
+            let _ = shell.update(cx, |shell, _| {
+                if shell.geometry_generation == generation {
+                    shell.flush_window_geometry();
+                }
+            });
+        })
+        .detach();
+    }
+
+    pub(crate) fn flush_window_geometry(&mut self) {
+        if !self.window_geometry.is_restorable() {
+            return;
+        }
+        if let Some(store) = &self.window_store {
+            let _ = store.save(self.window_geometry);
+        }
+        self.geometry_saved_at = Some(std::time::Instant::now());
     }
 
     fn note_recent_file(&mut self, path: Option<&std::path::Path>) {

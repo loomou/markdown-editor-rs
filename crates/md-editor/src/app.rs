@@ -1,8 +1,8 @@
 use crate::ShellAssets;
 use crate::shell::{CloseFind, Shell};
 use gpui::{
-    App, AppContext, Application, Bounds, KeyBinding, SharedString, TitlebarOptions, WindowBounds,
-    WindowOptions, px,
+    App, AppContext, Application, Bounds, KeyBinding, Pixels, SharedString, TitlebarOptions,
+    WindowBounds, WindowOptions, px,
 };
 use md_core::doc::Doc;
 use md_theme::DocumentTheme;
@@ -29,17 +29,34 @@ pub fn run(doc: Doc, config: RunConfig) {
             cx.bind_keys([KeyBinding::new("escape", CloseFind, None)]);
 
             let theme = DocumentTheme::one_dark();
-            let bounds = Bounds::centered(
-                None,
-                gpui::size(
-                    px(theme.chrome.window_width),
-                    px(theme.chrome.window_height),
-                ),
-                cx,
-            );
+            let centered = || {
+                Bounds::centered(
+                    None,
+                    gpui::size(
+                        px(theme.chrome.window_width),
+                        px(theme.chrome.window_height),
+                    ),
+                    cx,
+                )
+            };
+            let displays: Vec<Bounds<Pixels>> = cx
+                .displays()
+                .iter()
+                .map(|display| display.bounds())
+                .collect();
+            let saved = crate::store::window::WindowStore::discover()
+                .and_then(|store| store.load())
+                .filter(|geometry| geometry.center_is_visible(&displays));
+            let window_bounds = match saved {
+                Some(geometry) if geometry.maximized => {
+                    WindowBounds::Maximized(geometry.restore_bounds())
+                }
+                Some(geometry) => WindowBounds::Windowed(geometry.restore_bounds()),
+                None => WindowBounds::Windowed(centered()),
+            };
             cx.open_window(
                 WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    window_bounds: Some(window_bounds),
                     window_min_size: Some(gpui::size(
                         px(theme.chrome.window_min_width),
                         px(theme.chrome.window_min_height),
@@ -61,6 +78,11 @@ pub fn run(doc: Doc, config: RunConfig) {
                         window.on_window_should_close(cx, move |window, cx| {
                             handle.update(cx, |s, cx| s.on_window_should_close(window, cx))
                         });
+                        let flush_handle = shell.clone();
+                        cx.on_window_closed(move |cx| {
+                            flush_handle.update(cx, |s, _| s.flush_window_geometry());
+                        })
+                        .detach();
                         shell
                     }
                 },

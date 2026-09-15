@@ -107,6 +107,10 @@ pub(crate) fn recent_path() -> Option<PathBuf> {
     Some(app_state_dir()?.join("recent.json"))
 }
 
+pub(crate) fn window_path() -> Option<PathBuf> {
+    Some(app_state_dir()?.join("window.json"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
