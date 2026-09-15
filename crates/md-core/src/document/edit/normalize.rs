@@ -2,7 +2,7 @@ use super::super::Document;
 use super::super::arena::NodeId;
 use super::super::change::DocChange;
 use super::Caret;
-use crate::block::{BlockKind, NodeExtra};
+use crate::block::{BlockId, BlockKind, NodeExtra};
 
 pub(crate) fn tombstone(doc: &mut Document, id: NodeId) {
     doc.arena.detach(id);
@@ -38,6 +38,187 @@ pub(crate) fn prune_empty_up(doc: &mut Document, start: NodeId, changes: &mut Ve
 
 pub(crate) fn sync_loose_up(doc: &mut Document, start: NodeId, changes: &mut Vec<DocChange>) {
     sync_loose_up_inner(doc, start, changes, None);
+}
+
+pub(crate) fn drop_covered_empty_quotes(
+    doc: &mut Document,
+    span: &[BlockId],
+    from_start: bool,
+    caret: Caret,
+    changes: &mut Vec<DocChange>,
+) -> Caret {
+    let span_set: std::collections::HashSet<BlockId> = span.iter().copied().collect();
+    let mut candidates: Vec<NodeId> = Vec::new();
+    for &block in span {
+        let Some(mut id) = doc.live_id(block) else {
+            continue;
+        };
+        while let Some(node) = doc.arena.get(id) {
+            if node.kind == BlockKind::BlockQuote && !candidates.contains(&id) {
+                candidates.push(id);
+            }
+            let Some(parent) = node.parent else {
+                break;
+            };
+            id = parent;
+        }
+    }
+    candidates.sort_by_key(|&id| std::cmp::Reverse(quote_depth(doc, id)));
+    if let (Some(&first), Some(&last)) = (span.first(), span.last()) {
+        let mut seen = 0usize;
+        let mut lo = None;
+        let mut hi = None;
+        for id in doc.preorder() {
+            let Some(node) = doc.arena.get(id) else {
+                continue;
+            };
+            if node.kind.is_text_leaf() {
+                if id.index == first {
+                    lo = Some(seen);
+                }
+                if id.index == last {
+                    hi = Some(seen);
+                }
+                seen += 1;
+            }
+        }
+        if let (Some(lo), Some(hi)) = (lo, hi) {
+            let lo_bound = if from_start { 0 } else { lo + 1 };
+            let mut seen = 0usize;
+            for id in doc.preorder() {
+                let Some(node) = doc.arena.get(id) else {
+                    continue;
+                };
+                if node.kind.is_text_leaf() {
+                    seen += 1;
+                } else if node.kind == BlockKind::BlockQuote
+                    && node.first_child.is_none()
+                    && node.parent.is_some()
+                    && seen >= lo_bound
+                    && seen <= hi
+                    && !candidates.contains(&id)
+                {
+                    candidates.push(id);
+                }
+            }
+        }
+    }
+    let mut caret = caret;
+    for quote in candidates {
+        if doc.arena.get(quote).is_none() {
+            continue;
+        }
+        let covered = doc
+            .text_leaves()
+            .into_iter()
+            .all(|leaf| !is_under(doc, leaf, quote) || span_set.contains(&leaf));
+        if !covered {
+            continue;
+        }
+        caret = drop_one_empty_quote(doc, quote, caret, changes);
+    }
+    caret
+}
+
+fn quote_depth(doc: &Document, id: NodeId) -> usize {
+    let mut depth = 0;
+    let mut walk = doc.arena.get(id).and_then(|n| n.parent);
+    while let Some(p) = walk {
+        if doc
+            .arena
+            .get(p)
+            .is_some_and(|n| n.kind == BlockKind::BlockQuote)
+        {
+            depth += 1;
+        }
+        walk = doc.arena.get(p).and_then(|n| n.parent);
+    }
+    depth
+}
+
+fn is_under(doc: &Document, block: BlockId, root: NodeId) -> bool {
+    doc.live_id(block)
+        .is_some_and(|id| under_node(doc, id, root))
+}
+
+fn under_node(doc: &Document, mut id: NodeId, root: NodeId) -> bool {
+    loop {
+        if id == root {
+            return true;
+        }
+        match doc.arena.get(id).and_then(|n| n.parent) {
+            Some(p) => id = p,
+            None => return false,
+        }
+    }
+}
+
+fn drop_one_empty_quote(
+    doc: &mut Document,
+    quote: NodeId,
+    caret: Caret,
+    changes: &mut Vec<DocChange>,
+) -> Caret {
+    let Some(host) = doc.arena.get(quote).and_then(|n| n.parent) else {
+        return caret;
+    };
+    let quote_prev = doc.arena.get(quote).and_then(|n| n.prev_sibling);
+    if let Some(id) = doc.live_id(caret.block)
+        && under_node(doc, id, quote)
+        && doc.arena.get(id).is_some_and(|n| n.kind.is_text_leaf())
+    {
+        let leaf_parent = doc
+            .arena
+            .get(id)
+            .and_then(|n| n.parent)
+            .expect("a node under a quote always has a parent");
+        let leaf_prev = doc.arena.get(id).and_then(|n| n.prev_sibling);
+        doc.arena.detach(id);
+        doc.arena.insert_after(host, Some(quote), id);
+        doc.bump_structure(host);
+        changes.push(DocChange::TreeSpliced {
+            parent: leaf_parent,
+            before: leaf_prev,
+            removed: vec![id],
+            inserted: Vec::new(),
+        });
+        changes.push(DocChange::TreeSpliced {
+            parent: host,
+            before: Some(quote),
+            removed: Vec::new(),
+            inserted: vec![id],
+        });
+    }
+    let mut stack = vec![quote];
+    while let Some(id) = stack.pop() {
+        doc.arena.snapshot(id);
+        stack.extend(doc.arena.children(id));
+    }
+    doc.arena.detach(quote);
+    let mut stack = vec![(quote, false)];
+    while let Some((id, visited)) = stack.pop() {
+        if visited {
+            doc.arena.tombstone(id);
+            continue;
+        }
+        let children: Vec<NodeId> = doc.arena.children(id).collect();
+        stack.push((id, true));
+        stack.extend(children.into_iter().rev().map(|c| (c, false)));
+    }
+    doc.bump_structure(host);
+    changes.push(DocChange::TreeSpliced {
+        parent: host,
+        before: quote_prev,
+        removed: vec![quote],
+        inserted: Vec::new(),
+    });
+    if doc.arena.get(host).is_some() {
+        prune_empty_up(doc, host, changes);
+        if doc.arena.get(host).is_some() {
+            sync_loose_up(doc, host, changes);
+        }
+    }
+    caret
 }
 
 pub(crate) fn sync_loose_after_join(

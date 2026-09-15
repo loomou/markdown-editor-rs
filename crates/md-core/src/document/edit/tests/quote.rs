@@ -335,3 +335,137 @@ fn quote_first_of_two_paragraphs_lifts_only_lead() {
         Some(BlockKind::BlockQuote)
     );
 }
+
+#[test]
+fn select_all_delete_drops_fully_covered_quotes() {
+    use crate::doc::Doc;
+    use crate::document::edit::{Caret, Sel};
+    for (label, src) in [
+        ("alert with body", "> [!NOTE]\n> body\n"),
+        ("plain quote", "> body\n"),
+        ("nested quote", "> > deep\n"),
+        ("quote after para", "para\n\n> quoted\n"),
+        ("para after quote", "> quoted\n\npara\n"),
+        ("two quotes", "> one\n\n> two\n"),
+        ("alert with two paras", "> [!NOTE]\n> a\n>\n> b\n"),
+        ("quote in list, all selected", "- > [!TIP]\n  > hi\n"),
+        ("mixed list and quote", "- a\n\n> q\n\n- b\n"),
+    ] {
+        let mut doc = Doc::new(load_markdown(src, editor_options()));
+        doc.enable_trailing_blank();
+        let leaves = doc.text_leaves();
+        let first = leaves[0];
+        let last = *leaves.last().expect("last leaf");
+        let end = doc.caret_text(last).unwrap_or("").len();
+        let caret = doc.apply(
+            Sel {
+                anchor: Caret {
+                    block: first,
+                    offset: 0,
+                },
+                head: Caret {
+                    block: last,
+                    offset: end,
+                },
+            },
+            Command::DeleteBackward,
+        );
+        assert_eq!(
+            doc.document.to_markdown(),
+            "",
+            "{label}: markdown={:?}",
+            doc.document.to_markdown()
+        );
+        assert!(
+            doc.document.live_id(caret.block).is_some(),
+            "{label}: caret on a dead leaf"
+        );
+    }
+}
+
+#[test]
+fn partial_delete_keeps_the_unselected_alert() {
+    let mut doc = load_markdown("- a\n\n> [!WARNING]\n> w\n", editor_options());
+    let leaves = doc.text_leaves();
+    let a = leaves[0];
+    let _ = apply(
+        &mut doc,
+        Sel {
+            anchor: caret(a, 0),
+            head: caret(a, 1),
+        },
+        Command::DeleteBackward,
+    );
+    let md = doc.to_markdown();
+    assert!(md.contains("[!WARNING]"), "unselected alert lost: {md:?}");
+    assert!(md.contains("> w"), "unselected body lost: {md:?}");
+}
+
+#[test]
+fn select_all_delete_undo_restores_the_alert_quote() {
+    use crate::doc::Doc;
+    use crate::document::edit::{Caret, Sel};
+    let mut doc = Doc::new(load_markdown(
+        "intro\n\n> [!NOTE]\n> body\n",
+        editor_options(),
+    ));
+    doc.enable_trailing_blank();
+    let leaves = doc.text_leaves();
+    let first = leaves[0];
+    let last = *leaves.last().expect("last");
+    let end = doc.caret_text(last).unwrap_or("").len();
+    let _ = doc.apply(
+        Sel {
+            anchor: Caret {
+                block: first,
+                offset: 0,
+            },
+            head: Caret {
+                block: last,
+                offset: end,
+            },
+        },
+        Command::DeleteBackward,
+    );
+    assert_eq!(doc.document.to_markdown(), "");
+    doc.undo();
+    let md = doc.document.to_markdown();
+    assert!(
+        md.contains("[!NOTE]") && md.contains("body"),
+        "undo did not restore the alert quote: {md:?}"
+    );
+}
+
+#[test]
+fn select_all_delete_undo_redo_round_trips_a_list_inside_a_quote() {
+    use crate::doc::Doc;
+    use crate::document::edit::{Caret, Sel};
+    let mut doc = Doc::new(load_markdown("> 1. x\n", editor_options()));
+    doc.enable_trailing_blank();
+    let leaves = doc.text_leaves();
+    let first = leaves[0];
+    let last = *leaves.last().expect("last");
+    let end = doc.caret_text(last).unwrap_or("").len();
+    let _ = doc.apply(
+        Sel {
+            anchor: Caret {
+                block: first,
+                offset: 0,
+            },
+            head: Caret {
+                block: last,
+                offset: end,
+            },
+        },
+        Command::DeleteBackward,
+    );
+    assert_eq!(doc.document.to_markdown(), "");
+    assert!(doc.undo().is_some());
+    assert_eq!(
+        doc.document.to_markdown(),
+        "> 1. x\n",
+        "undo must put the leaf back inside the list item, not beside it"
+    );
+    assert!(doc.redo().is_some());
+    assert_eq!(doc.document.to_markdown(), "");
+}

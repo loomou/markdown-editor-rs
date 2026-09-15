@@ -1,4 +1,4 @@
-use super::{Caret, Sel};
+use super::{Caret, Sel, normalize};
 use crate::block::BlockId;
 use crate::document::Document;
 use crate::document::arena::NodeId;
@@ -205,6 +205,21 @@ fn delete_across(doc: &mut Document, span: &[BlockId], from: usize, to: usize) -
         super::table::detach_table(doc, *table);
     }
     detach_structures(doc, &doomed);
+    let quote_before = doc.revision;
+    let mut quote_changes = Vec::new();
+    let quote_caret = normalize::drop_covered_empty_quotes(
+        doc,
+        span,
+        from == 0,
+        Caret {
+            block: survivor,
+            offset: caret_off,
+        },
+        &mut quote_changes,
+    );
+    if !quote_changes.is_empty() {
+        let _ = doc.commit(quote_before, quote_changes);
+    }
     for &block in span.iter().rev() {
         if block == survivor || (keep_tail && block == last) || !in_tree(doc, block) {
             continue;
@@ -218,10 +233,7 @@ fn delete_across(doc: &mut Document, span: &[BlockId], from: usize, to: usize) -
     {
         Caret { block, offset }
     } else {
-        Caret {
-            block: survivor,
-            offset: caret_off,
-        }
+        quote_caret
     };
     Some(super::list::collapse_empty_after_span(
         doc, &lists, caret, true,
