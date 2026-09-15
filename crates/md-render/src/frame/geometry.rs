@@ -39,7 +39,7 @@ fn paint_content(pass: &Pass<'_>, box_id: LayoutBoxId, a_top: Px, out: &mut Visi
     let node = assembly.tree.get(box_id);
     match node.children() {
         BoxChildren::Island(_) => {
-            let row_x = inline_offset(&assembly.tree, box_id);
+            let row_x = inline_offset(&assembly.tree, box_id, env.content_inset);
             if let Some(g) = assembly.geometries.get(&box_id) {
                 for cg in &g.cells {
                     let Some(block) = block_id_of(cg.cell_box) else {
@@ -101,7 +101,7 @@ fn paint_content(pass: &Pass<'_>, box_id: LayoutBoxId, a_top: Px, out: &mut Visi
                 node.shape_kind(),
                 node.shape_ident(),
             );
-            let x = inline_offset(&assembly.tree, box_id);
+            let x = inline_offset(&assembly.tree, box_id, env.content_inset);
             let co_x_logical = x + style.border.left + style.padding.left;
             let co_y_logical = a_top + style.top_border_padding();
             let co_y_device = snap.snap(co_y_logical - scroll);

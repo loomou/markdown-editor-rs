@@ -666,3 +666,77 @@ fn undo_cannot_reach_past_the_depth_cap() {
     assert_eq!(again, 128);
     assert_eq!(leaf_text(&d), format!("{}hello", "x".repeat(72)));
 }
+
+#[test]
+fn split_code_tail_round_trips_undo_redo_verbatim() {
+    let initial = "```rust\nfn m🙂\n\n```\n";
+    let mut d = doc(initial);
+    let leaf = d.text_leaves()[0];
+    let _ = d.apply(
+        at(leaf, 8),
+        Command::Paste {
+            text: "> quoted\n\n```rust\nfn q() {}\n```".into(),
+            intent: PasteIntent::IndependentFragment,
+        },
+    );
+    let edited = d.document.to_markdown();
+    assert!(edited.contains("```\n\n\n```\n"), "tail fence: {edited:?}");
+
+    let _ = d.undo().expect("undo");
+    assert_eq!(d.document.to_markdown(), initial, "undo lost the source");
+
+    let _ = d.redo().expect("redo");
+    assert_eq!(d.document.to_markdown(), edited, "redo diverged");
+}
+
+#[test]
+fn deep_stacks_survive_amnesty_and_slot_reuse() {
+    let mut d = doc("one\n\ntwo\n");
+    let leaves = d.text_leaves();
+    assert_eq!(leaves.len(), 2);
+
+    let mut c = d.apply(at(leaves[1], 0), Command::DeleteBackward);
+    assert_eq!(d.text_leaves().len(), 1);
+
+    for i in 0..130 {
+        let text = if i % 2 == 0 { " " } else { "x" };
+        c = d.apply(Sel::collapsed(c), Command::Insert { text: text.into() });
+    }
+
+    let undone = d.undo().expect("undo");
+    let _ = d.apply(undone, Command::Insert { text: "!".into() });
+    assert!(
+        d.document.arena.free_list_len() >= 1,
+        "the dead slot whose undo entry was truncated away must be reclaimed"
+    );
+
+    let slots_before = d.document.arena.live_count() + d.document.arena.tombstone_count();
+    let free_before = d.document.arena.free_list_len();
+    let _ = d.apply(Sel::collapsed(c), Command::Break);
+    assert_eq!(
+        d.document.arena.free_list_len(),
+        free_before - 1,
+        "the next alloc must consume the reclaimed slot"
+    );
+    assert_eq!(
+        d.document.arena.live_count() + d.document.arena.tombstone_count(),
+        slots_before,
+        "reuse must not grow the slot table"
+    );
+
+    let before_rolling = d.document.to_markdown();
+    let mut undos = 0;
+    while d.can_undo() {
+        assert!(d.undo().is_some(), "undo jammed after {undos} entries");
+        undos += 1;
+        assert!(undos < 200, "undo loop must terminate");
+    }
+    let mut redos = 0;
+    while d.can_redo() {
+        assert!(d.redo().is_some(), "redo jammed after {redos} entries");
+        redos += 1;
+        assert!(redos < 200, "redo loop must terminate");
+    }
+    assert_eq!(redos, undos);
+    assert_eq!(d.document.to_markdown(), before_rolling);
+}

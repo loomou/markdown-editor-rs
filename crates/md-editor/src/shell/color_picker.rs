@@ -58,14 +58,14 @@ fn hex_digits(color: ThemeColor) -> String {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct Anchor {
-    row: Bounds<Pixels>,
-    clip: Bounds<Pixels>,
-    viewport: Size<Pixels>,
+pub(super) struct Anchor {
+    pub(super) row: Bounds<Pixels>,
+    pub(super) clip: Bounds<Pixels>,
+    pub(super) viewport: Size<Pixels>,
 }
 
 impl Anchor {
-    fn at_pointer(at: Point<Pixels>, viewport: Size<Pixels>) -> Self {
+    pub(super) fn at_pointer(at: Point<Pixels>, viewport: Size<Pixels>) -> Self {
         let row = Bounds {
             origin: at,
             size: gpui::size(px(1.), px(1.)),
@@ -77,7 +77,7 @@ impl Anchor {
         }
     }
 
-    fn visible(&self) -> bool {
+    pub(super) fn visible(&self) -> bool {
         self.row.intersects(&self.clip)
     }
 }
@@ -104,8 +104,9 @@ fn place(a: Anchor) -> Option<Point<Pixels>> {
 }
 
 pub(super) struct Placed {
-    child: AnyElement,
-    anchor: Rc<Cell<Anchor>>,
+    pub(super) child: AnyElement,
+    pub(super) anchor: Rc<Cell<Anchor>>,
+    pub(super) measure: Rc<dyn Fn(Anchor) -> Option<Point<Pixels>>>,
 }
 
 impl Element for Placed {
@@ -144,7 +145,7 @@ impl Element for Placed {
         window: &mut Window,
         cx: &mut App,
     ) -> bool {
-        let Some(origin) = place(self.anchor.get()) else {
+        let Some(origin) = (self.measure)(self.anchor.get()) else {
             return false;
         };
         let delta = origin - bounds.origin;
@@ -354,6 +355,7 @@ impl ColorPicker {
         Placed {
             child: self.plate(t, color, focus, host).into_any_element(),
             anchor: Rc::clone(&self.anchor),
+            measure: Rc::new(place),
         }
     }
 

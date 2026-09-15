@@ -1,5 +1,5 @@
 use md_core::block::BlockKind;
-use md_core::document::{Caret, Command, Sel, apply};
+use md_core::document::{Caret, Command, Sel, TableOp, apply};
 use md_layout::box_tree::LayoutBoxId;
 use md_layout::island::{FallbackSolver, TableColumnConstraintSet};
 use md_layout::style::BoxLayoutEnvironment;
@@ -143,7 +143,7 @@ fn structural_edits_still_refresh_aux() {
 }
 
 #[test]
-fn a_structural_edit_discards_the_solved_constraints() {
+fn an_unrelated_structural_edit_keeps_the_solved_constraints() {
     let mut doc = mixed_doc();
     let env = BoxLayoutEnvironment::default();
     let mut engine = IncrementalEngine::new(&doc, env, estimator(), dummy_layout());
@@ -156,6 +156,7 @@ fn a_structural_edit_discards_the_solved_constraints() {
         !engine.table_cons.is_empty(),
         "the first frame must have solved at least one table, or this case asserts nothing"
     );
+    let cons_before = Rc::clone(&engine.table_cons);
 
     let leaf = doc.text_leaves()[0];
     let at = Caret {
@@ -171,55 +172,18 @@ fn a_structural_edit_discards_the_solved_constraints() {
     engine.apply_changes(&doc, &changes);
 
     assert!(
-        engine.table_cons.is_empty(),
-        "stale column constraints survive the structural edit: {:?}",
-        engine.table_cons.keys().collect::<Vec<_>>()
-    );
-}
-
-#[test]
-fn the_next_frame_resolves_the_cleared_constraints_again() {
-    let mut doc = mixed_doc();
-    let env = BoxLayoutEnvironment::default();
-    let mut engine = IncrementalEngine::new(&doc, env, estimator(), dummy_layout());
-    let measure = CountingMeasure {
-        calls: Cell::new(0),
-    };
-    let solver = FallbackSolver;
-    engine.assemble_incremental(ScrollAnchor::top(), 600.0, &measure, &solver);
-
-    let leaf = doc.text_leaves()[0];
-    let at = Caret {
-        block: leaf,
-        offset: 1,
-    };
-    apply(&mut doc, Sel::collapsed(at), Command::Break);
-    let changes = doc.take_changes();
-    engine.apply_changes(&doc, &changes);
-    assert!(
-        engine.table_cons.is_empty(),
-        "premise: this step should have cleared them"
-    );
-
-    engine.assemble_incremental(ScrollAnchor::top(), 2000.0, &measure, &solver);
-
-    assert!(
         !engine.table_cons.is_empty(),
-        "the next frame re-solved no table at all — after a clear nothing refilled them, so the clear was wrong"
+        "an unrelated structural edit dropped the untouched table constraints (whole-map clear again?)"
     );
-    let want: std::collections::BTreeMap<_, _> = cons_by_value(&engine).into_iter().collect();
-    for (id, got) in engine.table_cons.iter() {
-        assert_eq!(
-            Some(got),
-            want.get(id),
-            "the re-solved constraints disagree with the expected values table={id:?}"
-        );
-    }
+    assert!(
+        Rc::ptr_eq(&cons_before, &engine.table_cons),
+        "the paragraph splice touches no table, yet table_cons was swapped"
+    );
 }
 
 #[test]
-fn an_attrs_change_also_discards_the_constraints() {
-    let md = "- [ ] task\n\n  | a | b |\n  | --- | --- |\n  | c | d |\n";
+fn a_spliced_table_re_resolves_after_the_edit() {
+    let md = "lead\n\n| a | b |\n| --- | --- |\n| c | d |\n\ntail\n";
     let mut doc = loaded(md);
     let env = BoxLayoutEnvironment::default();
     let mut engine = IncrementalEngine::new(&doc, env, estimator(), dummy_layout());
@@ -228,9 +192,151 @@ fn an_attrs_change_also_discards_the_constraints() {
     };
     let solver = FallbackSolver;
     engine.assemble_incremental(ScrollAnchor::top(), 2000.0, &measure, &solver);
+    let tables = tables_of(&engine);
+    assert_eq!(tables.len(), 1, "the fixture needs exactly one table");
+    let table = tables[0];
     assert!(
-        !engine.table_cons.is_empty(),
-        "premise: the first frame should have solved that nested table"
+        engine.table_cons.contains_key(&table),
+        "premise: the first frame solved the table"
+    );
+
+    let cell = doc
+        .text_leaves()
+        .into_iter()
+        .find(|&b| doc.text_of(b) == Some("a"))
+        .expect("cell a");
+    apply(
+        &mut doc,
+        Sel::collapsed(Caret {
+            block: cell,
+            offset: 1,
+        }),
+        Command::Table(TableOp::InsertRowBelow),
+    );
+    let changes = doc.take_changes();
+    assert!(
+        changes.is_structural(),
+        "inserting a row must be a structural change"
+    );
+    engine.apply_changes(&doc, &changes);
+    assert!(
+        !engine.table_cons.contains_key(&table),
+        "the host table's stale constraints survived a row-set change"
+    );
+
+    engine.assemble_incremental(ScrollAnchor::top(), 2000.0, &measure, &solver);
+    assert!(
+        engine.table_cons.contains_key(&table),
+        "the next frame did not re-solve the affected table"
+    );
+    let fresh = IncrementalEngine::new(&doc, env, estimator(), dummy_layout());
+    assert_eq!(
+        cons_by_value(&engine),
+        cons_by_value(&fresh),
+        "after the precise invalidation the table constraints disagree with a fresh build"
+    );
+}
+
+#[test]
+fn a_marker_width_change_invalidates_the_list_nested_table() {
+    let md = concat!(
+        "1. one\n2. two\n3. three\n4. four\n5. five\n",
+        "6. six\n7. seven\n8. eight\n9. nine\n",
+        "   | a | b |\n   | --- | --- |\n   | c | d |\n",
+    );
+    let mut doc = loaded(md);
+    let env = BoxLayoutEnvironment::default();
+    let mut engine = IncrementalEngine::new(&doc, env, estimator(), dummy_layout());
+    let measure = CountingMeasure {
+        calls: Cell::new(0),
+    };
+    let solver = FallbackSolver;
+    engine.assemble_incremental(ScrollAnchor::top(), 2000.0, &measure, &solver);
+    let tables = tables_of(&engine);
+    assert_eq!(
+        tables.len(),
+        1,
+        "the fixture nests one table inside item nine"
+    );
+    let table = tables[0];
+    assert!(
+        engine.table_cons.contains_key(&table),
+        "premise: the first frame solved the table"
+    );
+
+    let nine = doc
+        .text_leaves()
+        .into_iter()
+        .find(|&b| doc.text_of(b) == Some("nine"))
+        .expect("item nine");
+    apply(
+        &mut doc,
+        Sel::collapsed(Caret {
+            block: nine,
+            offset: 4,
+        }),
+        Command::Break,
+    );
+    let changes = doc.take_changes();
+    assert!(
+        changes.is_structural(),
+        "splitting out item ten must be a structural change"
+    );
+    engine.apply_changes(&doc, &changes);
+
+    assert!(
+        !engine.table_cons.contains_key(&table),
+        "the list-nested table kept its stale constraints after the marker width changed"
+    );
+    engine.assemble_incremental(ScrollAnchor::top(), 2000.0, &measure, &solver);
+    let fresh = IncrementalEngine::new(&doc, env, estimator(), dummy_layout());
+    assert_eq!(
+        cons_by_value(&engine),
+        cons_by_value(&fresh),
+        "after the re-solve the table constraints disagree with a fresh build"
+    );
+}
+
+#[test]
+fn an_attrs_change_invalidates_only_the_tables_in_the_subtree() {
+    let md = concat!(
+        "- [ ] task\n\n",
+        "  | a | b |\n  | --- | --- |\n  | c | d |\n\n",
+        "outside\n\n",
+        "| e | f |\n| --- | --- |\n| g | h |\n",
+    );
+    let mut doc = loaded(md);
+    let env = BoxLayoutEnvironment::default();
+    let mut engine = IncrementalEngine::new(&doc, env, estimator(), dummy_layout());
+    let measure = CountingMeasure {
+        calls: Cell::new(0),
+    };
+    let solver = FallbackSolver;
+    engine.assemble_incremental(ScrollAnchor::top(), 2000.0, &measure, &solver);
+    let tables = tables_of(&engine);
+    assert_eq!(
+        tables.len(),
+        2,
+        "the fixture needs one nested and one outside table"
+    );
+    let nested = tables
+        .iter()
+        .copied()
+        .find(|id| {
+            let mut cur = *id;
+            while let Some(p) = engine.tree.get(cur).parent() {
+                if engine.tree.get(p).kind() == BlockKind::ListItem {
+                    return true;
+                }
+                cur = p;
+            }
+            false
+        })
+        .expect("the fixture must contain a table nested in a list item");
+    let outside = tables.iter().copied().find(|id| id != &nested).unwrap();
+    assert!(
+        engine.table_cons.contains_key(&nested) && engine.table_cons.contains_key(&outside),
+        "premise: the first frame must have solved both tables"
     );
 
     let leaf = doc.text_leaves()[0];
@@ -251,7 +357,11 @@ fn an_attrs_change_also_discards_the_constraints() {
     engine.apply_changes(&doc, &changes);
 
     assert!(
-        engine.table_cons.is_empty(),
-        "the old column constraints survived the attribute change"
+        !engine.table_cons.contains_key(&nested),
+        "the subtree's table kept its stale constraints after the attribute change"
+    );
+    assert!(
+        engine.table_cons.contains_key(&outside),
+        "the attribute change dropped a table outside the subtree (whole-map clear again?)"
     );
 }

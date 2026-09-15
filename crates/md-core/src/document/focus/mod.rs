@@ -4,7 +4,7 @@ use super::bind::{
 };
 use crate::block::BlockId;
 use crate::inline::{InlineMarks, InlineRun, covering_runs};
-use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+use pulldown_cmark::{NodeKind, Parsed};
 use std::ops::Range;
 
 use super::{bind, editor_options, floor_char_boundary, load_markdown, sanitized_editor_options};
@@ -24,7 +24,7 @@ pub enum FocusBias {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ConstructTag {
+pub(crate) enum ConstructTag {
     Emphasis,
     Strong,
     Strike,
@@ -117,27 +117,75 @@ pub(crate) fn inline_constructs(
 }
 
 pub(crate) fn raw_constructs(source: &str, definitions: &[String]) -> Vec<RawConstruct> {
+    let parse_source = crate::document::bind::with_definitions(source, definitions);
+    crate::document::metrics::note_parser();
+    crate::document::metrics::note_construct();
+    let parsed = Parsed::inline_only(parse_source.as_ref(), sanitized_editor_options());
+    constructs_from_parsed(source, &parsed)
+}
+
+pub(crate) fn constructs_from_parsed(source: &str, parsed: &Parsed<'_>) -> Vec<RawConstruct> {
     let n = source.len();
     let mut recorder = ConstructRecorder::new();
     let mut out = Vec::new();
-    let parse_source = crate::document::bind::with_definitions(source, definitions);
-    for (event, range) in
-        Parser::new_ext(parse_source.as_ref(), sanitized_editor_options()).into_offset_iter()
-    {
-        let lo = range.start.min(n);
-        let hi = range.end.min(n).max(lo);
-        match event {
-            Event::Start(tag) => recorder.start(&tag, lo),
-            Event::End(end) => {
-                if let Some(raw) = recorder.end(end, source, hi) {
+    enum Frame<'a, 'i> {
+        Node(pulldown_cmark::NodeRef<'a, 'i>),
+        End { tag: ConstructTag, hi: usize },
+    }
+    let mut stack: Vec<Frame<'_, '_>> = Vec::new();
+    if let Some(first) = parsed.root().first_child() {
+        stack.push(Frame::Node(first));
+    }
+    while let Some(frame) = stack.pop() {
+        let node = match frame {
+            Frame::Node(node) => node,
+            Frame::End { tag, hi } => {
+                if let Some(raw) = recorder.end_tag(tag, source, hi) {
                     out.push(raw);
                 }
+                continue;
             }
-            Event::Text(_) | Event::SoftBreak | Event::HardBreak => recorder.cover(lo, hi),
-            Event::Code(t) | Event::InlineMath(t) | Event::DisplayMath(t) => {
-                out.push(recorder.shown(source, lo..hi, t.as_ref()));
+        };
+        if let Some(sibling) = node.next_sibling() {
+            stack.push(Frame::Node(sibling));
+        }
+        let span = node.span();
+        let lo = span.start.min(n);
+        let hi = span.end.min(n).max(lo);
+        let tag = match node.kind() {
+            NodeKind::Emphasis => Some(ConstructTag::Emphasis),
+            NodeKind::Strong => Some(ConstructTag::Strong),
+            NodeKind::Strikethrough => Some(ConstructTag::Strike),
+            NodeKind::Link(_) => Some(ConstructTag::Link),
+            NodeKind::Image(_) => Some(ConstructTag::Image),
+            _ => None,
+        };
+        if let Some(tag) = tag {
+            recorder.start_tag(tag, lo);
+            stack.push(Frame::End { tag, hi });
+            if let Some(child) = node.first_child() {
+                stack.push(Frame::Node(child));
+            }
+            continue;
+        }
+        match node.kind() {
+            NodeKind::Text { .. }
+            | NodeKind::TextOwned
+            | NodeKind::SynthesizedChar(_)
+            | NodeKind::SoftBreak
+            | NodeKind::HardBreak { .. } => {
+                recorder.cover(lo, hi);
+            }
+            NodeKind::Code(content) => {
+                out.push(recorder.shown(source, lo..hi, content.as_ref()));
+            }
+            NodeKind::Math { content, .. } => {
+                out.push(recorder.shown(source, lo..hi, content.as_ref()));
             }
             _ => {}
+        }
+        if let Some(child) = node.first_child() {
+            stack.push(Frame::Node(child));
         }
     }
     out
@@ -158,22 +206,24 @@ impl ConstructRecorder {
         ConstructRecorder { stack: Vec::new() }
     }
 
-    pub(crate) fn start(&mut self, tag: &Tag<'_>, lo: usize) {
-        if let Some(tag) = construct_tag(tag) {
-            self.stack.push(OpenMark {
-                tag,
-                start: lo,
-                inner: None,
-            });
-        }
+    pub(crate) fn start_tag(&mut self, tag: ConstructTag, lo: usize) {
+        self.stack.push(OpenMark {
+            tag,
+            start: lo,
+            inner: None,
+        });
     }
 
     pub(crate) fn cover(&mut self, lo: usize, hi: usize) {
         cover_inners(&mut self.stack, lo, hi);
     }
 
-    pub(crate) fn end(&mut self, end: TagEnd, source: &str, hi: usize) -> Option<RawConstruct> {
-        let tag = construct_tag_end(end)?;
+    pub(crate) fn end_tag(
+        &mut self,
+        tag: ConstructTag,
+        source: &str,
+        hi: usize,
+    ) -> Option<RawConstruct> {
         let i = self.stack.iter().rposition(|o| o.tag == tag)?;
         let open = self.stack.remove(i);
         let span = open.start..hi.max(open.start);
@@ -207,28 +257,6 @@ fn cover_inners(stack: &mut [OpenMark], lo: usize, hi: usize) {
             None => lo..hi,
             Some(r) => r.start.min(lo)..r.end.max(hi),
         });
-    }
-}
-
-fn construct_tag(tag: &Tag<'_>) -> Option<ConstructTag> {
-    match tag {
-        Tag::Emphasis => Some(ConstructTag::Emphasis),
-        Tag::Strong => Some(ConstructTag::Strong),
-        Tag::Strikethrough => Some(ConstructTag::Strike),
-        Tag::Link { .. } => Some(ConstructTag::Link),
-        Tag::Image { .. } => Some(ConstructTag::Image),
-        _ => None,
-    }
-}
-
-fn construct_tag_end(end: TagEnd) -> Option<ConstructTag> {
-    match end {
-        TagEnd::Emphasis => Some(ConstructTag::Emphasis),
-        TagEnd::Strong => Some(ConstructTag::Strong),
-        TagEnd::Strikethrough => Some(ConstructTag::Strike),
-        TagEnd::Link => Some(ConstructTag::Link),
-        TagEnd::Image => Some(ConstructTag::Image),
-        _ => None,
     }
 }
 

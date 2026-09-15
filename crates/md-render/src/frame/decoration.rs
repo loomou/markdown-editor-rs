@@ -24,7 +24,7 @@ pub(super) fn collect_decorations_window(
         if !wants_leaf_decoration(kind) {
             continue;
         }
-        let x = inline_offset(tree, box_id);
+        let x = inline_offset(tree, box_id, pass.env.content_inset);
         let w = tree.avail_width(box_id, pass.env.viewport_width);
         let Some(hit_block) = block_id_of(box_id) else {
             continue;

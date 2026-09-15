@@ -1,8 +1,8 @@
 use crate::block::{BlockKind, NodeExtra};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::num::NonZeroU32;
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct NodeId {
     pub index: u32,
     pub generation: NonZeroU32,
@@ -69,6 +69,7 @@ impl Node {
 struct Slot {
     generation: u32,
     live: bool,
+    retired: bool,
     node: Node,
 }
 
@@ -76,6 +77,8 @@ struct Slot {
 pub struct DocumentArena {
     slots: Vec<Slot>,
     frozen: HashMap<u32, Node>,
+    retained: Vec<u32>,
+    free_list: Vec<u32>,
 }
 
 impl DocumentArena {
@@ -84,10 +87,100 @@ impl DocumentArena {
             slots: vec![Slot {
                 generation: 0,
                 live: false,
+                retired: false,
                 node: Node::new(BlockKind::DocRoot),
             }],
             frozen: HashMap::new(),
+            retained: vec![0],
+            free_list: Vec::new(),
         }
+    }
+
+    pub(crate) fn retain(&mut self, id: NodeId) {
+        self.retain_adjust(id, 1);
+    }
+
+    pub(crate) fn release(&mut self, id: NodeId) {
+        self.retain_adjust(id, -1);
+    }
+
+    fn retain_adjust(&mut self, id: NodeId, delta: i64) {
+        let Some(slot) = self.slots.get(id.index as usize) else {
+            debug_assert!(false, "retain/release points beyond the slot table");
+            return;
+        };
+        debug_assert_eq!(
+            slot.generation,
+            id.generation.get(),
+            "retain/release generation mismatch: a stack entry survived slot reuse"
+        );
+        let count = &mut self.retained[id.index as usize];
+        let next = *count as i64 + delta;
+        debug_assert!(next >= 0, "release underflowed the retained count");
+        *count = next.max(0) as u32;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn retained_count(&self, index: u32) -> u32 {
+        self.retained.get(index as usize).copied().unwrap_or(0)
+    }
+
+    pub(crate) fn frozen_closure(&self, roots: &[NodeId]) -> HashSet<u32> {
+        let mut seen: HashSet<u32> = HashSet::new();
+        let mut queue: VecDeque<u32> = VecDeque::new();
+        for id in roots {
+            let Some(slot) = self.slots.get(id.index as usize) else {
+                continue;
+            };
+            if slot.live {
+                continue;
+            }
+            if seen.insert(id.index) {
+                queue.push_back(id.index);
+            }
+        }
+        while let Some(index) = queue.pop_front() {
+            let Some(frozen) = self.frozen.get(&index) else {
+                continue;
+            };
+            for next in [
+                frozen.first_child,
+                frozen.last_child,
+                frozen.prev_sibling,
+                frozen.next_sibling,
+            ]
+            .into_iter()
+            .flatten()
+            {
+                if seen.insert(next.index) {
+                    queue.push_back(next.index);
+                }
+            }
+        }
+        seen
+    }
+
+    pub(crate) fn retire_unreferenced(&mut self, protected: &HashSet<u32>) -> Vec<u32> {
+        let mut out = Vec::new();
+        for index in 1..self.slots.len() as u32 {
+            let slot = &self.slots[index as usize];
+            if slot.live || slot.retired {
+                continue;
+            }
+            if self.retained[index as usize] != 0 || protected.contains(&index) {
+                continue;
+            }
+            self.slots[index as usize].retired = true;
+            self.frozen.remove(&index);
+            self.free_list.push(index);
+            out.push(index);
+        }
+        out
+    }
+
+    #[cfg(test)]
+    pub(crate) fn free_list_len(&self) -> usize {
+        self.free_list.len()
     }
 }
 
@@ -112,13 +205,28 @@ impl DocumentArena {
     }
 
     pub(crate) fn alloc(&mut self, kind: BlockKind) -> NodeId {
+        if let Some(index) = self.free_list.pop() {
+            let slot = &mut self.slots[index as usize];
+            slot.generation += 1;
+            slot.live = true;
+            slot.retired = false;
+            slot.node = Node::new(kind);
+            let generation = slot.generation;
+            self.retained[index as usize] = 0;
+            return NodeId {
+                index,
+                generation: issued_gen(generation),
+            };
+        }
         let index = self.slots.len() as u32;
         let generation = 1;
         self.slots.push(Slot {
             generation,
             live: true,
+            retired: false,
             node: Node::new(kind),
         });
+        self.retained.push(0);
         NodeId {
             index,
             generation: issued_gen(generation),
@@ -171,6 +279,10 @@ impl DocumentArena {
         if slot.generation != id.generation.get() {
             return false;
         }
+        debug_assert!(
+            !slot.retired,
+            "resurrect reached a retired slot: the history bookkeeping lost a reference"
+        );
         let index = id.index;
         if let Some(frozen) = self.frozen.remove(&index) {
             self.slots[index as usize].node = frozen;
@@ -368,8 +480,86 @@ mod sizes {
 
 #[cfg(test)]
 mod tests {
-    use super::DocumentArena;
+    use super::{DocumentArena, NodeId};
     use crate::block::BlockKind;
+
+    #[test]
+    fn retained_tracks_the_stack_refs_of_a_slot() {
+        let mut arena = DocumentArena::new();
+        let a = arena.alloc(BlockKind::Paragraph);
+        assert_eq!(arena.retained_count(a.index), 0);
+
+        arena.retain(a);
+        arena.retain(a);
+        assert_eq!(arena.retained_count(a.index), 2);
+        arena.release(a);
+        assert_eq!(arena.retained_count(a.index), 1);
+        arena.release(a);
+        assert_eq!(arena.retained_count(a.index), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "retain/release generation mismatch")]
+    fn retain_rejects_a_stale_generation() {
+        let mut arena = DocumentArena::new();
+        let a = arena.alloc(BlockKind::Paragraph);
+        arena.retain(NodeId::at(a.index, 2));
+    }
+
+    #[test]
+    #[should_panic(expected = "release underflowed the retained count")]
+    fn release_below_zero_panics() {
+        let mut arena = DocumentArena::new();
+        let a = arena.alloc(BlockKind::Paragraph);
+        arena.release(a);
+    }
+
+    #[test]
+    fn every_new_slot_starts_unretained() {
+        let mut arena = DocumentArena::new();
+        for _ in 0..17 {
+            arena.alloc(BlockKind::Paragraph);
+        }
+        for i in 0..=17u32 {
+            assert_eq!(arena.retained_count(i), 0);
+        }
+        assert_eq!(arena.retained_count(99), 0);
+    }
+
+    #[test]
+    fn a_recycled_slot_issues_a_fresh_generation_and_old_ids_miss() {
+        let mut arena = DocumentArena::new();
+        let parent = arena.alloc(BlockKind::DocRoot);
+        let old = arena.alloc(BlockKind::Paragraph);
+        arena.append_child(parent, old);
+        arena.tombstone(old);
+
+        let closure = arena.frozen_closure(&[]);
+        assert_eq!(arena.retire_unreferenced(&closure), vec![old.index]);
+        assert_eq!(arena.free_list_len(), 1);
+        let closure = arena.frozen_closure(&[]);
+        assert!(arena.retire_unreferenced(&closure).is_empty());
+
+        let fresh = arena.alloc(BlockKind::Heading(2));
+        assert_eq!(fresh.index, old.index);
+        assert!(fresh.generation.get() > old.generation.get());
+        assert!(arena.get(old).is_none());
+        assert!(arena.node_any(old).is_none());
+        assert!(arena.frozen_node(old).is_none());
+        assert!(!arena.resurrect(old));
+        assert_eq!(arena.live_at(old.index), Some(fresh));
+        arena.tombstone(old);
+        assert!(arena.get(fresh).is_some());
+    }
+
+    #[test]
+    fn retire_never_takes_a_live_slot() {
+        let mut arena = DocumentArena::new();
+        let _live = arena.alloc(BlockKind::Paragraph);
+        let closure = arena.frozen_closure(&[]);
+        assert!(arena.retire_unreferenced(&closure).is_empty());
+        assert_eq!(arena.free_list_len(), 0);
+    }
 
     #[test]
     fn counts_exclude_the_sentinel_slot() {

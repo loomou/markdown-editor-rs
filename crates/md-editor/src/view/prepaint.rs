@@ -1,4 +1,4 @@
-use super::draw::{is_scroll_well, well_content_w, well_scroll_xy};
+use super::draw::{is_scroll_well, pick_well_piece, well_scroll_xy};
 use super::scrollbar::{
     park_block_top_margin, park_block_top_scroll, search_reveal_scroll, select_autoscroll_can_move,
     select_autoscroll_delta,
@@ -23,6 +23,7 @@ use md_render::search::SearchMatch;
 use md_render::snap::SnapOperator;
 use md_render::snapshot::{Frame, SnapshotRevs};
 use md_theme::DocumentTheme;
+use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
 use std::time::Duration;
@@ -199,8 +200,11 @@ impl EditorElement {
 
     fn read_frame_inputs(&mut self, bounds: Bounds<Pixels>, cx: &mut App) -> FrameInputs {
         let mut inputs = self.state.update(cx, |v, _cx| {
+            let vw = f32::from(bounds.size.width) as Px;
+            let layout_w = vw.min(v.state.theme.decoration.content_cap(vw));
             let mut env = v.state.env;
-            env.viewport_width = f32::from(bounds.size.width) as Px;
+            env.viewport_width = layout_w;
+            env.content_inset = ((vw - layout_w) * 0.5).max(0.0);
             v.state.env = env;
             FrameInputs {
                 env,
@@ -221,7 +225,10 @@ impl EditorElement {
                     .and_then(|i| v.search.matches.get(i).copied()),
             }
         });
-        inputs.env.viewport_width = f32::from(bounds.size.width) as Px;
+        let vw = f32::from(bounds.size.width) as Px;
+        let layout_w = vw.min(inputs.theme.decoration.content_cap(vw));
+        inputs.env.viewport_width = layout_w;
+        inputs.env.content_inset = ((vw - layout_w) * 0.5).max(0.0);
         inputs
     }
 
@@ -487,7 +494,11 @@ impl EditorElement {
                         .unwrap_or(md_layout::style::DEFAULT_LINE_HEIGHT);
                     let sp = frame.spans.get(&box_id).map(|s| s.top);
                     if let Some(top) = sp {
-                        let x = md_render::boxtree::inline_offset(&frame.assembly.tree, box_id);
+                        let x = md_render::boxtree::inline_offset(
+                            &frame.assembly.tree,
+                            box_id,
+                            env.content_inset,
+                        );
                         let w = frame.assembly.tree.avail_width(box_id, env.viewport_width);
                         let kind = frame.assembly.tree.get(box_id).kind();
                         let Some(hit_block) = md_render::boxtree::block_id_of(box_id) else {
@@ -525,14 +536,24 @@ impl EditorElement {
     }
 
     fn clamp_well_scrolls(&mut self, frame: &Frame, cx: &mut App) {
+        let mut maxes: HashMap<BlockId, (Px, Px)> = HashMap::new();
+        for t in &frame.texts {
+            if !is_scroll_well(t.kind, t.edit_source) || maxes.contains_key(&t.block) {
+                continue;
+            }
+            if let Some((wt, cw, ch)) = pick_well_piece(&frame.texts, t.block) {
+                maxes.insert(
+                    t.block,
+                    (
+                        (cw - wt.content_width).max(0.0),
+                        (ch - wt.view_height).max(0.0),
+                    ),
+                );
+            }
+        }
         self.state.update(cx, |v, _| {
-            for t in &frame.texts {
-                if !is_scroll_well(t.kind, t.edit_source) {
-                    continue;
-                }
-                let max_x = (well_content_w(t) - t.content_width).max(0.0);
-                let max_y = (t.art.height - t.view_height).max(0.0);
-                if let Some(s) = v.well_scroll.get_mut(&t.block) {
+            for (block, (max_x, max_y)) in maxes {
+                if let Some(s) = v.well_scroll.get_mut(&block) {
                     s.x = s.x.clamp(0.0, max_x);
                     s.y = s.y.clamp(0.0, max_y);
                 }
@@ -578,11 +599,8 @@ impl EditorElement {
                 v.state.scroll = s.clamp(0.0, (total - vh).max(0.0));
                 changed = true;
             }
-            if let Some((cx0, cy0, cw, ch)) = frame.caret_device
-                && let Some(t) = frame
-                    .texts
-                    .iter()
-                    .find(|t| t.block == cursor.block && is_scroll_well(t.kind, t.edit_source))
+            if let Some((cx0, cy0, cw0, ch0)) = frame.caret_device
+                && let Some((t, well_cw, well_ch)) = pick_well_piece(&frame.texts, cursor.block)
             {
                 let (ox, oy) = t.content_origin_device;
                 let mut s = v.well_scroll.get(&t.block).copied().unwrap_or_default();
@@ -590,17 +608,16 @@ impl EditorElement {
                 let local_y = cy0 - oy;
                 if local_x < s.x {
                     s.x = local_x;
-                } else if local_x + cw > s.x + t.content_width {
-                    s.x = local_x + cw - t.content_width;
+                } else if local_x + cw0 > s.x + t.content_width {
+                    s.x = local_x + cw0 - t.content_width;
                 }
                 if local_y < s.y {
                     s.y = local_y;
-                } else if local_y + ch > s.y + t.view_height {
-                    s.y = local_y + ch - t.view_height;
+                } else if local_y + ch0 > s.y + t.view_height {
+                    s.y = local_y + ch0 - t.view_height;
                 }
-                s.x =
-                    s.x.clamp(0.0, (well_content_w(t) - t.content_width).max(0.0));
-                s.y = s.y.clamp(0.0, (t.art.height - t.view_height).max(0.0));
+                s.x = s.x.clamp(0.0, (well_cw - t.content_width).max(0.0));
+                s.y = s.y.clamp(0.0, (well_ch - t.view_height).max(0.0));
                 if v.well_scroll.get(&t.block).copied() != Some(s) {
                     v.well_scroll.insert(t.block, s);
                     changed = true;

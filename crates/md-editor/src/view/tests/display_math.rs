@@ -6,8 +6,11 @@ use md_content::shaper::ShapePart;
 use md_core::block::BlockKind;
 
 #[gpui::test]
-fn display_math_is_centered_with_equal_air_above_and_below(cx: &mut TestAppContext) {
-    let (editor, cx) = editor_with_doc("one\n\ntwo\n\n$$\n\\frac{a+b}{c}\n$$\n\nthree\n", cx);
+fn display_math_uses_the_shared_code_well_spacing(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc(
+        "one\n\ntwo\n\n$$\n\\frac{a+b}{c}\n$$\n\nthree\n\n```\nc\n```\n\nfour\n",
+        cx,
+    );
     cx.run_until_parked();
     let (_, prepaint) = cx.draw(
         point(px(0.0), px(0.0)),
@@ -19,8 +22,8 @@ fn display_math_is_centered_with_equal_air_above_and_below(cx: &mut TestAppConte
     let texts = &prepaint.frame.snapshot.texts;
     assert_eq!(
         texts.len(),
-        5,
-        "the four body blocks plus the trailing empty paragraph should all be in the publish window"
+        7,
+        "the six body blocks plus the trailing empty paragraph should all be in the publish window"
     );
     let span = |i: usize| {
         let p = &texts[i];
@@ -35,17 +38,24 @@ fn display_math_is_centered_with_equal_air_above_and_below(cx: &mut TestAppConte
         BlockKind::Math,
         "the third block should be a math block"
     );
+    assert_eq!(
+        texts[4].kind,
+        BlockKind::CodeBlock,
+        "the fifth block should be a code block"
+    );
 
     let body_gap = span(1).0 - span(0).1;
-    let above = span(2).0 - span(1).1;
-    let below = span(3).0 - span(2).1;
+    let math_above = span(2).0 - span(1).1;
+    let math_below = span(3).0 - span(2).1;
+    let code_above = span(4).0 - span(3).1;
+    let code_below = span(5).0 - span(4).1;
     assert!(
-        (above - below).abs() < 0.5,
-        "the margins above and below differ: above {above}, below {below}"
+        (math_above - code_above).abs() < 0.5 && (math_below - code_below).abs() < 0.5,
+        "math and code wells disagree on spacing: math above {math_above} below {math_below}, code above {code_above} below {code_below}"
     );
     assert!(
-        above > body_gap,
-        "the whitespace {above} is not wider than the paragraph gap {body_gap}"
+        math_above > body_gap,
+        "the well whitespace {math_above} is not wider than the paragraph gap {body_gap}"
     );
 
     let part = math

@@ -212,6 +212,10 @@ impl IncrementalEngine {
         measure: &dyn TextMeasure,
         solver: &dyn IslandSolver,
     ) -> ScrollAnchor {
+        if !sa.item.is_none() && self.spine.get(sa.item).is_none() {
+            let fallback = self.requested_y.unwrap_or(self.last_resolved_top);
+            return self.anchor_at_y(fallback, measure, solver);
+        }
         if sa.item.is_none() {
             return sa;
         }

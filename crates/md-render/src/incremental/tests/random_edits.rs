@@ -161,7 +161,11 @@ fn text_signature(doc: &md_core::document::Document) -> String {
             .replace("<br>", "\n")
             .replace("&#32;", " ");
         let lines: Vec<String> = raw.split('\n').map(unescape_punct).collect();
-        let truncate_to: Vec<Option<usize>> = table_block_widths(&lines);
+        let quote_hosted = node
+            .parent
+            .and_then(|p| doc.arena.get(p))
+            .is_some_and(|n| n.kind == BlockKind::BlockQuote);
+        let truncate_to: Vec<Option<usize>> = table_block_widths(&lines, quote_hosted);
         for (index, line) in lines.iter().enumerate() {
             let line = if node.kind == BlockKind::TableCell {
                 line.trim()
@@ -251,8 +255,8 @@ fn split_columns(line: &str) -> Vec<&str> {
         .collect()
 }
 
-fn table_block_widths(lines: &[String]) -> Vec<Option<usize>> {
-    let columns_of = |line: &str| split_columns(line).len();
+fn table_block_widths(lines: &[String], quote_hosted: bool) -> Vec<Option<usize>> {
+    let columns_of = |line: &str| split_columns(strip_incarnation_prefixes(line)).len();
     let has_column_bar = |line: &str| strip_edge_pipes(line).contains('|');
     let mut out = vec![None; lines.len()];
     let mut i = 0;
@@ -267,10 +271,14 @@ fn table_block_widths(lines: &[String]) -> Vec<Option<usize>> {
             end += 1;
         }
         for k in start..end {
+            let tab_header_reloads_as_block_start = !quote_hosted
+                && k > start
+                && lines[k - 1].starts_with('\t')
+                && (k < 2 || lines[k - 2].trim().is_empty());
             if k > start
-                && is_separator_line(&lines[k])
+                && is_separator_line(strip_incarnation_prefixes(&lines[k]))
                 && columns_of(&lines[k - 1]) == columns_of(&lines[k])
-                && !lines[k - 1].starts_with('\t')
+                && !tab_header_reloads_as_block_start
             {
                 let width = columns_of(&lines[k]);
                 for slot in &mut out[k + 1..end] {
@@ -290,6 +298,14 @@ fn is_separator_line(line: &str) -> bool {
 }
 
 fn strip_block_prefixes(line: &str) -> &str {
+    strip_block_prefixes_impl(line, false)
+}
+
+fn strip_incarnation_prefixes(line: &str) -> &str {
+    strip_block_prefixes_impl(line, true)
+}
+
+fn strip_block_prefixes_impl(line: &str, keep_hashes: bool) -> &str {
     let mut s = line.trim();
     loop {
         let stripped = if let Some(rest) = s
@@ -303,7 +319,7 @@ fn strip_block_prefixes(line: &str) -> &str {
             && matches!(s.as_bytes().get(1), Some(b' ' | b'\t' | 0))
         {
             &s[2..]
-        } else if s.starts_with('#') {
+        } else if !keep_hashes && s.starts_with('#') {
             let hashes = s.bytes().take_while(|b| *b == b'#').count();
             &s[hashes..]
         } else {
@@ -844,11 +860,12 @@ fn failure_step(msg: &str) -> Option<usize> {
 
 #[test]
 fn random_edit_sequences_undo_to_the_bottom_restore_the_source() {
+    let case_start = env_start("MD_TEST_RANDOM_CASE_START");
     let cases = env_count("MD_TEST_RANDOM_CASES", 8, 4096);
     let trace_progress = std::env::var_os("MD_TEST_RANDOM_TRACE").is_some();
     const STEPS: usize = 32;
 
-    for case in 0..cases {
+    for case in case_start..case_start.saturating_add(cases) {
         let seed = 0x6d64_7465_7374_0002u64.wrapping_add(case as u64 * 0x9e37_79b9);
         let mut rng = Rng::new(seed);
         let mut doc = Doc::new(loaded(INITIAL_MARKDOWN));

@@ -29,10 +29,14 @@ pub struct DecorationTokens {
     pub table_line_thickness: Px,
     pub code_radius: f32,
     pub code_border: Px,
+    pub well_head_h: Px,
     pub well_lang_size: f32,
+    pub well_lang_left: Px,
     pub well_lang_right: Px,
     pub well_lang_top: Px,
     pub well_lang: ThemeColor,
+    pub well_lang_hover: ThemeColor,
+    pub content_steps: [(Px, Px); 3],
     pub placeholder_dash: Px,
     pub placeholder_gap: Px,
     pub placeholder_label_size: f32,
@@ -45,6 +49,15 @@ pub struct DecorationTokens {
 }
 
 impl DecorationTokens {
+    pub fn content_cap(&self, window_w: Px) -> Px {
+        self.content_steps
+            .iter()
+            .rev()
+            .find(|(at, _)| window_w >= *at)
+            .map(|(_, w)| *w)
+            .unwrap_or(self.content_steps[0].1)
+    }
+
     pub fn fingerprint(self) -> u64 {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -56,6 +69,7 @@ impl DecorationTokens {
         const FLAT: ThemeColor = ThemeColor::new(0.0, 0.0, 0.0, 1.0);
         Self {
             well_lang: FLAT,
+            well_lang_hover: FLAT,
             alert_note: FLAT,
             alert_tip: FLAT,
             alert_important: FLAT,
@@ -92,10 +106,14 @@ impl DecorationTokens {
             table_line_thickness: 1.0,
             code_radius: 6.0,
             code_border: 1.0,
-            well_lang_size: 10.5,
-            well_lang_right: 10.0,
-            well_lang_top: 6.0,
+            well_head_h: 41.0,
+            content_steps: [(0.0, 956.0), (1400.0, 1120.0), (1800.0, 1296.0)],
+            well_lang_size: 13.0,
+            well_lang_left: 16.0,
+            well_lang_right: 16.0,
+            well_lang_top: 11.0,
             well_lang: p.slate_500,
+            well_lang_hover: p.slate_600,
             placeholder_dash: 4.0,
             placeholder_gap: 3.0,
             placeholder_label_size: 13.0,

@@ -391,6 +391,37 @@ fn glued_display_math_is_a_sibling_math_block() {
 }
 
 #[test]
+fn glued_display_math_trims_the_sibling_log_tail() {
+    let doc = load_markdown(
+        "a *i* b
+$$
+x
+$$
+",
+        editor_options(),
+    );
+    let para = doc
+        .preorder()
+        .into_iter()
+        .find(|id| doc.arena.get(*id).map(|n| n.kind) == Some(crate::block::BlockKind::Paragraph))
+        .expect("para");
+    assert_eq!(
+        doc.display(para),
+        "a i b",
+        "neither the math nor the newline should remain in the paragraph"
+    );
+    let live = doc.live_id(para.index).expect("leaf");
+    let text = doc
+        .arena
+        .get(live)
+        .and_then(|node| node.text)
+        .and_then(|text| doc.texts.get(text))
+        .expect("text");
+    assert_eq!(text.s2d.last().copied(), Some(doc.display(para).len()));
+    assert_eq!(text.s2d.len(), doc.leaf_source(live).len() + 1);
+}
+
+#[test]
 fn multiline_display_math_drops_delimiter_newline() {
     let doc = load_markdown("$$\n\\frac{a}{b}\n$$\n", editor_options());
     let math = doc

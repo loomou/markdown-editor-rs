@@ -148,6 +148,9 @@ impl EditorView {
             media_chrome: None,
             media_chrome_hover: false,
             media_zoom: None,
+            well_copy_hover: None,
+            well_copy_done: None,
+            well_copy_task: None,
         }
     }
 

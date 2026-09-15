@@ -3,10 +3,10 @@ use super::load::strip_html;
 use super::{Document, NodeId, sanitized_editor_options};
 use crate::block::{BlockKind, NodeExtra};
 use crate::inline::{InlineMarks, InlineRun};
-use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+use pulldown_cmark::{NodeKind, Parsed};
 use std::borrow::Cow;
 use std::ops::Range;
-const UNMAPPED: usize = usize::MAX;
+pub(crate) const UNMAPPED: usize = usize::MAX;
 
 pub(crate) const IMAGE_PLACEHOLDER: &str = "\u{FFFC}";
 
@@ -573,13 +573,9 @@ fn source_to_display_map_impl(
     table_soft_breaks: bool,
     definitions: &[String],
 ) -> Vec<usize> {
-    let n = source.len();
-    if n == 0 {
+    if source.is_empty() {
         return vec![0];
     }
-    let mut s2d = vec![UNMAPPED; n + 1];
-    let mut disp = 0usize;
-    let mut image_disp_at: Option<usize> = None;
     let owned;
     let parse_source: &str = if definitions.is_empty() || !needs_definitions(source) {
         source
@@ -599,65 +595,113 @@ fn source_to_display_map_impl(
             &owned
         }
     };
-    for (event, range) in
-        Parser::new_ext(parse_source, sanitized_editor_options()).into_offset_iter()
-    {
-        if range.start > n {
-            continue;
-        }
-        let lo = range.start.min(n);
-        let hi = range.end.min(n).max(lo);
-        match event {
-            Event::Start(Tag::Image { .. }) => {
-                image_disp_at = Some(disp);
-            }
-            Event::End(TagEnd::Image) => {
+    crate::document::metrics::note_parser();
+    let parsed = Parsed::inline_only(parse_source, sanitized_editor_options());
+    map_from_parsed(source, table_soft_breaks, &parsed)
+}
+
+pub(crate) fn map_from_parsed(
+    source: &str,
+    table_soft_breaks: bool,
+    parsed: &Parsed<'_>,
+) -> Vec<usize> {
+    let n = source.len();
+    let mut s2d = vec![UNMAPPED; n + 1];
+    let mut disp = 0usize;
+    let mut image_disp_at: Option<usize> = None;
+    enum Frame<'a, 'i> {
+        Node(pulldown_cmark::NodeRef<'a, 'i>),
+        ImageEnd { lo: usize, hi: usize },
+    }
+    let mut stack: Vec<Frame<'_, '_>> = Vec::new();
+    if let Some(first) = parsed.root().first_child() {
+        stack.push(Frame::Node(first));
+    }
+    while let Some(frame) = stack.pop() {
+        let node = match frame {
+            Frame::Node(node) => node,
+            Frame::ImageEnd { lo, hi } => {
                 if image_disp_at.take() == Some(disp) {
                     fill(&mut s2d, lo, hi, disp);
                     disp = disp.saturating_add(IMAGE_PLACEHOLDER.len());
                     assign(&mut s2d, hi, disp);
                 }
+                continue;
             }
-            Event::Start(_) | Event::End(_) => {}
-            Event::Text(t) => {
-                map_shown(source, &mut s2d, lo, hi, t.as_ref(), &mut disp);
+        };
+        if let Some(sibling) = node.next_sibling() {
+            stack.push(Frame::Node(sibling));
+        }
+        let span = node.span();
+        if span.start > n {
+            continue;
+        }
+        let lo = span.start.min(n);
+        let hi = span.end.min(n).max(lo);
+        match node.kind() {
+            NodeKind::Image(_) => {
+                image_disp_at = Some(disp);
+                stack.push(Frame::ImageEnd { lo, hi });
+                if let Some(child) = node.first_child() {
+                    stack.push(Frame::Node(child));
+                }
             }
-            Event::Code(t) | Event::InlineMath(t) | Event::DisplayMath(t) => {
-                map_shown(source, &mut s2d, lo, hi, t.as_ref(), &mut disp);
+            NodeKind::Text { .. } | NodeKind::TextOwned | NodeKind::SynthesizedChar(_) => {
+                let mut buf = [0u8; 4];
+                let shown = match node.kind() {
+                    NodeKind::SynthesizedChar(c) => c.encode_utf8(&mut buf),
+                    _ => node.text().unwrap_or(""),
+                };
+                map_shown(source, &mut s2d, lo, hi, shown, &mut disp);
+                if let Some(child) = node.first_child() {
+                    stack.push(Frame::Node(child));
+                }
             }
-            Event::SoftBreak => {
+            NodeKind::Code(content) => {
+                map_shown(source, &mut s2d, lo, hi, content.as_ref(), &mut disp);
+            }
+            NodeKind::Math { content, .. } => {
+                map_shown(source, &mut s2d, lo, hi, content.as_ref(), &mut disp);
+            }
+            NodeKind::SoftBreak | NodeKind::HardBreak { .. } => {
                 fill(&mut s2d, lo, hi, disp);
                 disp = disp.saturating_add(1);
                 assign(&mut s2d, hi, disp);
             }
-            Event::HardBreak => {
-                fill(&mut s2d, lo, hi, disp);
-                disp = disp.saturating_add(1);
-                assign(&mut s2d, hi, disp);
-            }
-            Event::FootnoteReference(t) => {
-                let shown = format!("[^{t}]");
+            NodeKind::FootnoteReference(label) => {
+                let shown = format!("[^{label}]");
                 map_shown(source, &mut s2d, lo, hi, &shown, &mut disp);
             }
-            Event::Html(t) | Event::InlineHtml(t)
-                if table_soft_breaks && is_html_line_break(&t) =>
+            NodeKind::Html | NodeKind::InlineHtml
+                if table_soft_breaks && is_html_line_break(node.text().unwrap_or("")) =>
             {
                 assign(&mut s2d, lo, disp);
                 disp = disp.saturating_add(1);
                 fill(&mut s2d, lo.saturating_add(1), hi, disp);
             }
-            Event::Html(t) | Event::InlineHtml(t) => {
-                let shown = strip_html(&t);
+            NodeKind::Html | NodeKind::InlineHtml => {
+                let shown = strip_html(node.text().unwrap_or(""));
                 map_shown(source, &mut s2d, lo, hi, &shown, &mut disp);
             }
-            _ => {}
+            _ => {
+                if let Some(child) = node.first_child() {
+                    stack.push(Frame::Node(child));
+                }
+            }
         }
     }
     fill_gaps(&mut s2d);
     s2d
 }
 
-fn map_shown(source: &str, s2d: &mut [usize], lo: usize, hi: usize, shown: &str, disp: &mut usize) {
+pub(crate) fn map_shown(
+    source: &str,
+    s2d: &mut [usize],
+    lo: usize,
+    hi: usize,
+    shown: &str,
+    disp: &mut usize,
+) {
     let slice = source.get(lo..hi).unwrap_or("");
     if slice == shown {
         fill_1to1(s2d, lo, shown.len(), *disp);
@@ -698,7 +742,7 @@ fn map_shown(source: &str, s2d: &mut [usize], lo: usize, hi: usize, shown: &str,
     *disp += shown.len();
 }
 
-fn fill(s2d: &mut [usize], lo: usize, hi: usize, d: usize) {
+pub(crate) fn fill(s2d: &mut [usize], lo: usize, hi: usize, d: usize) {
     let n = s2d.len().saturating_sub(1);
     let lo = lo.min(n);
     let hi = hi.min(n);
@@ -709,20 +753,20 @@ fn fill(s2d: &mut [usize], lo: usize, hi: usize, d: usize) {
     }
 }
 
-fn fill_1to1(s2d: &mut [usize], src_lo: usize, len: usize, disp: usize) {
+pub(crate) fn fill_1to1(s2d: &mut [usize], src_lo: usize, len: usize, disp: usize) {
     let n = s2d.len().saturating_sub(1);
     for i in 0..=len {
         assign(s2d, (src_lo + i).min(n), disp + i);
     }
 }
 
-fn assign(s2d: &mut [usize], i: usize, d: usize) {
+pub(crate) fn assign(s2d: &mut [usize], i: usize, d: usize) {
     if i < s2d.len() {
         s2d[i] = d;
     }
 }
 
-fn fill_gaps(s2d: &mut [usize]) {
+pub(crate) fn fill_gaps(s2d: &mut [usize]) {
     let mut last = 0;
     for slot in s2d.iter_mut() {
         if *slot == UNMAPPED {
@@ -761,6 +805,8 @@ mod tests {
             "![](u)![](v)",
             "![a](u) x",
             "x [![](u)](l) y",
+            "\"quoted\" -- dash --- em ... ellipsis",
+            "a	b	c",
         ] {
             let doc = load_markdown(src, editor_options());
             let id = doc.live_id(doc.text_leaves()[0]).expect("leaf");

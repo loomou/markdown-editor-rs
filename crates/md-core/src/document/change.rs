@@ -150,6 +150,29 @@ impl DocChange {
             DocChange::TableAlignOverflow { old, new, .. } => old != new,
         }
     }
+
+    pub(crate) fn node_refs(&self, out: &mut Vec<NodeId>) {
+        match self {
+            DocChange::DocumentReplaced | DocChange::ReferenceDefsChanged { .. } => {}
+            DocChange::TextChanged { node, .. } | DocChange::AttrsChanged { node, .. } => {
+                out.push(*node)
+            }
+            DocChange::TreeSpliced {
+                parent,
+                before,
+                removed,
+                inserted,
+            } => {
+                out.push(*parent);
+                if let Some(before) = before {
+                    out.push(*before);
+                }
+                out.extend(removed.iter().copied());
+                out.extend(inserted.iter().copied());
+            }
+            DocChange::TableAlignOverflow { table, .. } => out.push(*table),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -221,6 +244,14 @@ impl ChangeSet {
         self.changes = changes;
         self.before_revision = other.before_revision;
     }
+
+    pub(crate) fn node_refs(&self) -> Vec<NodeId> {
+        let mut out = Vec::new();
+        for c in &self.changes {
+            c.node_refs(&mut out);
+        }
+        out
+    }
 }
 
 #[cfg(test)]
@@ -228,6 +259,7 @@ mod tests {
     use super::{ChangeSet, DocChange};
     use crate::block::{BlockKind, NodeExtra};
     use crate::document::arena::NodeId;
+    use std::sync::Arc;
 
     fn nid(i: u32) -> NodeId {
         NodeId::at(i, 1)
@@ -305,5 +337,80 @@ mod tests {
         };
         assert!(!mixed.is_text_only());
         assert!(!mixed.is_structural());
+    }
+
+    #[test]
+    fn node_refs_cover_every_identity_field() {
+        let cs = ChangeSet {
+            before_revision: 1,
+            after_revision: 2,
+            changes: vec![
+                DocChange::text(nid(1), 1, 2, 0..1, "a", "b"),
+                DocChange::attrs(
+                    nid(2),
+                    BlockKind::Paragraph,
+                    BlockKind::Heading(1),
+                    NodeExtra::None,
+                    NodeExtra::None,
+                ),
+                DocChange::TreeSpliced {
+                    parent: nid(3),
+                    before: Some(nid(4)),
+                    removed: vec![nid(5), nid(6)],
+                    inserted: vec![nid(7)],
+                },
+                DocChange::TableAlignOverflow {
+                    table: nid(8),
+                    old: Arc::from(vec![0u8]),
+                    new: Arc::from(vec![1u8]),
+                },
+                DocChange::DocumentReplaced,
+                DocChange::ReferenceDefsChanged {
+                    old: Arc::new(vec![]),
+                    new: Arc::new(vec!["d".to_string()]),
+                },
+            ],
+        };
+        assert_eq!(
+            cs.node_refs(),
+            vec![
+                nid(1),
+                nid(2),
+                nid(3),
+                nid(4),
+                nid(5),
+                nid(6),
+                nid(7),
+                nid(8)
+            ]
+        );
+    }
+
+    #[test]
+    fn invert_preserves_the_node_ref_multiset() {
+        let cs = ChangeSet {
+            before_revision: 1,
+            after_revision: 2,
+            changes: vec![
+                DocChange::text(nid(1), 1, 2, 0..1, "a", "bc"),
+                DocChange::TreeSpliced {
+                    parent: nid(0),
+                    before: Some(nid(2)),
+                    removed: vec![nid(3), nid(4)],
+                    inserted: vec![nid(5)],
+                },
+                DocChange::TreeSpliced {
+                    parent: nid(1),
+                    before: None,
+                    removed: vec![],
+                    inserted: vec![nid(2), nid(3)],
+                },
+            ],
+        };
+        let mut a = cs.node_refs();
+        let mut b = cs.invert().node_refs();
+        a.sort();
+        b.sort();
+        assert_eq!(a, b);
     }
 }

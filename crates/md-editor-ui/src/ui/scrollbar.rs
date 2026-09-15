@@ -11,24 +11,38 @@ pub struct Slider {
 
 impl Slider {
     pub fn new(view: Px, content: Px, scroll: Px, pad: Px, min_thumb: Px) -> Option<Self> {
+        if !pad.is_finite() {
+            return None;
+        }
+        let pad = pad.max(0.0);
+        let track_len = view - pad * 2.0;
+        if !track_len.is_finite() {
+            return None;
+        }
+        Self::with_track(view, content, scroll, pad, track_len, min_thumb)
+    }
+
+    pub fn with_track(
+        view: Px,
+        content: Px,
+        scroll: Px,
+        track_start: Px,
+        track_len: Px,
+        min_thumb: Px,
+    ) -> Option<Self> {
         if !view.is_finite()
             || !content.is_finite()
             || !scroll.is_finite()
-            || !pad.is_finite()
+            || !track_start.is_finite()
+            || !track_len.is_finite()
             || !min_thumb.is_finite()
         {
             return None;
         }
-        if view <= 0.0 || content <= view {
+        if view <= 0.0 || content <= view || track_len <= 0.0 {
             return None;
         }
-        let pad = pad.max(0.0);
         let min_thumb = min_thumb.max(0.0);
-        let track_start = pad;
-        let track_len = (view - pad * 2.0).max(0.0);
-        if track_len <= 0.0 {
-            return None;
-        }
         let thumb_len = (view / content * track_len).clamp(min_thumb.min(track_len), track_len);
         let max_scroll = content - view;
         let t = (scroll.clamp(0.0, max_scroll) / max_scroll).clamp(0.0, 1.0);

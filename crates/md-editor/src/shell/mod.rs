@@ -2,6 +2,7 @@ mod caption;
 mod color_picker;
 mod colors;
 mod dialogs;
+mod font_menu;
 mod menu;
 mod outline;
 mod settings;
@@ -11,6 +12,7 @@ mod status;
 mod titlebar;
 
 use self::color_picker::ColorPicker;
+use self::font_menu::FontMenu;
 use self::menu::{MenuId, clamp_menu_pos};
 use self::outline::{OUTLINE_MIN_VIEWPORT, OutlineCache};
 use self::status::StatusCache;
@@ -61,6 +63,7 @@ pub struct Shell {
     settings_scroll: ScrollHandle,
     color_groups_open: [bool; ColorGroup::COUNT],
     color_picker: Option<ColorPicker>,
+    font_menu: Option<FontMenu>,
     hex_focus: FocusHandle,
     recording: Option<Cmd>,
     record_note: Option<(Cmd, String)>,
@@ -145,6 +148,7 @@ impl Shell {
             settings_scroll: ScrollHandle::new(),
             color_groups_open: [false; ColorGroup::COUNT],
             color_picker: None,
+            font_menu: None,
             hex_focus: cx.focus_handle(),
             recording: None,
             record_note: None,
@@ -241,13 +245,11 @@ impl Render for Shell {
                     .get(&editor.state.doc, editor.state.cursor),
             )
         };
-        if show_outline {
-            if self.outline_cache.get(window, &editor.state.doc) {
-                self.outline_current = None;
-                let handle = self.outline_scroll.0.borrow().base_handle.clone();
-                let cur = handle.offset();
-                handle.set_offset(point(cur.x, px(0.)));
-            }
+        if show_outline && self.outline_cache.get(window, &editor.state.doc) {
+            self.outline_current = None;
+            let handle = self.outline_scroll.0.borrow().base_handle.clone();
+            let cur = handle.offset();
+            handle.set_offset(point(cur.x, px(0.)));
         }
         let picker_hidden = self.color_picker.as_ref().is_some_and(|p| !p.showing());
         if picker_hidden
@@ -352,6 +354,7 @@ impl Render for Shell {
                 self.menu_popup(t, id, pos, in_table, window.viewport_size(), this.clone())
             }))
             .children(self.color_picker_overlay(t, &this))
+            .children(self.font_menu_overlay(t, &this))
             .children(self.unsaved_overlay(t, this.clone(), editor))
             .children(self.insert_table_overlay(t, this.clone(), editor))
             .children(self.save_conflict_overlay(t, this, editor))

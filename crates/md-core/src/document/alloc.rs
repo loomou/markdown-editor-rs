@@ -5,7 +5,7 @@ use crate::block::BlockKind;
 impl Document {
     pub(super) fn alloc_leaf(&mut self, kind: BlockKind) -> NodeId {
         let id = self.arena.alloc(kind);
-        self.texts.push_slot();
+        self.texts.reset_or_push(id.index);
         self.texts.init_leaf(id.text_id());
         if let Some(n) = self.arena.get_mut(id) {
             n.text = Some(id.text_id());
@@ -15,7 +15,7 @@ impl Document {
 
     pub(crate) fn alloc_container(&mut self, kind: BlockKind) -> NodeId {
         let id = self.arena.alloc(kind);
-        self.texts.push_slot();
+        self.texts.reset_or_push(id.index);
         id
     }
 

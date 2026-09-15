@@ -207,7 +207,7 @@ fn every_settings_row_still_fits_in_the_other_language(cx: &mut TestAppContext) 
             "row:SetBodyFont",
             Key::SetBodyFont,
             Key::SetBodyFontHint,
-            &[Key::SetFontSerif, Key::SetFontSans][..],
+            &[Key::SetFontSystemDefault][..],
         ),
         (
             "density",
@@ -284,8 +284,6 @@ fn the_settings_page_paints_the_words_that_the_key_table_holds(cx: &mut TestAppC
         ("seg:SetLanguageEn", Key::SetLanguageEn),
         ("seg:SetThemeDark", Key::SetThemeDark),
         ("seg:SetThemeLight", Key::SetThemeLight),
-        ("seg:SetFontSerif", Key::SetFontSerif),
-        ("seg:SetFontSans", Key::SetFontSans),
         ("seg:SetDensityCompact", Key::SetDensityCompact),
         ("seg:SetDensityNormal", Key::SetDensityNormal),
         ("seg:SetDensityRelaxed", Key::SetDensityRelaxed),
@@ -316,7 +314,7 @@ fn the_settings_page_paints_the_words_that_the_key_table_holds(cx: &mut TestAppC
 }
 
 #[gpui::test]
-fn picking_a_language_writes_it_down_without_changing_this_run(cx: &mut TestAppContext) {
+fn picking_a_language_switches_this_run_and_writes_it_down(cx: &mut TestAppContext) {
     use crate::store::settings::LanguageChoice;
     use md_i18n::Lang;
 
@@ -373,9 +371,10 @@ fn picking_a_language_writes_it_down_without_changing_this_run(cx: &mut TestAppC
     );
     assert_eq!(
         md_i18n::current(),
-        before,
-        "this press must not change the process language — switching languages needs a restart"
+        Lang::En,
+        "clicking English must switch the process language on the spot"
     );
+    md_i18n::set_current(before);
 
     if let Some(dir) = path.parent() {
         let _ = std::fs::remove_dir_all(dir);
@@ -407,7 +406,8 @@ fn coming_back_to_the_window_picks_up_edits_made_outside(cx: &mut TestAppContext
 
     cx.update(|_, app| {
         shell.update(app, |s, cx| {
-            s.settings.appearance = s.settings.appearance.with_body_size_px(21.0);
+            let a = std::mem::take(&mut s.settings.appearance);
+            s.settings.appearance = a.with_body_size_px(21.0);
             s.appearance_changed(cx);
         });
     });
@@ -497,4 +497,197 @@ fn bump_mtime_back(path: &std::path::Path) {
         .write(true)
         .open(path)
         .and_then(|f| f.set_modified(back));
+}
+
+#[gpui::test]
+fn picking_the_system_default_clears_a_chosen_body_font(cx: &mut TestAppContext) {
+    use crate::store::settings::Settings;
+
+    let path = temp_settings_path("font");
+    let store = crate::store::settings::SettingsStore::at(path.clone());
+    let want = Settings {
+        appearance: md_theme::Appearance {
+            body_font: Some("Georgia".into()),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    store.save(&want).expect("write a settings file first");
+
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
+    stop_blink(&shell, cx);
+    cx.update(|_, app| {
+        shell.update(app, |s, cx| {
+            s.adopt_settings_store(
+                Some(crate::store::settings::SettingsStore::at(path.clone())),
+                cx,
+            );
+            s.show_settings = true;
+            cx.notify();
+        });
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        shell.read_with(cx, |s, _| s.settings.appearance.body_font.clone()),
+        Some("Georgia".into()),
+        "the entry from the file must be adopted"
+    );
+
+    let press = |cx: &mut gpui::VisualTestContext, b: gpui::Bounds<gpui::Pixels>| {
+        cx.simulate_event(MouseDownEvent {
+            button: MouseButton::Left,
+            position: b.center(),
+            modifiers: gpui::Modifiers::default(),
+            click_count: 1,
+            first_mouse: false,
+        });
+        cx.simulate_event(MouseUpEvent {
+            button: MouseButton::Left,
+            position: b.center(),
+            modifiers: gpui::Modifiers::default(),
+            click_count: 1,
+        });
+    };
+
+    let trigger = cx
+        .debug_bounds("font-trigger")
+        .expect("the font button must be painted");
+    press(cx, trigger);
+    cx.run_until_parked();
+    assert!(
+        shell.read_with(cx, |s, _| s.font_menu.is_some()),
+        "after the click the popover state must exist"
+    );
+    let menu = cx
+        .debug_bounds("font-menu")
+        .expect("the popover must be painted — its anchor row is in the viewport");
+
+    let row = cx
+        .debug_bounds("font-row:.SystemUIFont")
+        .expect("System default must be the popover's first row");
+    let want = f32::from(menu.size.width) - (super::super::font_menu::MENU_PAD * 2.0 + 2.0);
+    assert!(
+        (f32::from(row.size.width) - want).abs() <= 1.0,
+        "the row width {:?} should equal the popover content width {want:?}",
+        row.size.width
+    );
+    press(cx, row);
+    cx.run_until_parked();
+    assert_eq!(
+        shell.read_with(cx, |s, _| s.settings.appearance.body_font.clone()),
+        None,
+        "clicking System default must clear back to the factory state"
+    );
+    assert_eq!(
+        store.load().and_then(|s| s.appearance.body_font),
+        None,
+        "the persisted file must also be cleared"
+    );
+    assert!(
+        shell.read_with(cx, |s, _| s.font_menu.is_none()),
+        "after a selection the popover must close"
+    );
+
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+#[gpui::test]
+fn picking_the_system_default_clears_a_chosen_code_font(cx: &mut TestAppContext) {
+    use crate::store::settings::Settings;
+
+    let path = temp_settings_path("code-font");
+    let store = crate::store::settings::SettingsStore::at(path.clone());
+    let want = Settings {
+        appearance: md_theme::Appearance {
+            body_font: Some("Georgia".into()),
+            code_font: Some("Cascadia Code".into()),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    store.save(&want).expect("write a settings file first");
+
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
+    stop_blink(&shell, cx);
+    cx.update(|_, app| {
+        shell.update(app, |s, cx| {
+            s.adopt_settings_store(
+                Some(crate::store::settings::SettingsStore::at(path.clone())),
+                cx,
+            );
+            s.show_settings = true;
+            cx.notify();
+        });
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        shell.read_with(cx, |s, _| s.settings.appearance.code_font.clone()),
+        Some("Cascadia Code".into()),
+        "the entry from the file must be adopted"
+    );
+
+    let press = |cx: &mut gpui::VisualTestContext, b: gpui::Bounds<gpui::Pixels>| {
+        cx.simulate_event(MouseDownEvent {
+            button: MouseButton::Left,
+            position: b.center(),
+            modifiers: gpui::Modifiers::default(),
+            click_count: 1,
+            first_mouse: false,
+        });
+        cx.simulate_event(MouseUpEvent {
+            button: MouseButton::Left,
+            position: b.center(),
+            modifiers: gpui::Modifiers::default(),
+            click_count: 1,
+        });
+    };
+
+    let trigger = cx
+        .debug_bounds("code-font-trigger")
+        .expect("the code-font button must be painted");
+    press(cx, trigger);
+    cx.run_until_parked();
+    assert!(
+        shell.read_with(cx, |s, _| s.font_menu.is_some()),
+        "after the click the popover state must exist"
+    );
+    cx.debug_bounds("font-menu")
+        .expect("the popover must be painted — its anchor row is in the viewport");
+    let row_sel: &'static str = format!("font-row:{}", md_theme::SYSTEM_MONO).leak();
+    let row = cx
+        .debug_bounds(row_sel)
+        .expect("the factory monospace entry must head the popover");
+
+    press(cx, row);
+    cx.run_until_parked();
+    assert_eq!(
+        shell.read_with(cx, |s, _| s.settings.appearance.code_font.clone()),
+        None,
+        "clicking System default must clear back to the factory state"
+    );
+    assert_eq!(
+        shell.read_with(cx, |s, _| s.settings.appearance.body_font.clone()),
+        Some("Georgia".into()),
+        "the body choice must not be touched by the code popover"
+    );
+    let saved = store.load().expect("the save must have succeeded");
+    assert_eq!(
+        saved.appearance.code_font, None,
+        "the persisted file must also be cleared"
+    );
+    assert_eq!(
+        saved.appearance.body_font,
+        Some("Georgia".into()),
+        "the persisted body choice must be untouched"
+    );
+    assert!(
+        shell.read_with(cx, |s, _| s.font_menu.is_none()),
+        "after a selection the popover must close"
+    );
+
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

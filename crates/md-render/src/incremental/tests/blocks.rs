@@ -569,3 +569,195 @@ fn move_column_rematerializes_row_cell_x() {
         }
     }
 }
+
+#[test]
+fn a_multiblock_delete_settles_without_full_clear() {
+    let mut doc = loaded("p0\n\np1\n\np2\n\np3\n\np4\n");
+    let env = BoxLayoutEnvironment::default();
+    let mut engine = IncrementalEngine::new(&doc, env, estimator(), dummy_layout());
+    let measure = CountingMeasure {
+        calls: Cell::new(0),
+    };
+    let solver = FallbackSolver;
+    engine.assemble_incremental(ScrollAnchor::top(), 600.0, &measure, &solver);
+
+    let leaves = doc.text_leaves();
+    assert_eq!(leaves.len(), 5);
+    let last = leaves[4];
+    let last_len = doc.text_of(last).unwrap().len();
+    let sel = Sel {
+        anchor: Caret {
+            block: leaves[0],
+            offset: 0,
+        },
+        head: Caret {
+            block: last,
+            offset: last_len,
+        },
+    };
+    apply(&mut doc, sel, Command::DeleteBackward);
+    let changes = doc.take_changes();
+    assert!(changes.is_structural());
+    let settle = engine.apply_changes(&doc, &changes);
+    assert!(
+        !settle.structural_full_clear,
+        "a chained delete must take the local splice, not fall back to a full clear"
+    );
+    assert_tree_matches_cold(&engine, &doc);
+    assert_eq!(
+        engine.doc_rebuilds(),
+        0,
+        "the local path must not count a rebuild"
+    );
+
+    engine.assemble_incremental(ScrollAnchor::top(), 600.0, &measure, &solver);
+    assert_tree_matches_cold(&engine, &doc);
+}
+
+#[test]
+fn a_head_to_middle_delete_settles_without_full_clear() {
+    let mut doc = loaded("p0\n\np1\n\np2\n\np3\n\np4\n");
+    let env = BoxLayoutEnvironment::default();
+    let mut engine = IncrementalEngine::new(&doc, env, estimator(), dummy_layout());
+    let measure = CountingMeasure {
+        calls: Cell::new(0),
+    };
+    let solver = FallbackSolver;
+    engine.assemble_incremental(ScrollAnchor::top(), 600.0, &measure, &solver);
+
+    let leaves = doc.text_leaves();
+    assert_eq!(leaves.len(), 5);
+    let sel = Sel {
+        anchor: Caret {
+            block: leaves[0],
+            offset: 0,
+        },
+        head: Caret {
+            block: leaves[2],
+            offset: doc.text_of(leaves[2]).unwrap().len(),
+        },
+    };
+    apply(&mut doc, sel, Command::DeleteBackward);
+    let changes = doc.take_changes();
+    assert!(changes.is_structural());
+    let settle = engine.apply_changes(&doc, &changes);
+    assert!(
+        !settle.structural_full_clear,
+        "a chained delete that runs out of items must also take the local splice"
+    );
+    assert_tree_matches_cold(&engine, &doc);
+    assert_eq!(engine.doc_rebuilds(), 0);
+
+    engine.assemble_incremental(ScrollAnchor::top(), 600.0, &measure, &solver);
+    assert_tree_matches_cold(&engine, &doc);
+}
+
+#[test]
+fn a_dead_anchor_keeps_the_last_resolved_top() {
+    let mut doc = long_doc();
+    let env = BoxLayoutEnvironment::default();
+    let mut engine = IncrementalEngine::new(&doc, env, estimator(), dummy_layout());
+    let measure = CountingMeasure {
+        calls: Cell::new(0),
+    };
+    let solver = FallbackSolver;
+    let vh = 600.0;
+    engine.assemble_incremental(ScrollAnchor::top(), vh, &measure, &solver);
+
+    let mut item = None;
+    let base = engine.anchor_at_y(4_000.0, &measure, &solver).item;
+    let base_pos = engine.spine.location(base).expect("base item on spine");
+    for delta in 0..engine.spine.len() {
+        let p = if delta % 2 == 0 {
+            base_pos + delta / 2
+        } else {
+            base_pos - delta.div_ceil(2)
+        };
+        if p >= engine.spine.len() {
+            continue;
+        }
+        if let FlowItemKind::Content { box_id } = engine.spine.item_at(p).kind
+            && let Some(block) = box_id.block()
+            && doc.text_of(block).is_some()
+        {
+            item = Some(engine.spine.item_at(p).id);
+            break;
+        }
+    }
+    let item = item.expect("there must be a Content piece near 4_000");
+    let content_top = engine.spine.item_top(item).expect("item top");
+    let sa = engine.anchor_at_y(content_top, &measure, &solver);
+    assert_eq!(
+        sa.item, item,
+        "fixture: the anchored piece must be the chosen Content"
+    );
+    let (_, published) = engine.assemble_incremental(sa, vh, &measure, &solver);
+    let frame_top = published.resolved_top;
+    assert!(
+        frame_top > 3_000.0,
+        "the fixture must really scroll deep: {frame_top}"
+    );
+
+    let Some(FlowItemKind::Content { box_id }) = engine.spine.get(sa.item).map(|i| i.kind) else {
+        panic!("anchor content");
+    };
+    let Some(block) = box_id.block() else {
+        panic!("anchor on a block-owned box");
+    };
+    assert_eq!(
+        doc.live_id(block).map(|id| id.index),
+        Some(block),
+        "premise: the anchored block is still alive"
+    );
+    let next = doc
+        .text_leaves()
+        .into_iter()
+        .find(|&l| l > block)
+        .unwrap_or_else(|| {
+            doc.text_leaves()
+                .into_iter()
+                .rev()
+                .find(|&l| l < block)
+                .expect("the anchored block has no text leaves before or after")
+        });
+    let end_block = if next > block { next } else { block };
+    let end_len = doc.text_of(end_block).map_or(0, |t| t.len());
+    let sel_anchor_block = if next > block { block } else { next };
+    let sel_anchor_len = if next > block {
+        0
+    } else {
+        doc.text_of(sel_anchor_block).map_or(0, |t| t.len())
+    };
+    apply(
+        &mut doc,
+        Sel {
+            anchor: Caret {
+                block: sel_anchor_block,
+                offset: sel_anchor_len,
+            },
+            head: Caret {
+                block: end_block,
+                offset: end_len,
+            },
+        },
+        Command::DeleteBackward,
+    );
+    let changes = doc.take_changes();
+    assert!(
+        changes.is_structural(),
+        "a cross-block delete must be a structural change"
+    );
+    engine.apply_changes(&doc, &changes);
+    assert!(
+        engine.spine.get(sa.item).is_none(),
+        "fixture broken: the anchored piece was not spliced out ({:?} still on the spine)",
+        sa.item
+    );
+
+    let (_, published) = engine.assemble_incremental(sa, vh, &measure, &solver);
+    assert!(
+        (published.resolved_top - frame_top).abs() < vh,
+        "the dead anchor lost the viewport: last frame {frame_top}, this frame {}",
+        published.resolved_top
+    );
+}

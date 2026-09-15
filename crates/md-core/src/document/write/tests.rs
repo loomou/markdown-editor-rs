@@ -1002,6 +1002,7 @@ fn inline_code_and_math_keep_continuation_whitespace() {
         "- `a\n      b`\n",
         "> `a\n>     b`\n",
         "a $x\n    y$ b\n",
+        "$$\\begin{align}\n    x &= 1 \\\\\n    y &= 2\n\\end{align}$$\n",
     ] {
         let first = load_markdown(source, editor_options());
         let display: Vec<String> = first

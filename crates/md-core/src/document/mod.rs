@@ -11,16 +11,19 @@ mod bind;
 mod change;
 mod chars;
 mod copy;
+mod dump;
 pub mod edit;
 mod export;
 mod focus;
 pub(crate) mod history;
 mod ledger;
 mod load;
+mod metrics;
 mod nav;
 mod paste;
 mod promote;
 mod query;
+mod reclaim;
 mod reference;
 mod replay;
 mod syntax;
@@ -35,6 +38,7 @@ mod tests;
 pub use arena::{DocumentArena, NodeId};
 pub use change::{ChangeSet, DocChange};
 pub use chars::{floor_char_boundary, next_char_boundary, prev_char_boundary};
+pub use dump::dump_document;
 pub use edit::{
     Caret, Command, Sel, TABLE_INSERT_MAX_COLS, TABLE_INSERT_MAX_ROWS, TABLE_INSERT_MIN_COLS,
     TABLE_INSERT_MIN_ROWS, TABLE_PICKER_MAX_COLS, TABLE_PICKER_MAX_ROWS, TableLoc, TableOp,
@@ -43,6 +47,8 @@ pub use edit::{
 pub use export::WriteSnapshot;
 pub use focus::{FocusBias, RevealedImage, RevealedMath};
 pub use load::Link;
+#[cfg(feature = "load-metrics")]
+pub use metrics::{reset as metrics_reset, snapshot as metrics_snapshot};
 pub use text::LeafSnapshot;
 pub use word::{
     next_grapheme_boundary, next_word_boundary, prev_grapheme_boundary, prev_word_boundary,
@@ -113,42 +119,6 @@ impl Document {
         };
         let source_at = floor_char_boundary(source, source_at.min(source.len()));
         source.get(source_at..).unwrap_or("").to_string()
-    }
-
-    pub(crate) fn populate_s2d_cache(&mut self) {
-        let mut stack = vec![self.root];
-        let mut leaves = Vec::new();
-        while let Some(id) = stack.pop() {
-            let Some(node) = self.arena.get(id) else {
-                continue;
-            };
-            if node.kind.is_text_leaf() {
-                leaves.push((id, node.kind));
-            }
-            let mut child = node.last_child;
-            while let Some(id) = child {
-                stack.push(id);
-                child = self.arena.get(id).and_then(|n| n.prev_sibling);
-            }
-        }
-        for (id, kind) in leaves {
-            let Some(tid) = self.arena.get(id).and_then(|n| n.text) else {
-                continue;
-            };
-            let Some(leaf) = self.texts.get(tid) else {
-                continue;
-            };
-            let s2d = crate::document::bind::bind_map(
-                leaf.source_str(&self.source),
-                leaf.display(),
-                kind,
-                &self.reference_definitions,
-            )
-            .1;
-            if let Some(leaf) = self.texts.get_mut(tid) {
-                leaf.s2d = s2d;
-            }
-        }
     }
 }
 

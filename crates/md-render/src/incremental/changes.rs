@@ -7,6 +7,7 @@ use md_layout::compose::{sync_block_edit, sync_layout};
 use md_layout::flow::HeightState;
 use md_layout::island::IslandSolver;
 use md_layout::shaper::TextMeasure;
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::rc::Rc;
 
@@ -29,7 +30,7 @@ impl IncrementalEngine {
                 continue;
             };
             if let Some(b) = before
-                && !doc.arena.get(*b).is_some_and(|n| n.parent == Some(*parent))
+                && doc.arena.get(*b).is_none_or(|n| n.parent != Some(*parent))
             {
                 return false;
             }
@@ -48,6 +49,8 @@ impl IncrementalEngine {
         if changes.is_empty() {
             return out;
         }
+        let coalesced = coalesce_chained_removals(changes);
+        let changes: &ChangeSet = &coalesced;
         if changes.is_replace() || !self.splices_replayable(doc, changes) {
             let tree = Rc::make_mut(&mut self.tree);
             let _ = sync_layout(tree, doc, changes, &self.layout);
@@ -192,9 +195,56 @@ impl IncrementalEngine {
             }
         }
         if !changes.is_text_only() {
-            self.clear_table_cons();
+            self.invalidate_touched_table_cons(doc, changes);
         }
         out
+    }
+
+    fn invalidate_touched_table_cons(&mut self, doc: &Document, changes: &ChangeSet) {
+        let mut slots: Vec<u32> = Vec::new();
+        let mut tables: Vec<u32> = Vec::new();
+        for c in &changes.changes {
+            match c {
+                DocChange::TreeSpliced {
+                    parent,
+                    before,
+                    removed,
+                    inserted,
+                } => {
+                    slots.push(parent.index);
+                    if let Some(b) = before {
+                        slots.push(b.index);
+                    }
+                    for n in removed.iter().chain(inserted) {
+                        slots.push(n.index);
+                    }
+                    collect_tables_above(doc, *parent, &mut tables);
+                    for n in inserted {
+                        collect_tables_above(doc, *n, &mut tables);
+                    }
+                }
+                DocChange::AttrsChanged { node, .. } => {
+                    let root = match doc.arena.get(*node) {
+                        Some(n) if n.kind == BlockKind::List => *node,
+                        Some(n) if n.kind == BlockKind::ListItem => n
+                            .parent
+                            .filter(|&p| {
+                                doc.arena
+                                    .get(p)
+                                    .is_some_and(|pn| pn.kind == BlockKind::List)
+                            })
+                            .unwrap_or(*node),
+                        _ => *node,
+                    };
+                    slots.push(node.index);
+                    collect_tables_under(doc, root, &mut tables);
+                }
+                _ => {}
+            }
+        }
+        for idx in slots.iter().copied().chain(tables.iter().copied()) {
+            self.invalidate_table_cons_slot(idx);
+        }
     }
 
     fn invalidate_one_island(&mut self, island: LayoutBoxId, out: &mut DeferredSettlement) {
@@ -320,7 +370,9 @@ impl IncrementalEngine {
                 self.reset_island_height(island);
             }
         }
-        self.clear_table_cons();
+        for block in [prev, next].into_iter().flatten() {
+            self.invalidate_table_cons_slot(block);
+        }
         true
     }
 
@@ -420,4 +472,138 @@ impl IncrementalEngine {
                 .filter(|p| *p != deferred_node);
         }
     }
+}
+
+fn collect_tables_above(doc: &Document, from: NodeId, out: &mut Vec<u32>) {
+    let mut cur = Some(from);
+    while let Some(id) = cur {
+        let Some(n) = doc.arena.get(id) else {
+            return;
+        };
+        if matches!(n.kind, BlockKind::Table | BlockKind::List) {
+            collect_tables_under(doc, id, out);
+        }
+        cur = n.parent;
+    }
+}
+
+fn collect_tables_under(doc: &Document, root: NodeId, out: &mut Vec<u32>) {
+    let mut stack = vec![root];
+    while let Some(id) = stack.pop() {
+        let Some(n) = doc.arena.get(id) else {
+            continue;
+        };
+        if n.kind == BlockKind::Table && !out.contains(&id.index) {
+            out.push(id.index);
+        }
+        stack.extend(doc.arena.children(id));
+    }
+}
+
+fn coalesce_chained_removals(changes: &ChangeSet) -> Cow<'_, ChangeSet> {
+    let splice_count = changes
+        .changes
+        .iter()
+        .filter(|c| matches!(c, DocChange::TreeSpliced { .. }))
+        .count();
+    if splice_count < 2 {
+        return Cow::Borrowed(changes);
+    }
+    let mut groups: Vec<(NodeId, Vec<usize>)> = Vec::new();
+    for (i, c) in changes.changes.iter().enumerate() {
+        if let DocChange::TreeSpliced { parent, .. } = c {
+            match groups.iter_mut().find(|(p, _)| p == parent) {
+                Some((_, idxs)) => idxs.push(i),
+                None => groups.push((*parent, vec![i])),
+            }
+        }
+    }
+    let mut merged_spots: Vec<(usize, DocChange)> = Vec::new();
+    let mut drop: HashSet<usize> = HashSet::new();
+    for (_parent, idxs) in &groups {
+        let linked: Vec<&DocChange> = idxs
+            .iter()
+            .map(|&i| &changes.changes[i])
+            .filter(|c| {
+                matches!(
+                    c,
+                    DocChange::TreeSpliced {
+                        removed,
+                        inserted,
+                        ..
+                    } if removed.len() == 1 && inserted.is_empty()
+                )
+            })
+            .collect();
+        if linked.len() < 2 {
+            continue;
+        }
+        let chained = linked.windows(2).all(|w| {
+            let (
+                DocChange::TreeSpliced {
+                    before: prev_before,
+                    ..
+                },
+                DocChange::TreeSpliced {
+                    removed: next_removed,
+                    ..
+                },
+            ) = (&w[0], &w[1])
+            else {
+                return false;
+            };
+            prev_before.map(|b| b == next_removed[0]).unwrap_or(false)
+        });
+        if !chained {
+            continue;
+        }
+        if linked.len() != idxs.len() {
+            continue;
+        }
+        let head_idx = idxs[0];
+        let mut removed: Vec<NodeId> = Vec::with_capacity(linked.len());
+        for c in linked.iter().rev() {
+            let DocChange::TreeSpliced { removed: r, .. } = c else {
+                unreachable!("filtered above");
+            };
+            removed.extend(r.iter().copied());
+        }
+        let DocChange::TreeSpliced {
+            parent,
+            before: tail_before,
+            ..
+        } = linked.last().expect("checked len")
+        else {
+            unreachable!("filtered above");
+        };
+        merged_spots.push((
+            head_idx,
+            DocChange::TreeSpliced {
+                parent: *parent,
+                before: *tail_before,
+                removed,
+                inserted: Vec::new(),
+            },
+        ));
+        drop.extend(idxs.iter().skip(1).copied());
+    }
+    if merged_spots.is_empty() {
+        return Cow::Borrowed(changes);
+    }
+    let mut out = Vec::with_capacity(changes.changes.len() - drop.len());
+    for (i, c) in changes.changes.iter().enumerate() {
+        if drop.contains(&i) {
+            continue;
+        }
+        if let Some((_, merged)) = merged_spots.iter().find(|(spot, _)| *spot == i) {
+            out.push(merged.clone());
+        } else {
+            out.push(c.clone());
+        }
+    }
+    Cow::Owned(ChangeSet {
+        before_revision: changes.before_revision,
+        after_revision: changes.after_revision,
+        changes: out,
+    })
 }

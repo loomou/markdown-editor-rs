@@ -118,7 +118,7 @@ fn compose_nested_quote_keeps_quote_top_margin() {
         &load_markdown("> outer\n>\n> > inner\n", editor_options()),
         &theme,
     );
-    let mut quotes: Vec<_> = tree
+    let quotes: Vec<_> = tree
         .nodes
         .values()
         .filter(|n| {
@@ -126,10 +126,21 @@ fn compose_nested_quote_keeps_quote_top_margin() {
                 && n.id.role == crate::box_tree::BoxRole::Frame
         })
         .collect();
-    quotes.sort_by_key(|n| tree.style_of(n).margin.top as i64);
     assert_eq!(quotes.len(), 2);
-    assert_eq!(tree.style_of(quotes[0]).margin.top, 32.0);
-    assert_eq!(tree.style_of(quotes[1]).margin.top, 32.0);
+    let nested = |n: &&crate::box_tree::BoxNode| {
+        n.parent.is_some_and(|p| {
+            tree.nodes.get(&p).is_some_and(|pn| {
+                pn.kind == md_core::block::BlockKind::BlockQuote
+                    && pn.id.role == crate::box_tree::BoxRole::Frame
+            })
+        })
+    };
+    let outer: Vec<_> = quotes.iter().filter(|n| !nested(n)).collect();
+    let inner: Vec<_> = quotes.iter().filter(|n| nested(n)).collect();
+    assert_eq!(outer.len(), 1, "one doc-lead outer quote");
+    assert_eq!(inner.len(), 1, "one nested inner quote");
+    assert_eq!(tree.style_of(outer[0]).margin.top, 0.0);
+    assert_eq!(tree.style_of(inner[0]).margin.top, 32.0);
     for q in quotes {
         let crate::box_tree::BoxChildren::Vertical(kids) = &q.children else {
             panic!("quote should stack children");
@@ -538,4 +549,49 @@ fn shape_ident_refuses_the_doc_start_box() {
         .clone();
     node.id = crate::box_tree::LayoutBoxId::doc_start();
     let _ = node.shape_ident();
+}
+
+#[test]
+fn doc_lead_flushes_every_block_kind() {
+    let theme = spacing_theme(|_| 30.0).with_flow_metrics(flow_metrics(24.0));
+    let mut offenders = Vec::new();
+    for (label, src, kind) in [
+        ("paragraph", "p\n", BlockKind::Paragraph),
+        ("quote", "> q\n", BlockKind::BlockQuote),
+        ("alert quote", "> [!NOTE]\n> b\n", BlockKind::BlockQuote),
+        ("code block", "```\nc\n```\n", BlockKind::CodeBlock),
+        ("list", "- a\n", BlockKind::List),
+        ("thematic break", "***\n", BlockKind::ThematicBreak),
+        ("math", "$$a$$\n", BlockKind::Math),
+        ("mermaid", "```mermaid\ngraph TD\n```\n", BlockKind::Mermaid),
+        ("image", "![a](u.png)\n", BlockKind::Image),
+        (
+            "footnote definition",
+            "[^1]: n\n",
+            BlockKind::FootnoteDefinition,
+        ),
+        (
+            "metadata block",
+            "---\ntitle: x\n---\n",
+            BlockKind::MetadataBlock,
+        ),
+        ("table", "| a |\n| --- |\n| b |\n", BlockKind::Table),
+    ] {
+        let doc = load_markdown(src, editor_options());
+        let tree = compose(&doc, &theme);
+        let node = tree
+            .nodes
+            .values()
+            .find(|n| n.kind == kind && n.id.role == crate::box_tree::BoxRole::Frame)
+            .unwrap_or_else(|| panic!("{label}: no {kind:?} frame"));
+        let top = tree.style_of(node).margin.top;
+        if top != 0.0 {
+            offenders.push(format!("{label} ({kind:?}): {top}"));
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "doc-lead blocks keep their top margin: {}",
+        offenders.join(", ")
+    );
 }

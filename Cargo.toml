@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 default-members = ["crates/md-editor"]
+exclude = ["third_party"]
 members = [
     "crates/md-i18n",
     "crates/md-core",
@@ -40,7 +41,7 @@ md-editor-ui = { path = "crates/md-editor-ui" }
 md-editor = { path = "crates/md-editor" }
 
 gpui = "=0.2.2"
-pulldown-cmark = "0.13"
+pulldown-cmark = { path = "third_party/pulldown-cmark", features = ["tree"] }
 merman = { version = "=0.8.0-alpha.5", default-features = false, features = [
     "svg",
     "png",

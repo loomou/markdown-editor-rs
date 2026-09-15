@@ -40,6 +40,10 @@ pub fn run(doc: Doc, config: RunConfig) {
             cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    window_min_size: Some(gpui::size(
+                        px(theme.chrome.window_min_width),
+                        px(theme.chrome.window_min_height),
+                    )),
                     titlebar: Some(TitlebarOptions {
                         title: Some(title.clone()),
                         appears_transparent: true,

@@ -1,7 +1,8 @@
 use super::support::{editor_with_doc, focus_editor, place_caret};
-use crate::view::{CursorMotion, EditorView};
+use crate::view::{CursorMotion, EditorElement, EditorView};
 use gpui::TestAppContext;
 use gpui::VisualTestContext;
+use gpui::{Modifiers, MouseButton, point, px, size};
 use md_core::block::BlockKind;
 use md_core::doc::Cursor;
 
@@ -10,6 +11,47 @@ fn clipboard(cx: &mut VisualTestContext) -> String {
         app.read_from_clipboard()
             .and_then(|it| it.text())
             .unwrap_or_default()
+    })
+}
+
+fn well_copy_point(
+    editor: &gpui::Entity<EditorView>,
+    cx: &mut VisualTestContext,
+    kind: BlockKind,
+    nth: usize,
+) -> (f32, f32) {
+    let (_, prepaint) = cx.draw(
+        point(px(0.0), px(0.0)),
+        size(px(800.0), px(600.0)),
+        |_, _| EditorElement {
+            state: editor.clone(),
+        },
+    );
+    let piece = prepaint
+        .frame
+        .snapshot
+        .texts
+        .iter()
+        .filter(|t| t.kind == kind && !t.edit_source)
+        .nth(nth)
+        .unwrap_or_else(|| panic!("piece {nth} of {kind:?} must be in the first frame"))
+        .clone();
+    let card = prepaint
+        .frame
+        .decorations
+        .iter()
+        .find(|d| d.hit_block == piece.block && d.role == piece.box_id.role)
+        .map(|d| d.rect_device)
+        .unwrap_or_else(|| {
+            panic!("the well-card decoration of {kind:?} must be in the first frame")
+        });
+    cx.update(|_, app| {
+        let view = editor.read(app);
+        let d = &view.state.theme.decoration;
+        (
+            card.0 as f32 + card.2 as f32 - d.well_lang_right as f32 - 8.0,
+            card.1 as f32 + d.well_head_h as f32 * 0.5,
+        )
     })
 }
 
@@ -247,4 +289,70 @@ fn ctrl_a_then_copy_takes_the_whole_document(cx: &mut TestAppContext) {
     assert_eq!(span, Some((0, 1)));
     cx.simulate_keystrokes("secondary-c");
     assert_eq!(clipboard(cx), "# title\n\nhello\n\n- a\n- b");
+}
+
+#[gpui::test]
+fn well_head_copy_button_exports_the_whole_block(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc("```rust\nfn x() {}\n```\n", cx);
+    focus_editor(&editor, cx);
+    let (x, y) = well_copy_point(&editor, cx, BlockKind::CodeBlock, 0);
+    let caret_before = cx.update(|_, app| editor.read(app).state.cursor.block);
+    cx.simulate_mouse_down(point(px(x), px(y)), MouseButton::Left, Modifiers::none());
+    assert_eq!(clipboard(cx), "```rust\nfn x() {}\n```");
+    cx.update(|_, app| {
+        let view = editor.read(app);
+        assert_eq!(
+            view.well_copy_done,
+            Some(caret_before),
+            "the checkmark state must land on the clicked block"
+        );
+        assert_eq!(
+            view.state.cursor.block, caret_before,
+            "clicking the copy button must not move the caret"
+        );
+    });
+}
+
+#[gpui::test]
+fn well_head_copy_math_exports_the_fence_form(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc("$$\nR_{dirty} = 1\n$$\n", cx);
+    focus_editor(&editor, cx);
+    let (x, y) = well_copy_point(&editor, cx, BlockKind::Math, 0);
+    cx.simulate_mouse_down(point(px(x), px(y)), MouseButton::Left, Modifiers::none());
+    assert_eq!(clipboard(cx), "$$\nR_{dirty} = 1\n$$");
+}
+
+#[gpui::test]
+fn well_copy_check_mark_fades_and_a_second_click_resets_it(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc("```rust\nfn a() {}\n```\n\n```python\nprint(1)\n```\n", cx);
+    focus_editor(&editor, cx);
+    let (ax, ay) = well_copy_point(&editor, cx, BlockKind::CodeBlock, 0);
+    cx.simulate_mouse_down(point(px(ax), px(ay)), MouseButton::Left, Modifiers::none());
+    let first = cx.update(|_, app| editor.read(app).well_copy_done);
+    assert!(first.is_some(), "the first click must light the checkmark");
+
+    let (bx, by) = well_copy_point(&editor, cx, BlockKind::CodeBlock, 1);
+    cx.simulate_mouse_down(point(px(bx), px(by)), MouseButton::Left, Modifiers::none());
+    cx.update(|_, app| {
+        let view = editor.read(app);
+        let done = view
+            .well_copy_done
+            .expect("the checkmark must still be lit after the second click");
+        assert_ne!(
+            Some(done),
+            first,
+            "the second click must move to another block, not be erased by the old task reverting"
+        );
+    });
+
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(1600));
+    cx.run_until_parked();
+    cx.update(|_, app| {
+        assert_eq!(
+            editor.read(app).well_copy_done,
+            None,
+            "the checkmark must revert when the timer fires"
+        );
+    });
 }

@@ -1,6 +1,6 @@
 use super::DocumentTheme;
 use super::color::ColorOverrides;
-use super::font::{SYSTEM_SERIF, SYSTEM_UI};
+use super::font::{SYSTEM_MONO, SYSTEM_UI};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ThemeVariant {
@@ -41,35 +41,15 @@ impl ThemeVariant {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum BodyFamily {
-    #[default]
-    Sans,
-    Serif,
-}
-
-impl BodyFamily {
-    pub fn key(self) -> &'static str {
-        match self {
-            Self::Sans => "sans",
-            Self::Serif => "serif",
-        }
+fn leaked_family(name: &str) -> &'static str {
+    static SEEN: std::sync::Mutex<Vec<&'static str>> = std::sync::Mutex::new(Vec::new());
+    let mut seen = SEEN.lock().unwrap_or_else(|poison| poison.into_inner());
+    if let Some(leaked) = seen.iter().find(|leaked| **leaked == name) {
+        return leaked;
     }
-
-    pub fn from_key(key: &str) -> Option<Self> {
-        match key {
-            "sans" => Some(Self::Sans),
-            "serif" => Some(Self::Serif),
-            _ => None,
-        }
-    }
-
-    pub fn family(self) -> &'static str {
-        match self {
-            Self::Sans => SYSTEM_UI,
-            Self::Serif => SYSTEM_SERIF,
-        }
-    }
+    let leaked: &'static str = Box::leak(name.to_owned().into_boxed_str());
+    seen.push(leaked);
+    leaked
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -109,10 +89,11 @@ impl Density {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Appearance {
     pub variant: ThemeVariant,
-    pub body_family: BodyFamily,
+    pub body_font: Option<String>,
+    pub code_font: Option<String>,
     pub body_size_px: f32,
     pub density: Density,
     pub colors: [ColorOverrides; ThemeVariant::COUNT],
@@ -143,14 +124,23 @@ impl Appearance {
         theme.edge_scale = self.density.edge_scale();
 
         let k = self.body_size_px / Self::BASE_BODY_SIZE_PX;
-        let family = self.body_family.family();
+        let body_family: &'static str = match &self.body_font {
+            None => SYSTEM_UI,
+            Some(name) => leaked_family(name),
+        };
+        let code_family: &'static str = match &self.code_font {
+            None => SYSTEM_MONO,
+            Some(name) => leaked_family(name),
+        };
         for role in theme.type_scale.roles_mut() {
             if k != 1.0 {
                 role.size_px *= k;
                 role.letter_spacing_px *= k;
             }
             if role.family == SYSTEM_UI {
-                role.family = family;
+                role.family = body_family;
+            } else if role.family == SYSTEM_MONO {
+                role.family = code_family;
             }
         }
         self.colors().apply_to(&mut theme);
@@ -162,7 +152,8 @@ impl Default for Appearance {
     fn default() -> Self {
         Self {
             variant: ThemeVariant::default(),
-            body_family: BodyFamily::default(),
+            body_font: None,
+            code_font: None,
             body_size_px: Self::BASE_BODY_SIZE_PX,
             density: Density::default(),
             colors: [ColorOverrides::default(); ThemeVariant::COUNT],
@@ -172,8 +163,8 @@ impl Default for Appearance {
 
 #[cfg(test)]
 mod tests {
-    use super::{Appearance, BodyFamily, Density, ThemeVariant};
-    use crate::{ColorSlot, DocumentTheme, SYSTEM_MONO, SYSTEM_SERIF, SYSTEM_UI, ThemeColor};
+    use super::{Appearance, Density, ThemeVariant};
+    use crate::{ColorSlot, DocumentTheme, SYSTEM_MONO, SYSTEM_UI, ThemeColor};
 
     #[test]
     fn the_default_appearance_is_exactly_one_dark() {
@@ -227,15 +218,15 @@ mod tests {
     }
 
     #[test]
-    fn the_serif_switch_leaves_monospace_alone() {
+    fn picking_a_body_font_leaves_monospace_alone() {
         let theme = Appearance {
-            body_family: BodyFamily::Serif,
+            body_font: Some("Georgia".into()),
             ..Appearance::default()
         }
         .document_theme();
-        assert_eq!(theme.type_scale.body.family, SYSTEM_SERIF);
-        assert_eq!(theme.type_scale.heading[0].family, SYSTEM_SERIF);
-        assert_eq!(theme.type_scale.quote.family, SYSTEM_SERIF);
+        assert_eq!(theme.type_scale.body.family, "Georgia");
+        assert_eq!(theme.type_scale.heading[0].family, "Georgia");
+        assert_eq!(theme.type_scale.quote.family, "Georgia");
         assert_eq!(theme.type_scale.code.family, SYSTEM_MONO);
         assert_eq!(
             Appearance::default()
@@ -244,6 +235,26 @@ mod tests {
                 .body
                 .family,
             SYSTEM_UI
+        );
+    }
+
+    #[test]
+    fn picking_a_code_font_changes_code_and_only_code() {
+        let theme = Appearance {
+            code_font: Some("Cascadia Code".into()),
+            ..Appearance::default()
+        }
+        .document_theme();
+        assert_eq!(theme.type_scale.code.family, "Cascadia Code");
+        assert_eq!(theme.type_scale.body.family, SYSTEM_UI);
+        assert_eq!(theme.type_scale.heading[0].family, SYSTEM_UI);
+        assert_eq!(
+            Appearance::default()
+                .document_theme()
+                .type_scale
+                .code
+                .family,
+            SYSTEM_MONO
         );
     }
 
@@ -279,9 +290,6 @@ mod tests {
         for v in [ThemeVariant::OneDark, ThemeVariant::OneLight] {
             assert_eq!(ThemeVariant::from_key(v.key()), Some(v));
         }
-        for f in [BodyFamily::Sans, BodyFamily::Serif] {
-            assert_eq!(BodyFamily::from_key(f.key()), Some(f));
-        }
         for d in Density::ALL {
             assert_eq!(Density::from_key(d.key()), Some(d));
         }
@@ -295,7 +303,7 @@ mod tests {
     #[test]
     fn an_override_changes_the_color_and_nothing_else() {
         let plain = Appearance::default();
-        let mut tinted = plain;
+        let mut tinted = plain.clone();
         let pink = ThemeColor::new(0.9, 0.8, 0.6, 1.0);
         tinted.colors_mut().set(ColorSlot::Body, pink);
         tinted.colors_mut().set(ColorSlot::SynKeyword, pink);

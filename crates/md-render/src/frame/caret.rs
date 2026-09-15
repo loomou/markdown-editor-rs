@@ -31,7 +31,9 @@ pub(super) fn resolve_text_frame<'a>(
         let style = assembly.tree.style_of(node);
         let avail = assembly.tree.avail_width(leaf, env.viewport_width);
         let inner = (avail - style.inline_border_padding()).max(0.0);
-        let base_x = inline_offset(&assembly.tree, leaf) + style.border.left + style.padding.left;
+        let base_x = inline_offset(&assembly.tree, leaf, env.content_inset)
+            + style.border.left
+            + style.padding.left;
         return Some(TextFrame {
             node,
             base_x,
@@ -51,7 +53,7 @@ pub(super) fn resolve_text_frame<'a>(
 
     let g = assembly.geometries.get(&row_box)?;
     let cg = g.cells.iter().find(|c| c.cell_box == cell)?;
-    let x = inline_offset(&assembly.tree, row_box) + cg.x;
+    let x = inline_offset(&assembly.tree, row_box, env.content_inset) + cg.x;
     let style = assembly.tree.style_of(node);
     let inner = (cg.width - style.inline_border_padding()).max(0.0);
     let base_x = x + style.border.left + style.padding.left;
