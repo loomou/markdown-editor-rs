@@ -215,6 +215,7 @@ fn marked_text_publishes_every_wrapped_row(cx: &mut TestAppContext) {
         let len = doc.text(block).expect("text").len();
         let env = BoxLayoutEnvironment {
             viewport_width: 180.0,
+            content_inset: 0.0,
         };
         let theme = DocumentTheme::one_dark();
         let shaper = test_shaper(window, app, &theme);
@@ -564,6 +565,7 @@ fn wrapped_aligned_cell_selection_starts_at_each_rows_ink(cx: &mut TestAppContex
             let len = doc.text(block).expect("cell text").len();
             let env = BoxLayoutEnvironment {
                 viewport_width: 240.0,
+                content_inset: 0.0,
             };
             let theme = DocumentTheme::one_dark();
             let shaper = test_shaper(window, app, &theme);

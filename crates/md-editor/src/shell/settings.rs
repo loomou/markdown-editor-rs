@@ -1,4 +1,5 @@
 use super::Shell;
+use super::font_menu::{FontMenu, FontTarget};
 use super::settings_state::{font_size_at, font_size_fraction};
 use crate::store::settings::LanguageChoice;
 use crate::ui::theme::ShellTheme;
@@ -9,7 +10,7 @@ use gpui::{
     Stateful, StatefulInteractiveElement, Styled, Window, canvas, div, point, px, rgba,
 };
 use md_i18n::{Key, t as t18};
-use md_theme::{BodyFamily, Density, ThemeVariant};
+use md_theme::{Density, ThemeVariant};
 use std::rc::Rc;
 
 const SETTINGS_NAV: [Key; 5] = [
@@ -126,6 +127,7 @@ impl Shell {
                                     |shell, i, _cx| {
                                         shell.settings.language = LanguageChoice::ALL
                                             [i.min(LanguageChoice::ALL.len() - 1)];
+                                        md_i18n::set_current(shell.settings.language.resolve());
                                         shell.save_settings();
                                     },
                                     &this,
@@ -156,23 +158,15 @@ impl Shell {
                                 t,
                                 Key::SetBodyFont,
                                 t18(Key::SetBodyFontHint),
-                                self.seg_control(
-                                    t,
-                                    &[Key::SetFontSerif, Key::SetFontSans],
-                                    usize::from(
-                                        self.settings.appearance.body_family == BodyFamily::Sans,
-                                    ),
-                                    |shell, i, cx| {
-                                        shell.settings.appearance.body_family = if i == 0 {
-                                            BodyFamily::Serif
-                                        } else {
-                                            BodyFamily::Sans
-                                        };
-                                        shell.appearance_changed(cx);
-                                    },
-                                    &this,
-                                )
-                                .into_any_element(),
+                                self.font_picker_button(t, FontTarget::Body, &this)
+                                    .into_any_element(),
+                            ),
+                            self.set_row(
+                                t,
+                                Key::SetCodeFont,
+                                t18(Key::SetCodeFontHint),
+                                self.font_picker_button(t, FontTarget::Code, &this)
+                                    .into_any_element(),
                             ),
                             self.set_row(
                                 t,
@@ -310,6 +304,71 @@ impl Shell {
             .child(control)
     }
 
+    fn font_picker_button(
+        &self,
+        t: ShellTheme,
+        target: FontTarget,
+        this: &Entity<Self>,
+    ) -> Stateful<Div> {
+        let open = self
+            .font_menu
+            .as_ref()
+            .is_some_and(|m| m.target() == target);
+        let current = target.current(&self.settings.appearance);
+        let label = match current {
+            None => t18(Key::SetFontSystemDefault).to_owned(),
+            Some(name) => name.to_owned(),
+        };
+        let probe = self
+            .font_menu
+            .as_ref()
+            .filter(|m| m.target() == target)
+            .map(FontMenu::anchor_probe);
+        let (id, selector) = match target {
+            FontTarget::Body => ("font-trigger", "font-trigger"),
+            FontTarget::Code => ("code-font-trigger", "code-font-trigger"),
+        };
+        let trigger = this.clone();
+        div()
+            .relative()
+            .flex()
+            .items_center()
+            .id(id)
+            .debug_selector(move || selector.into())
+            .px(px(12.))
+            .py(px(4.))
+            .rounded(px(6.))
+            .border_1()
+            .border_color(if open { t.border } else { t.border_variant })
+            .text_size(px(12.))
+            .text_color(if open { t.text } else { t.text_muted })
+            .hover(move |s| s.bg(t.hover))
+            .on_click(move |ev: &ClickEvent, window: &mut Window, cx: &mut App| {
+                let viewport = window.viewport_size();
+                let at = match ev {
+                    ClickEvent::Mouse(m) => m.up.position,
+                    ClickEvent::Keyboard(_) => point(viewport.width * 0.5, viewport.height * 0.3),
+                };
+                trigger.update(cx, |shell, cx| {
+                    shell.open_menu = None;
+                    shell.font_menu = match shell.font_menu.take() {
+                        Some(m) if m.target() == target => None,
+                        _ => Some(FontMenu::open(at, viewport, window, target)),
+                    };
+                    cx.notify();
+                });
+            })
+            .children(probe)
+            .child(div().child(label))
+            .child(
+                div()
+                    .pl(px(6.))
+                    .text_size(px(9.))
+                    .text_color(t.text_disabled)
+                    .child(if open { "▴" } else { "▾" }),
+            )
+    }
+
     fn seg_control(
         &self,
         t: ShellTheme,
@@ -439,8 +498,8 @@ impl Shell {
                                     if shell.settings.appearance.body_size_px == size {
                                         return;
                                     }
-                                    shell.settings.appearance =
-                                        shell.settings.appearance.with_body_size_px(size);
+                                    let a = std::mem::take(&mut shell.settings.appearance);
+                                    shell.settings.appearance = a.with_body_size_px(size);
                                     shell.sync_editor_theme(cx);
                                     cx.notify();
                                 });

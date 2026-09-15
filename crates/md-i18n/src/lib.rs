@@ -69,3 +69,21 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod hot_switch_tests {
+    use super::{Key, Lang, current, set_current, t, t_in};
+
+    #[test]
+    fn switching_language_takes_effect_immediately() {
+        let saved = current();
+        for lang in Lang::ALL {
+            set_current(lang);
+            assert_eq!(current(), lang, "{}", lang.key());
+            for key in Key::ALL {
+                assert_eq!(t(*key), t_in(lang, *key), "{}", key.debug_name());
+            }
+        }
+        set_current(saved);
+    }
+}

@@ -5,8 +5,8 @@ use md_layout::box_tree::{BoxChildren, BoxOwner, BoxRole, BoxTree, LayoutBoxId};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub fn inline_offset(tree: &BoxTree, id: LayoutBoxId) -> Px {
-    let mut x = 0.0;
+pub fn inline_offset(tree: &BoxTree, id: LayoutBoxId, content_inset: Px) -> Px {
+    let mut x = content_inset;
     let chain = tree.ancestor_chain(id);
     for anc in &chain[..chain.len().saturating_sub(1)] {
         let s = tree.style(*anc);

@@ -1,7 +1,7 @@
 use crate::keymap::{Chord, Cmd, Keymap};
 use crate::platform::fs_atomic::write_bytes_atomic;
 use md_i18n::Lang;
-use md_theme::{Appearance, BodyFamily, ColorSlot, Density, ThemeColor, ThemeVariant};
+use md_theme::{Appearance, ColorSlot, Density, ThemeColor, ThemeVariant};
 use serde_json::{Map, Value};
 use std::fs;
 use std::io;
@@ -78,7 +78,12 @@ impl Settings {
         root.insert("version".into(), VERSION.into());
         root.insert("language".into(), self.language.key().into());
         root.insert("theme".into(), a.variant.key().into());
-        root.insert("body_family".into(), a.body_family.key().into());
+        if let Some(name) = &a.body_font {
+            root.insert("body_font".into(), name.as_str().into());
+        }
+        if let Some(name) = &a.code_font {
+            root.insert("code_font".into(), name.as_str().into());
+        }
         root.insert("body_size".into(), (a.body_size_px.round() as i64).into());
         root.insert("density".into(), a.density.key().into());
         root.insert("autosave".into(), self.autosave.into());
@@ -134,12 +139,16 @@ impl Settings {
         {
             out.appearance.variant = v;
         }
-        if let Some(f) = root
-            .get("body_family")
-            .and_then(Value::as_str)
-            .and_then(BodyFamily::from_key)
-        {
-            out.appearance.body_family = f;
+        if let Some(name) = root.get("body_font").and_then(Value::as_str) {
+            out.appearance.body_font = Some(name.to_owned());
+        } else if let Some(f) = root.get("body_family").and_then(Value::as_str) {
+            out.appearance.body_font = match f {
+                "serif" => Some(md_theme::SYSTEM_SERIF.to_owned()),
+                _ => None,
+            };
+        }
+        if let Some(name) = root.get("code_font").and_then(Value::as_str) {
+            out.appearance.code_font = Some(name.to_owned());
         }
         if let Some(px) = root.get("body_size").and_then(Value::as_f64) {
             out.appearance = out.appearance.with_body_size_px(px as f32);
@@ -266,7 +275,7 @@ pub fn load_or_default() -> Settings {
 mod tests {
     use super::{Chord, Cmd, LanguageChoice, Settings, SettingsStore};
     use md_i18n::Lang;
-    use md_theme::{BodyFamily, ColorSlot, Density, ThemeColor, ThemeVariant};
+    use md_theme::{ColorSlot, Density, ThemeColor, ThemeVariant};
     use serde_json::Value;
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -301,7 +310,8 @@ mod tests {
             .expect("must be a legal binding");
         s.keymap.clear(Cmd::Save);
         s.appearance.variant = ThemeVariant::OneLight;
-        s.appearance.body_family = BodyFamily::Serif;
+        s.appearance.body_font = Some("Georgia".into());
+        s.appearance.code_font = Some("Cascadia Code".into());
         s.appearance.density = Density::Relaxed;
         s.appearance = s.appearance.with_body_size_px(19.0);
         s.autosave = true;
@@ -333,7 +343,6 @@ mod tests {
                 "  \"version\": 1,\n",
                 "  \"language\": \"system\",\n",
                 "  \"theme\": \"one-dark\",\n",
-                "  \"body_family\": \"sans\",\n",
                 "  \"body_size\": 16,\n",
                 "  \"density\": \"normal\",\n",
                 "  \"autosave\": false,\n",
@@ -432,7 +441,8 @@ mod tests {
             "density": "nrmal",
             "body_size": "huge",
             "autosave": "yes",
-            "body_family": 7
+            "body_font": 7,
+            "code_font": []
         }"#;
         let parsed = Settings::parse(text).expect("version must match");
         let d = Settings::default();
@@ -440,7 +450,8 @@ mod tests {
         assert_eq!(parsed.appearance.density, Density::default());
         assert_eq!(parsed.appearance.body_size_px, d.appearance.body_size_px);
         assert_eq!(parsed.autosave, d.autosave);
-        assert_eq!(parsed.appearance.body_family, d.appearance.body_family);
+        assert_eq!(parsed.appearance.body_font, d.appearance.body_font);
+        assert_eq!(parsed.appearance.code_font, d.appearance.code_font);
     }
 
     #[test]
@@ -518,7 +529,7 @@ mod tests {
         let Some(Value::Object(root)) = serde_json::from_str(&text).ok() else {
             panic!("{text}");
         };
-        assert_eq!(root.len(), 8, "{text}");
+        assert_eq!(root.len(), 7, "{text}");
         for v in ThemeVariant::ALL {
             assert!(!root.contains_key(v.key()), "{text}");
         }
@@ -814,5 +825,27 @@ mod tests {
                 variant.key()
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod body_font_migration_tests {
+    use super::Settings;
+    use md_theme::SYSTEM_SERIF;
+
+    #[test]
+    fn legacy_body_family_migrates_to_body_font() {
+        let serif = Settings::parse(r#"{ "version": 1, "body_family": "serif" }"#)
+            .expect("the version must be recognized");
+        assert_eq!(serif.appearance.body_font, Some(SYSTEM_SERIF.to_owned()));
+
+        let sans = Settings::parse(r#"{ "version": 1, "body_family": "sans" }"#)
+            .expect("the version must be recognized");
+        assert_eq!(sans.appearance.body_font, None);
+
+        let both =
+            Settings::parse(r#"{ "version": 1, "body_family": "sans", "body_font": "Segoe UI" }"#)
+                .expect("the version must be recognized");
+        assert_eq!(both.appearance.body_font, Some("Segoe UI".into()));
     }
 }

@@ -1,5 +1,5 @@
 use super::media_zoom::{self, MediaHit};
-use super::{CursorMotion, EditorView, PendingClick, ScrollbarGeom, WellBar, WellHit};
+use super::{CursorMotion, EditorView, PendingClick, ScrollbarGeom, WellBar, WellHeadHit, WellHit};
 use gpui::{MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ScrollWheelEvent, Window};
 use md_core::Px;
 use md_core::block::BlockKind;
@@ -22,6 +22,7 @@ pub(super) struct InputFrame {
     pub(super) snapshot: Rc<LayoutSnapshot>,
     pub(super) geometry_revision: u64,
     pub(super) wells: Rc<Vec<WellHit>>,
+    pub(super) well_heads: Rc<Vec<WellHeadHit>>,
     pub(super) cells: Rc<Vec<super::table_cols::CellHit>>,
     pub(super) scale: f64,
     pub(super) media_hits: Rc<Vec<MediaHit>>,
@@ -40,6 +41,7 @@ pub(super) fn on_mouse_down(f: &InputFrame, window: &mut Window) {
     let slot_snap = Rc::clone(&f.snapshot);
     let slot_rev = f.geometry_revision;
     let wells = Rc::clone(&f.wells);
+    let well_heads_down = Rc::clone(&f.well_heads);
     let cell_hits_down = Rc::clone(&f.cells);
     let scale = f.scale;
     window.on_mouse_event(move |ev: &MouseDownEvent, phase, win, cx| {
@@ -144,6 +146,17 @@ pub(super) fn on_mouse_down(f: &InputFrame, window: &mut Window) {
             }
             if v.table_ui.picker_open && !v.table_ui.picker_drag {
                 v.close_table_picker(true, cx);
+            }
+            if let Some(hit) = well_heads_down
+                .iter()
+                .copied()
+                .find(|h| h.contains(local.0, local.1))
+            {
+                v.copy_well_source(hit.id, cx);
+                v.dragging = false;
+                v.pending_click = None;
+                cx.stop_propagation();
+                return;
             }
             for hit in wells.iter() {
                 let s = v.well_scroll.get(&hit.id).copied().unwrap_or_default();
@@ -252,6 +265,7 @@ pub(super) fn on_mouse_move(f: &InputFrame, window: &mut Window) {
     let ent_m = f.state.clone();
     let bar_chrome_m = f.chrome;
     let wells_m = Rc::clone(&f.wells);
+    let well_heads_m = Rc::clone(&f.well_heads);
     let cell_hits_m = Rc::clone(&f.cells);
     let media_hits_m = Rc::clone(&f.media_hits);
     window.on_mouse_event(move |ev: &MouseMoveEvent, phase, _win, cx| {
@@ -298,6 +312,7 @@ pub(super) fn on_mouse_move(f: &InputFrame, window: &mut Window) {
             if !ev.dragging() || !v.dragging {
                 v.update_table_grip_hover(&cell_hits_m, local, cx);
                 v.hover_media(&media_hits_m, local, cx);
+                v.hover_well_copy(&well_heads_m, local, cx);
                 return;
             }
             v.drag_pointer = Some(local);
@@ -432,10 +447,8 @@ pub(super) fn on_scroll_wheel(f: &InputFrame, window: &mut Window) {
             }
             let mut used = false;
             if let Some(hit) = wells_w.iter().copied().find(|hit| {
-                local.0 >= hit.x
-                    && local.0 < hit.x + hit.view_w
-                    && local.1 >= hit.y
-                    && local.1 < hit.y + hit.view_h
+                let (x, y, w, h) = hit.wheel_rect();
+                local.0 >= x && local.0 < x + w && local.1 >= y && local.1 < y + h
             }) {
                 let mut s = v.well_scroll.get(&hit.id).copied().unwrap_or_default();
                 let max_x = (hit.content_w - hit.view_w).max(0.0);

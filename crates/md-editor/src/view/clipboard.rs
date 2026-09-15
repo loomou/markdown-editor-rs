@@ -1,6 +1,7 @@
-use super::{CursorMotion, EditorView};
+use super::{CursorMotion, EditorView, WellHeadHit};
 use gpui::{ClipboardItem, Context};
-use md_core::block::BlockKind;
+use md_core::Px;
+use md_core::block::{BlockId, BlockKind};
 use md_core::doc::Cursor;
 use md_core::document::{Command, PasteIntent, Sel};
 
@@ -14,6 +15,47 @@ impl EditorView {
             return;
         }
         cx.write_to_clipboard(ClipboardItem::new_string(md));
+    }
+
+    pub(super) fn copy_well_source(&mut self, block: BlockId, cx: &mut Context<'_, Self>) {
+        let end = self.state.doc.caret_text(block).map_or(0, |t| t.len());
+        let md = self.state.doc.copy_markdown(Sel {
+            anchor: Cursor { block, offset: 0 },
+            head: Cursor { block, offset: end },
+        });
+        if !md.is_empty() {
+            cx.write_to_clipboard(ClipboardItem::new_string(md));
+        }
+        self.well_copy_done = Some(block);
+        self.well_copy_task = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(1500))
+                .await;
+            let _ = this.update(cx, |v, cx| {
+                if v.well_copy_done == Some(block) {
+                    v.well_copy_done = None;
+                    cx.notify();
+                }
+            });
+        }));
+        cx.notify();
+    }
+
+    pub(super) fn hover_well_copy(
+        &mut self,
+        heads: &[WellHeadHit],
+        pos: (Px, Px),
+        cx: &mut Context<'_, Self>,
+    ) {
+        let hit = heads
+            .iter()
+            .copied()
+            .find(|h| h.contains(pos.0, pos.1))
+            .map(|h| h.id);
+        if self.well_copy_hover != hit {
+            self.well_copy_hover = hit;
+            cx.notify();
+        }
     }
 
     pub(crate) fn cut(&mut self, cx: &mut Context<'_, Self>) {

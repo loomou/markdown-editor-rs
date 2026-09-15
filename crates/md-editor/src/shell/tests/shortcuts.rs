@@ -5,7 +5,7 @@ use crate::shell::Shell;
 use gpui::MouseUpEvent;
 use gpui::{Entity, MouseButton, MouseDownEvent};
 use gpui::{TestAppContext, VisualTestContext};
-use md_i18n::{Key, t as t18};
+use md_i18n::{Key, Lang, t_in};
 
 fn open_shortcuts_page(shell: &Entity<Shell>, cx: &mut VisualTestContext) {
     stop_blink(shell, cx);
@@ -278,20 +278,18 @@ fn the_shortcut_page_shows_the_key_the_table_holds(cx: &mut TestAppContext) {
     );
     const PAD: f32 = 10.0 * 2.0 + 2.0;
     let want_bound = mono_px(cx, &save, 11.5) + PAD;
-    let want_unset = text_px(cx, t18(Key::ShortcutUnset), 11.5) + PAD;
+    let want_unset = Lang::ALL.map(|l| text_px(cx, t_in(l, Key::ShortcutUnset), 11.5) + PAD);
     assert!(
-        (want_bound - want_unset).abs() >= 1.0,
-        "precondition: `{save}` and \"{}\" must measure differently",
-        t18(Key::ShortcutUnset)
+        want_unset.iter().all(|w| (want_bound - w).abs() >= 1.0),
+        "precondition: \"not set\" in both languages must measure differently from `{save}`"
     );
     assert!(
         (bound - want_bound).abs() < 1.0,
         "the save button painted {bound}px, but by `{save}` it should be {want_bound}px",
     );
     assert!(
-        (unset - want_unset).abs() < 1.0,
-        "the toggle-outline button painted {unset}px, but by \"{}\" it should be {want_unset}px",
-        t18(Key::ShortcutUnset)
+        want_unset.iter().any(|w| (unset - w).abs() < 1.0),
+        "the toggle-outline button painted {unset}px, but by \"not set\" it should be one of {want_unset:?}px",
     );
 
     click_shortcut_row(Cmd::Save, cx);
@@ -301,16 +299,14 @@ fn the_shortcut_page_shows_the_key_the_table_holds(cx: &mut TestAppContext) {
             .size
             .width,
     );
-    let want_armed = text_px(cx, t18(Key::ShortcutRecording), 11.5) + PAD;
+    let want_armed = Lang::ALL.map(|l| text_px(cx, t_in(l, Key::ShortcutRecording), 11.5) + PAD);
     assert!(
-        (want_armed - want_bound).abs() >= 1.0,
-        "precondition: \"{}\" and `{save}` must measure differently",
-        t18(Key::ShortcutRecording)
+        want_armed.iter().all(|w| (want_bound - w).abs() >= 1.0),
+        "precondition: \"press a combination\" in both languages must measure differently from `{save}`"
     );
     assert!(
-        (armed - want_armed).abs() < 1.0,
-        "the armed button painted {armed}px, but by \"{}\" it should be {want_armed}px",
-        t18(Key::ShortcutRecording)
+        want_armed.iter().any(|w| (armed - w).abs() < 1.0),
+        "the armed button painted {armed}px, but by \"press a combination\" it should be one of {want_armed:?}px",
     );
 
     cx.simulate_keystrokes("ctrl-alt-k");

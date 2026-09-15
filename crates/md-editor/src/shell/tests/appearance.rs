@@ -5,7 +5,7 @@ use gpui::TestAppContext;
 use gpui::{MouseButton, MouseDownEvent, Pixels, px};
 use gpui::{MouseMoveEvent, MouseUpEvent, point};
 use md_theme::DocumentTheme;
-use md_theme::{Appearance, BodyFamily, Density};
+use md_theme::{Appearance, Density};
 
 #[gpui::test]
 fn shell_starts_dark_with_outline_closed(cx: &mut TestAppContext) {
@@ -47,9 +47,10 @@ fn the_appearance_rows_reach_the_document_theme(cx: &mut TestAppContext) {
 
     cx.update(|_, app| {
         shell.update(app, |s, cx| {
-            s.settings.appearance.body_family = BodyFamily::Serif;
+            s.settings.appearance.body_font = Some(md_theme::SYSTEM_SERIF.to_owned());
             s.settings.appearance.density = Density::Compact;
-            s.settings.appearance = s.settings.appearance.with_body_size_px(20.0);
+            let a = std::mem::take(&mut s.settings.appearance);
+            s.settings.appearance = a.with_body_size_px(20.0);
             s.appearance_changed(cx);
         });
     });

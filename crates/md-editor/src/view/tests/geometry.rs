@@ -1,7 +1,9 @@
 use super::support::editor_with_doc;
 use crate::view::EditorElement;
 use gpui::TestAppContext;
+use gpui::VisualTestContext;
 use gpui::{point, px, size};
+use md_core::block::BlockKind;
 use md_core::doc::Cursor;
 use md_core::inline::InlineAlign;
 use md_render::snapshot::LayoutSnapshot;
@@ -451,5 +453,58 @@ fn empty_centered_table_cell_caret_sits_in_the_middle(cx: &mut TestAppContext) {
     assert!(
         (x - expected).abs() < 1.5,
         "empty center caret {x} should sit at mid inner {expected} (cox {cox})"
+    );
+}
+
+#[gpui::test]
+fn content_column_follows_typoras_tiered_caps_and_centers(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc(&"word ".repeat(80), cx);
+    let draw_at = |cx: &mut VisualTestContext, w: f32| {
+        cx.draw(point(px(0.0), px(0.0)), size(px(w), px(600.0)), |_, _| {
+            EditorElement {
+                state: editor.clone(),
+            }
+        })
+        .1
+        .frame
+        .snapshot
+        .texts
+        .iter()
+        .find(|t| t.kind == BlockKind::Paragraph)
+        .expect("the full-width wrapped paragraph piece must exist")
+        .clone()
+    };
+    let narrow = draw_at(cx, 800.0);
+    let mid = draw_at(cx, 1200.0);
+    let wide = draw_at(cx, 1600.0);
+    let (cap_mid, cap_wide) = cx.update(|_, app| {
+        let deco = &editor.read(app).state.theme.decoration;
+        (deco.content_cap(1200.0), deco.content_cap(1600.0))
+    });
+    assert!(
+        800.0 < cap_mid && cap_mid < 1200.0,
+        "the narrow frame fills, the mid frame clamps: cap(1200)={cap_mid}"
+    );
+    assert!(
+        cap_wide > cap_mid,
+        "a 1600-wide window must jump to the wider tier: {cap_wide} vs {cap_mid}"
+    );
+    let dx = mid.content_origin_device.0 - narrow.content_origin_device.0;
+    let inset = (1200.0 - cap_mid) / 2.0;
+    assert!(
+        (dx - inset).abs() < 0.5,
+        "the mid window's paragraph must shift by the centering inset {inset}, but moved {dx}"
+    );
+    let dw = mid.content_width - narrow.content_width;
+    assert!(
+        (dw - (cap_mid - 800.0)).abs() < 0.5,
+        "narrow fills, mid clamps to the cap: piece widths should differ by {:.0}, differ by {dw}",
+        cap_mid - 800.0
+    );
+    let dtier = wide.content_width - mid.content_width;
+    assert!(
+        (dtier - (cap_wide - cap_mid)).abs() < 0.5,
+        "after the tier jump piece widths should differ by {:.0}, differ by {dtier}",
+        cap_wide - cap_mid
     );
 }

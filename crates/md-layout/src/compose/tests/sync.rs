@@ -583,3 +583,92 @@ fn repeated_list_moves_do_not_retain_unowned_text_snapshots() {
         "moved boxes must release the snapshots they replace"
     );
 }
+
+#[test]
+fn quote_list_and_fence_commit_keep_doc_lead_zero() {
+    use crate::box_tree::BoxRole;
+    use md_core::block::BlockKind;
+    use md_core::document::{Caret, Command, Document, Sel, apply};
+
+    let layout = spacing_theme(|kind| match kind {
+        BlockKind::Paragraph => 20.0,
+        BlockKind::BlockQuote | BlockKind::CodeBlock | BlockKind::List => 30.0,
+        _ => 0.0,
+    })
+    .with_flow_metrics(flow_metrics(24.0));
+
+    fn top(tree: &crate::box_tree::BoxTree, kind: BlockKind) -> md_core::Px {
+        tree.nodes
+            .values()
+            .find(|n| n.kind == kind && n.id.role == BoxRole::Frame)
+            .map(|n| tree.style_of(n).margin.top)
+            .unwrap_or_else(|| panic!("{kind:?} frame"))
+    }
+    fn commit_keep_zero(
+        doc: &mut Document,
+        tree: &mut crate::box_tree::BoxTree,
+        layout: &crate::compose::LayoutTheme,
+        kind: BlockKind,
+    ) {
+        let changes = doc.take_changes();
+        let _ = sync_layout(tree, doc, &changes, layout);
+        let cold = compose(doc, layout);
+        assert_eq!(top(tree, kind), 0.0, "{kind:?}: hot doc-lead margin.top");
+        assert_eq!(
+            top(tree, kind),
+            top(&cold, kind),
+            "{kind:?}: hot/cold doc-lead margin.top diverged"
+        );
+    }
+
+    let mut doc = load_markdown("", editor_options());
+    let mut tree = compose(&doc, &layout);
+    let leaf = doc.text_leaves()[0];
+    let _ = apply(
+        &mut doc,
+        Sel::collapsed(Caret {
+            block: leaf,
+            offset: 0,
+        }),
+        Command::Insert { text: "> ".into() },
+    );
+    commit_keep_zero(&mut doc, &mut tree, &layout, BlockKind::BlockQuote);
+
+    let mut doc = load_markdown("", editor_options());
+    let mut tree = compose(&doc, &layout);
+    let leaf = doc.text_leaves()[0];
+    let _ = apply(
+        &mut doc,
+        Sel::collapsed(Caret {
+            block: leaf,
+            offset: 0,
+        }),
+        Command::Insert { text: "- ".into() },
+    );
+    commit_keep_zero(&mut doc, &mut tree, &layout, BlockKind::List);
+
+    let mut doc = load_markdown("", editor_options());
+    let mut tree = compose(&doc, &layout);
+    let leaf = doc.text_leaves()[0];
+    let _ = apply(
+        &mut doc,
+        Sel::collapsed(Caret {
+            block: leaf,
+            offset: 0,
+        }),
+        Command::Insert {
+            text: "```rust".into(),
+        },
+    );
+    let changes = doc.take_changes();
+    let _ = sync_layout(&mut tree, &doc, &changes, &layout);
+    let _ = apply(
+        &mut doc,
+        Sel::collapsed(Caret {
+            block: leaf,
+            offset: 6,
+        }),
+        Command::Break,
+    );
+    commit_keep_zero(&mut doc, &mut tree, &layout, BlockKind::CodeBlock);
+}

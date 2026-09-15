@@ -1,14 +1,14 @@
 use super::draw::{
-    ColResizeGuide, ReorderChrome, gpui_align, is_scroll_well, paint_artifact,
+    ColResizeGuide, ReorderChrome, gpui_align, is_scroll_well, is_well_carrier, paint_artifact,
     paint_clone_cell_borders, paint_col_resize_guide, paint_diag_overlay, paint_fail_box,
-    paint_gutter_label, paint_table_reorder, paint_well_lang, well_content_w, well_lang_for,
-    well_padding, well_view_h,
+    paint_gutter_label, paint_table_reorder, paint_well_head, pick_well_piece, well_head_geom,
+    well_lang_for, well_view_h,
 };
 use super::popover::{PopoverPaint, paint_math_popover, paint_popover};
 use super::scrollbar::{select_autoscroll_can_move, select_autoscroll_delta};
 use super::{
     ArtifactPaint, EditorElement, EditorView, PaintFault, PrepaintState, ScrollbarGeom, WellBar,
-    WellHit, WellScroll, events, overlay_diag_labels,
+    WellHeadHit, WellHit, WellScroll, events, overlay_diag_labels,
 };
 use crate::ui::theme::ShellTheme;
 use gpui::{App, Bounds, ContentMask, ElementInputHandler, Hsla, Pixels, Window, point, px, size};
@@ -129,29 +129,10 @@ impl EditorElement {
 
         paint_block_chrome(f, ctx, window, cx);
 
-        let well_hits = Rc::new(collect_well_hits(&f.texts, |t| {
-            if t.kind != BlockKind::Mermaid || t.edit_source {
-                return None;
-            }
-            let v = self.state.read(cx);
-            mermaid::key_for(
-                &v.state.doc.document,
-                t.block,
-                t.content_width,
-                theme.decoration.mermaid_max_width,
-                theme.decoration.mermaid_max_height,
-                scale,
-                mermaid_theme_fp,
-            )
-            .and_then(|key| v.mermaid.image(&key))
-            .map(|ready| {
-                let (w, h) = ready.css_size();
-                (w as Px, h as Px)
-            })
-        }));
+        let well_hits = Rc::new(collect_well_hits(&f.texts, &f.decorations, &theme));
 
         paint_under_text(f, &well_hits, ctx, window);
-        self.paint_texts(f, ctx, window, cx);
+        let well_heads = self.paint_texts(f, ctx, window, cx);
         self.paint_table(f, ctx, window, cx);
 
         if let Some(r) = f.caret_device
@@ -225,6 +206,7 @@ impl EditorElement {
             snapshot: Rc::clone(&f.snapshot),
             geometry_revision: f.geometry_revision,
             wells: well_hits,
+            well_heads: Rc::new(well_heads),
             cells: Rc::new(f.cells.iter().map(|c| (c.block, c.rect_device)).collect()),
             scale,
             media_hits: Rc::new(super::media_zoom::collect_hits(
@@ -238,7 +220,13 @@ impl EditorElement {
         events::on_scroll_wheel(&input, window);
     }
 
-    fn paint_texts(&mut self, f: &Frame, ctx: &PaintCtx<'_>, window: &mut Window, cx: &mut App) {
+    fn paint_texts(
+        &mut self,
+        f: &Frame,
+        ctx: &PaintCtx<'_>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Vec<WellHeadHit> {
         let PaintCtx {
             ox,
             oy,
@@ -251,6 +239,22 @@ impl EditorElement {
             fault,
             ..
         } = *ctx;
+        let mut heads = Vec::new();
+        let cards: HashMap<(BlockId, md_layout::box_tree::BoxRole), (f32, f32, f32, f32)> = f
+            .decorations
+            .iter()
+            .map(|d| {
+                (
+                    (d.hit_block, d.role),
+                    (
+                        d.rect_device.0 as f32,
+                        d.rect_device.1 as f32,
+                        d.rect_device.2 as f32,
+                        d.rect_device.3 as f32,
+                    ),
+                )
+            })
+            .collect();
         for (ti, t) in f.texts.iter().enumerate() {
             let (cx0, cy0) = t.content_origin_device;
             if fault == PaintFault::GlyphPaintError && ti == 0 {
@@ -285,7 +289,11 @@ impl EditorElement {
                     }
                 };
                 let view_h = well_view_h(t);
-                let s = well_scroll.get(&t.block).copied().unwrap_or_default();
+                let s = if is_well_carrier(&f.texts, t) {
+                    well_scroll.get(&t.block).copied().unwrap_or_default()
+                } else {
+                    WellScroll::default()
+                };
                 let clip = Bounds {
                     origin: point(px(ox + cx0 as f32), px(oy + cy0 as f32)),
                     size: size(px(t.content_width as f32), px(view_h as f32)),
@@ -302,7 +310,7 @@ impl EditorElement {
                         );
                     });
                 } else if let Some(label) = fail_label {
-                    let pad = theme.boxes.mermaid.padding;
+                    let pad = theme.box_style(BlockKind::CodeBlock).padding;
                     paint_fail_box(
                         window,
                         cx,
@@ -317,7 +325,7 @@ impl EditorElement {
                     );
                 }
             } else {
-                let well = is_scroll_well(t.kind, t.edit_source);
+                let well = is_scroll_well(t.kind, t.edit_source) && is_well_carrier(&f.texts, t);
                 let s = if well {
                     well_scroll.get(&t.block).copied().unwrap_or_default()
                 } else {
@@ -345,17 +353,36 @@ impl EditorElement {
             }
             if let Some(label) = well_lang_for(t.kind, code_langs.get(&t.block).map(String::as_str))
             {
-                paint_well_lang(
+                let Some(card) = cards.get(&(t.block, t.box_id.role)) else {
+                    continue;
+                };
+                let (copied, hovered) = {
+                    let v = self.state.read(cx);
+                    (
+                        v.well_copy_done == Some(t.block),
+                        v.well_copy_hover == Some(t.block),
+                    )
+                };
+                let geom = well_head_geom(*card, theme);
+                paint_well_head(
                     label,
-                    (ox + cx0 as f32, oy + cy0 as f32),
-                    t.content_width as f32,
-                    well_padding(theme, t.kind),
+                    copied,
+                    hovered,
+                    &geom.translated(ox, oy),
                     theme,
                     window,
                     cx,
                 );
+                heads.push(WellHeadHit {
+                    id: t.block,
+                    x: geom.hit.0 as Px,
+                    y: geom.hit.1 as Px,
+                    w: geom.hit.2 as Px,
+                    h: geom.hit.3 as Px,
+                });
             }
         }
+        heads
     }
 
     fn paint_table(&mut self, f: &Frame, ctx: &PaintCtx<'_>, window: &mut Window, cx: &mut App) {
@@ -594,11 +621,10 @@ fn paint_scrollbars(
 ) {
     for hit in wells {
         let s = ctx.well_scroll.get(&hit.id).copied().unwrap_or_default();
-        if let Some(bar) = WellBar::vertical(hit.view_w, hit.view_h, s.y, hit.content_h, chrome) {
-            paint_well_bar(window, ctx, chrome, hit.x, hit.y, bar);
-        }
-        if let Some(bar) = WellBar::horizontal(hit.view_w, hit.view_h, s.x, hit.content_w, chrome) {
-            paint_well_bar(window, ctx, chrome, hit.x, hit.y, bar);
+        for vertical in [true, false] {
+            if let Some(bar) = WellBar::on_axis(vertical, hit, s, chrome) {
+                paint_well_bar(window, ctx, chrome, hit.x, hit.y, bar);
+            }
         }
     }
     if let Some(bar) =
@@ -748,24 +774,42 @@ fn paint_task_check(window: &mut Window, bounds: Bounds<Pixels>, color: Hsla) {
 
 fn collect_well_hits(
     texts: &[md_render::snapshot::TextPiece],
-    mermaid_size: impl Fn(&md_render::snapshot::TextPiece) -> Option<(Px, Px)>,
+    decorations: &[md_render::snapshot::DecorationPiece],
+    theme: &DocumentTheme,
 ) -> Vec<WellHit> {
+    let cards: HashMap<(BlockId, md_layout::box_tree::BoxRole), (Px, Px, Px, Px)> = decorations
+        .iter()
+        .map(|d| ((d.hit_block, d.role), d.rect_device))
+        .collect();
+    let border = theme.decoration.code_border;
+    let head_h = theme.decoration.well_head_h;
+    let mut seen: HashSet<BlockId> = HashSet::new();
     texts
         .iter()
-        .filter(|t| is_scroll_well(t.kind, t.edit_source))
-        .map(|t| {
-            let (x, y) = t.content_origin_device;
-            let (content_w, content_h) =
-                mermaid_size(t).unwrap_or_else(|| (well_content_w(t), t.art.height));
-            WellHit {
-                id: t.block,
+        .filter(|t| is_scroll_well(t.kind, t.edit_source) && seen.insert(t.block))
+        .filter_map(|t| {
+            let (wt, content_w, content_h) = pick_well_piece(texts, t.block)?;
+            let (x, y) = wt.content_origin_device;
+            Some(WellHit {
+                id: wt.block,
                 x,
                 y,
-                view_w: t.content_width,
-                view_h: well_view_h(t),
+                view_w: wt.content_width,
+                view_h: well_view_h(wt),
                 content_w,
                 content_h,
-            }
+                card_inner: cards
+                    .get(&(wt.block, wt.box_id.role))
+                    .map(|&(cx, cy, cw, ch)| {
+                        (
+                            cx + border,
+                            cy + border,
+                            (cw - border * 2.0).max(0.0),
+                            (ch - border * 2.0).max(0.0),
+                        )
+                    }),
+                head_h,
+            })
         })
         .collect()
 }

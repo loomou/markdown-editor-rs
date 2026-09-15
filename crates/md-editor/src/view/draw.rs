@@ -6,6 +6,7 @@ use md_content::{images, math};
 use md_core::Px;
 use md_core::block::{BlockId, BlockKind};
 use md_core::inline::InlineAlign;
+use md_layout::box_tree::BoxRole;
 use md_theme::DocumentTheme;
 use std::collections::HashMap;
 
@@ -267,6 +268,21 @@ pub(super) fn well_view_h(t: &md_render::snapshot::TextPiece) -> Px {
     t.view_height
 }
 
+pub(super) fn well_content_size(
+    kind: BlockKind,
+    edit_source: bool,
+    art_w: Px,
+    art_h: Px,
+    view_w: Px,
+    view_h: Px,
+) -> (Px, Px) {
+    if kind == BlockKind::Mermaid && !edit_source {
+        (view_w, view_h)
+    } else {
+        (art_w, art_h)
+    }
+}
+
 pub(super) fn well_content_w(t: &md_render::snapshot::TextPiece) -> Px {
     let from_lines = t.art.max_line_width;
     let from_parts = t
@@ -284,6 +300,57 @@ pub(super) fn well_content_w(t: &md_render::snapshot::TextPiece) -> Px {
 
 pub(super) fn well_scroll_xy(scrolls: &HashMap<BlockId, WellScroll>, id: BlockId) -> (Px, Px) {
     scrolls.get(&id).map(|s| (s.x, s.y)).unwrap_or((0.0, 0.0))
+}
+
+pub(super) fn pick_well_piece(
+    texts: &[md_render::snapshot::TextPiece],
+    block: BlockId,
+) -> Option<(&md_render::snapshot::TextPiece, Px, Px)> {
+    let extent = |t: &md_render::snapshot::TextPiece| {
+        well_content_size(
+            t.kind,
+            t.edit_source,
+            well_content_w(t),
+            t.art.height,
+            t.content_width,
+            t.view_height,
+        )
+    };
+    let rank = |t: &md_render::snapshot::TextPiece, (cw, ch): (Px, Px)| {
+        (
+            (ch - t.view_height).max(0.0),
+            (cw - t.content_width).max(0.0),
+            -t.content_width,
+        )
+    };
+    let mut source_best: Option<(&md_render::snapshot::TextPiece, (Px, Px))> = None;
+    let mut static_frame: Option<(&md_render::snapshot::TextPiece, (Px, Px))> = None;
+    for t in texts
+        .iter()
+        .filter(|t| t.block == block && is_scroll_well(t.kind, t.edit_source))
+    {
+        if t.edit_source {
+            let e = extent(t);
+            if source_best
+                .as_ref()
+                .is_none_or(|(bt, be)| rank(t, e) > rank(bt, *be))
+            {
+                source_best = Some((t, e));
+            }
+        } else if static_frame.is_none() && t.box_id.role == BoxRole::Frame {
+            static_frame = Some((t, extent(t)));
+        }
+    }
+    source_best
+        .or(static_frame)
+        .map(|(t, (cw, ch))| (t, cw, ch))
+}
+
+pub(super) fn is_well_carrier(
+    texts: &[md_render::snapshot::TextPiece],
+    t: &md_render::snapshot::TextPiece,
+) -> bool {
+    pick_well_piece(texts, t.block).is_some_and(|(wt, _, _)| std::ptr::eq(wt, t))
 }
 
 fn placeholder_name(dest: &str) -> String {
@@ -308,8 +375,7 @@ fn paint_placeholder_slot(
     label: &str,
 ) {
     let pad = match kind {
-        BlockKind::Math => theme.boxes.math.padding,
-        BlockKind::Mermaid => theme.boxes.mermaid.padding,
+        BlockKind::Math | BlockKind::Mermaid => theme.boxes.code.padding,
         _ => md_layout::style::Edges::ZERO,
     };
     let (x, y, w, h) = rect;
@@ -504,82 +570,174 @@ pub(super) fn paint_fail_box(
 
 pub(super) fn well_lang_for(kind: BlockKind, fence_lang: Option<&str>) -> Option<&str> {
     match kind {
-        BlockKind::CodeBlock => fence_lang.filter(|s| !s.is_empty()),
+        BlockKind::CodeBlock => Some(fence_lang.filter(|s| !s.is_empty()).unwrap_or("text")),
+        BlockKind::MetadataBlock => Some("yaml"),
         BlockKind::Math => Some("math"),
         BlockKind::Mermaid => Some("mermaid"),
         _ => None,
     }
 }
 
-pub(super) fn well_padding(theme: &DocumentTheme, kind: BlockKind) -> md_layout::style::Edges {
-    match kind {
-        BlockKind::CodeBlock => theme.boxes.code.padding,
-        BlockKind::Math => theme.boxes.math.padding,
-        BlockKind::Mermaid => theme.boxes.mermaid.padding,
-        _ => md_layout::style::Edges::ZERO,
+#[derive(Clone, Copy)]
+pub(super) struct WellHeadGeom {
+    pub(super) head: (f32, f32, f32, f32),
+    pub(super) hit: (f32, f32, f32, f32),
+    pub(super) text_top: f32,
+}
+
+const WELL_COPY_HIT_W: f32 = 72.0;
+
+pub(super) fn well_head_geom(card: (f32, f32, f32, f32), theme: &DocumentTheme) -> WellHeadGeom {
+    let d = &theme.decoration;
+    let (x0, y0, w, _) = card;
+    let head_h = d.well_head_h as f32;
+    let btn_w = WELL_COPY_HIT_W.min(w * 0.5);
+    WellHeadGeom {
+        head: (x0, y0, w, head_h),
+        hit: (x0 + w - btn_w, y0, btn_w, head_h),
+        text_top: y0 + d.well_lang_top as f32,
     }
 }
 
-pub(super) fn well_lang_anchor(
-    content_origin: (f32, f32),
-    content_width: f32,
-    padding: md_layout::style::Edges,
-    right: f32,
-    top: f32,
-) -> (f32, f32) {
-    (
-        content_origin.0 + content_width + padding.right as f32 - right,
-        content_origin.1 - padding.top as f32 + top,
-    )
+impl WellHeadGeom {
+    pub(super) fn translated(self, ox: f32, oy: f32) -> Self {
+        Self {
+            head: (self.head.0 + ox, self.head.1 + oy, self.head.2, self.head.3),
+            hit: (self.hit.0 + ox, self.hit.1 + oy, self.hit.2, self.hit.3),
+            text_top: self.text_top + oy,
+        }
+    }
 }
 
-pub(super) fn paint_well_lang(
-    lang: &str,
-    content_origin: (f32, f32),
-    content_width: f32,
-    padding: md_layout::style::Edges,
+#[allow(clippy::too_many_arguments)]
+pub(super) fn paint_well_head(
+    label: &str,
+    copied: bool,
+    hovered: bool,
+    geom: &WellHeadGeom,
     theme: &DocumentTheme,
     window: &mut Window,
     cx: &mut App,
 ) {
-    if lang.is_empty() {
-        return;
+    let d = &theme.decoration;
+    let line_h_px = d.code_border as f32;
+    let line_y = geom.head.1 + geom.head.3 - line_h_px;
+    window.paint_quad(gpui::fill(
+        Bounds {
+            origin: point(px(geom.head.0), px(line_y)),
+            size: size(px(geom.head.2), px(line_h_px)),
+        },
+        theme.paint.code_border.hsla(),
+    ));
+    let size = d.well_lang_size;
+    let line_h = (d.well_head_h - d.code_border - 2.0 * d.well_lang_top) as f32;
+    let color = if hovered && !copied {
+        d.well_lang_hover
+    } else {
+        d.well_lang
     }
-    let size = theme.decoration.well_lang_size;
-    let run = TextRun {
-        len: lang.len(),
-        font: theme.type_scale.code.font(),
-        color: theme.decoration.well_lang.hsla(),
-        background_color: None,
-        underline: None,
-        strikethrough: None,
-    };
-    let Ok(lines) =
-        window
-            .text_system()
-            .shape_text(lang.to_string().into(), px(size), &[run], None, None)
-    else {
+    .hsla();
+    let font = theme.type_scale.body.font();
+
+    let Some(lang_line) = shape_head_line(label, &font, size, color, window) else {
         return;
     };
-    let Some(line) = lines.into_iter().next() else {
-        return;
-    };
-    let (x, y) = well_lang_anchor(
-        content_origin,
-        content_width,
-        padding,
-        theme.decoration.well_lang_right as f32,
-        theme.decoration.well_lang_top as f32,
-    );
-    let w = f32::from(line.width());
-    let _ = line.paint(
-        point(px(x - w), px(y)),
-        px(size + 3.5),
+    let _ = lang_line.paint(
+        point(px(geom.head.0 + d.well_lang_left as f32), px(geom.text_top)),
+        px(line_h),
         gpui::TextAlign::Left,
         None,
         window,
         cx,
     );
+
+    let action = if copied {
+        md_i18n::t(md_i18n::Key::WellCopied)
+    } else {
+        md_i18n::t(md_i18n::Key::MenuCopy)
+    };
+    let Some(action_line) = shape_head_line(action, &font, size, color, window) else {
+        return;
+    };
+    let text_w = f32::from(action_line.width());
+    let icon_s = 15.0;
+    let text_x = geom.head.0 + geom.head.2 - d.well_lang_right as f32 - text_w;
+    let icon_x = text_x - 6.0 - icon_s;
+    let icon_y = geom.text_top + (line_h - icon_s) * 0.5;
+    let _ = action_line.paint(
+        point(px(text_x), px(geom.text_top)),
+        px(line_h),
+        gpui::TextAlign::Left,
+        None,
+        window,
+        cx,
+    );
+    if copied {
+        paint_well_check_icon(window, icon_x, icon_y, color);
+    } else {
+        paint_well_copy_icon(window, icon_x, icon_y, color);
+    }
+}
+
+fn shape_head_line(
+    text: &str,
+    font: &gpui::Font,
+    size: f32,
+    color: Hsla,
+    window: &mut Window,
+) -> Option<gpui::WrappedLine> {
+    let run = TextRun {
+        len: text.len(),
+        font: font.clone(),
+        color,
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    window
+        .text_system()
+        .shape_text(text.to_string().into(), px(size), &[run], None, None)
+        .ok()?
+        .into_iter()
+        .next()
+}
+
+fn paint_well_copy_icon(window: &mut Window, x: f32, y: f32, color: Hsla) {
+    let s = 15.0 / 24.0;
+    let k = |u: f32, v: f32| point(px(x + u * s), px(y + v * s));
+    let mut front = gpui::PathBuilder::stroke(px(2.0 * s));
+    front.move_to(k(9.0, 9.0));
+    front.line_to(k(22.0, 9.0));
+    front.line_to(k(22.0, 22.0));
+    front.line_to(k(9.0, 22.0));
+    front.close();
+    if let Ok(p) = front.build() {
+        window.paint_path(p, color);
+    }
+    let mut back = gpui::PathBuilder::stroke(px(2.0 * s));
+    back.move_to(k(5.0, 15.0));
+    back.line_to(k(4.0, 15.0));
+    back.line_to(k(2.0, 13.0));
+    back.line_to(k(2.0, 4.0));
+    back.line_to(k(4.0, 2.0));
+    back.line_to(k(13.0, 2.0));
+    back.line_to(k(15.0, 4.0));
+    back.line_to(k(15.0, 5.0));
+    if let Ok(p) = back.build() {
+        window.paint_path(p, color);
+    }
+}
+
+fn paint_well_check_icon(window: &mut Window, x: f32, y: f32, color: Hsla) {
+    let s = 15.0 / 24.0;
+    let k = |u: f32, v: f32| point(px(x + u * s), px(y + v * s));
+    let mut path = gpui::PathBuilder::stroke(px(2.0 * s));
+    path.move_to(k(20.0, 6.0));
+    path.line_to(k(9.0, 17.0));
+    path.line_to(k(4.0, 12.0));
+    if let Ok(p) = path.build() {
+        window.paint_path(p, color);
+    }
 }
 
 pub(super) fn paint_gutter_label(
@@ -1013,34 +1171,54 @@ fn paint_drop_dot(window: &mut Window, x: f32, y: f32, accent: Hsla) {
 
 #[cfg(test)]
 mod tests {
-    use super::{placeholder_name, well_lang_anchor, well_lang_for};
+    use super::{WELL_COPY_HIT_W, placeholder_name, well_head_geom, well_lang_for};
     use md_core::block::BlockKind;
-    use md_layout::style::Edges;
+    use md_theme::DocumentTheme;
 
     #[test]
-    fn well_lang_labels_match_v2_corner_tags() {
-        assert_eq!(well_lang_for(BlockKind::CodeBlock, None), None);
-        assert_eq!(well_lang_for(BlockKind::CodeBlock, Some("")), None);
+    fn well_lang_labels_match_v2_head_tags() {
+        assert_eq!(well_lang_for(BlockKind::CodeBlock, None), Some("text"));
+        assert_eq!(well_lang_for(BlockKind::CodeBlock, Some("")), Some("text"));
         assert_eq!(
             well_lang_for(BlockKind::CodeBlock, Some("rust")),
             Some("rust")
         );
+        assert_eq!(well_lang_for(BlockKind::MetadataBlock, None), Some("yaml"));
         assert_eq!(well_lang_for(BlockKind::Math, None), Some("math"));
         assert_eq!(well_lang_for(BlockKind::Mermaid, None), Some("mermaid"));
+        assert_eq!(well_lang_for(BlockKind::Image, None), None);
         assert_eq!(well_lang_for(BlockKind::Paragraph, Some("rust")), None);
     }
 
     #[test]
-    fn well_lang_anchor_sits_inset_from_well_edges() {
-        let pad = Edges {
-            top: 24.0,
-            right: 16.0,
-            bottom: 12.0,
-            left: 16.0,
-        };
-        let (x, y) = well_lang_anchor((40.0, 30.0), 200.0, pad, 10.0, 6.0);
-        assert_eq!(x, 40.0 + 200.0 + 16.0 - 10.0);
-        assert_eq!(y, 30.0 - 24.0 + 6.0);
+    fn well_head_geometry_hugs_the_card_top() {
+        let theme = DocumentTheme::one_dark();
+        let d = &theme.decoration;
+        let g = well_head_geom((60.0, 30.0, 200.0, 120.0), &theme);
+        assert_eq!(g.head, (60.0, 30.0, 200.0, d.well_head_h as f32));
+        assert_eq!(g.text_top, 30.0 + d.well_lang_top as f32);
+        assert_eq!(
+            g.hit.0 + g.hit.2,
+            60.0 + 200.0,
+            "the hit zone must align with the card's right edge"
+        );
+        assert_eq!(g.hit.1, 30.0);
+        assert_eq!(g.hit.3, d.well_head_h as f32);
+        assert_eq!(
+            g.hit.2, WELL_COPY_HIT_W,
+            "a wide well gets the full fixed-width hit zone"
+        );
+
+        let narrow = well_head_geom((0.0, 0.0, 20.0, 100.0), &theme);
+        assert_eq!(
+            narrow.hit.2,
+            20.0 * 0.5,
+            "a narrow well clamps the hit zone to half the well width"
+        );
+        assert!(
+            narrow.hit.0 >= 20.0 * 0.5 - f32::EPSILON,
+            "the language label keeps at least the left half of the head"
+        );
     }
 
     #[test]

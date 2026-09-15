@@ -75,6 +75,7 @@ impl BoxLayoutStyle {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BoxLayoutEnvironment {
     pub viewport_width: Px,
+    pub content_inset: Px,
 }
 
 const DEFAULT_VIEWPORT_WIDTH: Px = 800.0;
@@ -84,6 +85,7 @@ impl Default for BoxLayoutEnvironment {
     fn default() -> Self {
         BoxLayoutEnvironment {
             viewport_width: DEFAULT_VIEWPORT_WIDTH,
+            content_inset: 0.0,
         }
     }
 }

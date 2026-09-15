@@ -84,6 +84,30 @@ struct WellHit {
     view_h: Px,
     content_w: Px,
     content_h: Px,
+    card_inner: Option<(Px, Px, Px, Px)>,
+    head_h: Px,
+}
+
+impl WellHit {
+    fn wheel_rect(&self) -> (Px, Px, Px, Px) {
+        self.card_inner
+            .unwrap_or((self.x, self.y, self.view_w, self.view_h))
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct WellHeadHit {
+    id: BlockId,
+    x: Px,
+    y: Px,
+    w: Px,
+    h: Px,
+}
+
+impl WellHeadHit {
+    fn contains(&self, x: Px, y: Px) -> bool {
+        x >= self.x && x < self.x + self.w && y >= self.y && y < self.y + self.h
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -384,6 +408,10 @@ pub struct EditorView {
     pub(crate) media_chrome: Option<MediaChrome>,
     media_chrome_hover: bool,
     pub(crate) media_zoom: Option<MediaZoom>,
+
+    well_copy_hover: Option<BlockId>,
+    well_copy_done: Option<BlockId>,
+    well_copy_task: Option<gpui::Task<()>>,
 }
 
 struct DocShapeMaps {

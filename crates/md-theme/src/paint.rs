@@ -387,6 +387,8 @@ pub struct ChromeTokens {
     pub search_park_prev: f64,
     pub window_width: f32,
     pub window_height: f32,
+    pub window_min_width: f32,
+    pub window_min_height: f32,
 }
 
 impl ChromeTokens {
@@ -411,6 +413,8 @@ impl ChromeTokens {
             search_park_prev: 0.72,
             window_width: 900.0,
             window_height: 680.0,
+            window_min_width: 400.0,
+            window_min_height: 400.0,
         }
     }
 }

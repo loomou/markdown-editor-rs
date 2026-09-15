@@ -3,6 +3,8 @@ use crate::ui::scrollbar::{Gutter, Slider, scroll_at};
 use md_core::Px;
 use md_theme::ChromeTokens;
 
+const WELL_BAR_BORDER_GAP: Px = 4.0;
+
 impl ScrollbarGeom {
     pub(super) fn layout(
         view_w: Px,
@@ -123,6 +125,71 @@ impl WellBar {
         })
     }
 
+    pub(super) fn vertical_in_card(
+        card: (Px, Px, Px, Px),
+        head_h: Px,
+        view_h: Px,
+        scroll: Px,
+        content_h: Px,
+        chrome: &ChromeTokens,
+    ) -> Option<Self> {
+        let pad = chrome.scrollbar_pad;
+        let track_start = card.1 + head_h + pad;
+        let s = Slider::with_track(
+            view_h,
+            content_h,
+            scroll,
+            track_start,
+            (card.1 + card.3 - pad - track_start).max(0.0),
+            chrome.scrollbar_min_thumb,
+        )?;
+        let g = Gutter::new(card.2, chrome.scrollbar_hit, chrome.scrollbar_thumb_w)?;
+        Some(Self {
+            vertical: true,
+            hit_x: card.0 + g.start,
+            hit_y: s.track_start,
+            hit_w: g.len,
+            hit_h: s.track_len,
+            thumb_x: card.0 + card.2 - g.thumb_len - WELL_BAR_BORDER_GAP,
+            thumb_y: s.thumb_start,
+            thumb_w: g.thumb_len,
+            thumb_h: s.thumb_len,
+            max_scroll: s.max_scroll,
+        })
+    }
+
+    pub(super) fn horizontal_in_card(
+        card: (Px, Px, Px, Px),
+        view_w: Px,
+        scroll: Px,
+        content_w: Px,
+        chrome: &ChromeTokens,
+    ) -> Option<Self> {
+        let pad = chrome.scrollbar_pad;
+        let track_start = card.0 + pad;
+        let s = Slider::with_track(
+            view_w,
+            content_w,
+            scroll,
+            track_start,
+            (card.0 + card.2 - pad - track_start).max(0.0),
+            chrome.scrollbar_min_thumb,
+        )?;
+        let g = Gutter::new(card.3, chrome.scrollbar_hit, chrome.scrollbar_thumb_w)?;
+        Some(Self {
+            vertical: false,
+            hit_x: s.track_start,
+            hit_y: card.1 + g.start,
+            hit_w: s.track_len,
+            hit_h: g.len,
+            thumb_x: s.thumb_start,
+            thumb_y: card.1 + card.3 - g.thumb_len - WELL_BAR_BORDER_GAP,
+            thumb_w: s.thumb_len,
+            thumb_h: g.thumb_len,
+            max_scroll: s.max_scroll,
+        })
+    }
+
     pub(super) fn contains(self, x: Px, y: Px) -> bool {
         x >= self.hit_x
             && x < self.hit_x + self.hit_w
@@ -143,10 +210,24 @@ impl WellBar {
         s: WellScroll,
         chrome: &ChromeTokens,
     ) -> Option<Self> {
-        if vertical {
-            Self::vertical(hit.view_w, hit.view_h, s.y, hit.content_h, chrome)
-        } else {
-            Self::horizontal(hit.view_w, hit.view_h, s.x, hit.content_w, chrome)
+        match (vertical, hit.card_inner) {
+            (true, Some(c)) => Self::vertical_in_card(
+                (c.0 - hit.x, c.1 - hit.y, c.2, c.3),
+                hit.head_h,
+                hit.view_h,
+                s.y,
+                hit.content_h,
+                chrome,
+            ),
+            (true, None) => Self::vertical(hit.view_w, hit.view_h, s.y, hit.content_h, chrome),
+            (false, Some(c)) => Self::horizontal_in_card(
+                (c.0 - hit.x, c.1 - hit.y, c.2, c.3),
+                hit.view_w,
+                s.x,
+                hit.content_w,
+                chrome,
+            ),
+            (false, None) => Self::horizontal(hit.view_w, hit.view_h, s.x, hit.content_w, chrome),
         }
     }
 

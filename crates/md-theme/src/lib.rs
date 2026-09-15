@@ -11,7 +11,7 @@ mod syntax;
 mod type_scale;
 
 pub use app::AppTokens;
-pub use appearance::{Appearance, BodyFamily, Density, ThemeVariant};
+pub use appearance::{Appearance, Density, ThemeVariant};
 pub use box_scale::BoxScale;
 pub use color::{ColorGroup, ColorOverrides, ColorSlot};
 pub use decoration::DecorationTokens;
@@ -190,7 +190,11 @@ impl DocumentTheme {
             BlockKind::DocStart => self.boxes.doc_start,
             BlockKind::Paragraph => self.boxes.paragraph,
             BlockKind::Heading(n) => self.boxes.heading[n.clamp(1, 6) as usize - 1],
-            BlockKind::CodeBlock | BlockKind::MetadataBlock => self.boxes.code,
+            BlockKind::CodeBlock
+            | BlockKind::MetadataBlock
+            | BlockKind::Image
+            | BlockKind::Math
+            | BlockKind::Mermaid => self.boxes.code,
             BlockKind::BlockQuote => self.boxes.quote,
             BlockKind::FootnoteDefinition => self.boxes.footnote,
             BlockKind::List => self.boxes.list,
@@ -199,10 +203,10 @@ impl DocumentTheme {
             BlockKind::TableRow => self.boxes.table_row,
             BlockKind::TableCell => self.boxes.table_cell,
             BlockKind::ThematicBreak => self.boxes.rule,
-            BlockKind::Image => self.boxes.image,
-            BlockKind::Mermaid => self.boxes.mermaid,
-            BlockKind::Math => self.boxes.math,
         };
+        if kind == BlockKind::Image {
+            style.padding.top = self.boxes.code.padding.top - self.decoration.well_head_h;
+        }
         let k = self.edge_scale;
         if k != 1.0 {
             let scale_edges = |e: Edges| Edges {
@@ -215,6 +219,13 @@ impl DocumentTheme {
             style.padding = scale_edges(style.padding);
             style.border = scale_edges(style.border);
             style.gap *= k;
+        }
+        if matches!(
+            kind,
+            BlockKind::CodeBlock | BlockKind::MetadataBlock | BlockKind::Math | BlockKind::Mermaid
+        ) {
+            let head = self.decoration.well_head_h;
+            style.padding.top = head + (self.boxes.code.padding.top - head) * k;
         }
         style
     }
@@ -301,10 +312,13 @@ mod tests {
                 .well_max_height(md_core::block::BlockKind::Paragraph, false),
             None
         );
-        assert_eq!(dark.decoration.well_lang_size, 10.5);
-        assert_eq!(dark.decoration.well_lang_right, 10.0);
-        assert_eq!(dark.decoration.well_lang_top, 6.0);
+        assert_eq!(dark.decoration.well_head_h, 41.0);
+        assert_eq!(dark.decoration.well_lang_size, 13.0);
+        assert_eq!(dark.decoration.well_lang_left, 16.0);
+        assert_eq!(dark.decoration.well_lang_right, 16.0);
+        assert_eq!(dark.decoration.well_lang_top, 11.0);
         assert_eq!(dark.decoration.well_lang.to_css_hex(), "#878a98");
+        assert_eq!(dark.decoration.well_lang_hover.to_css_hex(), "#a9afbc");
         assert_eq!(dark.type_scale.code.color.to_css_hex(), "#acb2be");
         assert_eq!(dark.inline.inline_code.to_css_hex(), "#e06c75");
         assert_eq!(dark.inline.inline_code_fill.to_css_hex(), "#343a45");
@@ -459,7 +473,7 @@ mod tests {
         use super::{Appearance, Density};
         let base = Appearance::default();
         for d in Density::ALL {
-            let mut a = base;
+            let mut a = base.clone();
             a.density = d;
             let same = a.density == base.density;
             assert_eq!(
@@ -468,7 +482,7 @@ mod tests {
                 "density {d:?}"
             );
         }
-        let bigger = base.with_body_size_px(20.0);
+        let bigger = base.clone().with_body_size_px(20.0);
         assert!(
             !base
                 .document_theme()
@@ -497,24 +511,12 @@ mod tests {
         assert_eq!(boxes.list.padding.left, 40.0);
         assert_eq!(boxes.list.gap, 8.0);
         assert_eq!(boxes.code.margin.top, 32.0);
-        assert_eq!(boxes.code.padding.top, 24.0);
-        assert_eq!(boxes.code.padding.right, 16.0);
-        assert_eq!(boxes.code.padding.bottom, 12.0);
-        assert_eq!(boxes.code.padding.left, 16.0);
+        assert_eq!(boxes.code.padding.top, 59.0);
+        assert_eq!(boxes.code.padding.right, 22.0);
+        assert_eq!(boxes.code.padding.bottom, 22.0);
+        assert_eq!(boxes.code.padding.left, 22.0);
         assert_eq!(boxes.table.margin.top, 32.0);
         assert_eq!(boxes.rule.margin.top, 24.0);
-        assert_eq!(boxes.image.margin.top, 20.0);
-        assert_eq!(boxes.mermaid.margin.top, 32.0);
-        assert_eq!(boxes.mermaid.padding.top, 22.0);
-        assert_eq!(boxes.mermaid.padding.right, 16.0);
-        assert_eq!(boxes.mermaid.padding.bottom, 22.0);
-        assert_eq!(boxes.mermaid.padding.left, 16.0);
-        assert_eq!(boxes.math.margin.top, 24.0);
-        assert_eq!(boxes.math.margin.bottom, 4.0);
-        assert_eq!(boxes.math.padding.top, 20.0);
-        assert_eq!(boxes.math.padding.right, 16.0);
-        assert_eq!(boxes.math.padding.bottom, 20.0);
-        assert_eq!(boxes.math.padding.left, 16.0);
         assert_eq!(DocumentTheme::one_dark().decoration.list_nested_top, 8.0);
         let flow = DocumentTheme::one_dark().flow;
         assert_eq!(flow.quote_paragraph_top, 0.0);
@@ -525,6 +527,23 @@ mod tests {
         assert_eq!(dark.type_scale.quote.style, FontStyle::Italic);
         assert_eq!(dark.type_scale.heading[0].letter_spacing_px, -0.3);
         assert!((dark.inline.link_underline.a - 0.4).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn v2_window_min_stays_under_the_initial_size() {
+        let chrome = DocumentTheme::one_dark().chrome;
+        assert!(
+            0.0 < chrome.window_min_width && chrome.window_min_width < chrome.window_width,
+            "window_min_width={:?} must sit inside (0, window_width={:?})",
+            chrome.window_min_width,
+            chrome.window_width
+        );
+        assert!(
+            0.0 < chrome.window_min_height && chrome.window_min_height < chrome.window_height,
+            "window_min_height={:?} must sit inside (0, window_height={:?})",
+            chrome.window_min_height,
+            chrome.window_height
+        );
     }
 
     #[test]
@@ -578,5 +597,72 @@ mod tests {
             theme.box_style(BlockKind::CodeBlock),
             "metadata geometry must match its code box"
         );
+    }
+}
+
+#[cfg(test)]
+mod code_well_sharing {
+    use super::DocumentTheme;
+    use md_core::block::BlockKind;
+
+    #[test]
+    fn well_blocks_share_the_code_box_style() {
+        for theme in [DocumentTheme::formal(), DocumentTheme::one_dark()] {
+            let code = theme.box_style(BlockKind::CodeBlock);
+            for kind in [
+                BlockKind::MetadataBlock,
+                BlockKind::Math,
+                BlockKind::Mermaid,
+            ] {
+                assert_eq!(
+                    theme.box_style(kind),
+                    code,
+                    "{kind:?} must share the code well box style"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn image_keeps_the_code_well_metrics_but_drops_the_head_room() {
+        for theme in [DocumentTheme::formal(), DocumentTheme::one_dark()] {
+            let code = theme.box_style(BlockKind::CodeBlock);
+            let image = theme.box_style(BlockKind::Image);
+            assert_eq!(image.margin, code.margin);
+            assert_eq!(image.padding.right, code.padding.right);
+            assert_eq!(image.padding.bottom, code.padding.bottom);
+            assert_eq!(image.padding.left, code.padding.left);
+            assert_eq!(
+                image.padding.top,
+                code.padding.top - theme.decoration.well_head_h
+            );
+        }
+    }
+
+    #[test]
+    fn code_well_top_padding_covers_the_head_bar() {
+        for theme in [DocumentTheme::formal(), DocumentTheme::one_dark()] {
+            let code = theme.box_style(BlockKind::CodeBlock);
+            assert_eq!(code.padding.top - theme.decoration.well_head_h, 18.0);
+        }
+    }
+
+    #[test]
+    fn density_scales_the_well_headroom_but_not_the_head_bar() {
+        for k in [0.8, 1.0, 1.25] {
+            let mut theme = DocumentTheme::one_dark();
+            theme.edge_scale = k;
+            let code = theme.box_style(BlockKind::CodeBlock);
+            let head = theme.decoration.well_head_h;
+            assert_eq!(code.padding.top, head + 18.0 * k);
+            assert_eq!(
+                code.padding.right,
+                22.0 * k,
+                "both side paddings scale with density"
+            );
+            assert_eq!(code.padding.bottom, 22.0 * k);
+            let image = theme.box_style(BlockKind::Image);
+            assert_eq!(image.padding.top, 18.0 * k);
+        }
     }
 }

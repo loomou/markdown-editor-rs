@@ -272,6 +272,7 @@ fn cold_edit_after_resize_uses_current_width() {
         &doc.document,
         BoxLayoutEnvironment {
             viewport_width: 800.0,
+            content_inset: 0.0,
         },
         Estimator::from_theme(&theme),
         theme.layout_theme(),
@@ -293,6 +294,7 @@ fn cold_edit_after_resize_uses_current_width() {
         &doc.document,
         BoxLayoutEnvironment {
             viewport_width: 200.0,
+            content_inset: 0.0,
         },
         Estimator::from_theme(&theme),
         theme.layout_theme(),
@@ -320,6 +322,7 @@ fn cold_edit_without_resize_still_matches_cold_window() {
         &doc.document,
         BoxLayoutEnvironment {
             viewport_width: 400.0,
+            content_inset: 0.0,
         },
         Estimator::from_theme(&theme),
         theme.layout_theme(),
@@ -339,6 +342,7 @@ fn cold_edit_without_resize_still_matches_cold_window() {
         &doc.document,
         BoxLayoutEnvironment {
             viewport_width: 400.0,
+            content_inset: 0.0,
         },
         Estimator::from_theme(&theme),
         theme.layout_theme(),
@@ -391,6 +395,7 @@ fn return_to_preview_reconstructs_its_frame() {
         &doc.document,
         BoxLayoutEnvironment {
             viewport_width: 800.0,
+            content_inset: 0.0,
         },
         Estimator::from_theme(&theme),
         theme.layout_theme(),

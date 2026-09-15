@@ -54,9 +54,6 @@ pub struct BoxScale {
     pub table_row: BoxLayoutStyle,
     pub table_cell: BoxLayoutStyle,
     pub rule: BoxLayoutStyle,
-    pub image: BoxLayoutStyle,
-    pub mermaid: BoxLayoutStyle,
-    pub math: BoxLayoutStyle,
 }
 
 impl BoxScale {
@@ -86,10 +83,10 @@ impl BoxScale {
             code: leaf(
                 top(32.0),
                 Edges {
-                    top: 24.0,
-                    right: 16.0,
-                    bottom: 12.0,
-                    left: 16.0,
+                    top: 59.0,
+                    right: 22.0,
+                    bottom: 22.0,
+                    left: 22.0,
                 },
             ),
             quote: flow(top(32.0), left(20.0), left(4.0), 0.0),
@@ -106,17 +103,6 @@ impl BoxScale {
             },
             table_cell: leaf(Edges::ZERO, Edges::vh(8.0, 8.0)),
             rule: leaf(top(24.0), Edges::vh(8.0, 0.0)),
-            image: leaf(top(20.0), Edges::ZERO),
-            mermaid: leaf(top(32.0), Edges::vh(22.0, 16.0)),
-            math: leaf(
-                Edges {
-                    top: 24.0,
-                    right: 0.0,
-                    bottom: 4.0,
-                    left: 0.0,
-                },
-                Edges::vh(20.0, 16.0),
-            ),
         }
     }
 }

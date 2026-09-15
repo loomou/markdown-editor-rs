@@ -1,4 +1,4 @@
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Lang {
@@ -44,14 +44,30 @@ impl Lang {
     }
 }
 
-static CURRENT: OnceLock<Lang> = OnceLock::new();
+static CURRENT: AtomicU8 = AtomicU8::new(u8::MAX);
 
-pub fn current() -> Lang {
-    *CURRENT.get_or_init(Lang::from_system)
+fn lang_at(raw: u8) -> Lang {
+    match raw {
+        0 => Lang::ZhCn,
+        1 => Lang::En,
+        _ => Lang::from_system(),
+    }
 }
 
-pub fn set_current(lang: Lang) -> bool {
-    CURRENT.set(lang).is_ok()
+pub fn current() -> Lang {
+    let raw = CURRENT.load(Ordering::Relaxed);
+    if raw != u8::MAX {
+        return lang_at(raw);
+    }
+    let sys = Lang::from_system();
+    match CURRENT.compare_exchange(u8::MAX, sys as u8, Ordering::Relaxed, Ordering::Relaxed) {
+        Ok(_) => sys,
+        Err(settled) => lang_at(settled),
+    }
+}
+
+pub fn set_current(lang: Lang) {
+    CURRENT.store(lang as u8, Ordering::Relaxed);
 }
 
 #[cfg(test)]

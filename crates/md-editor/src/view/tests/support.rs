@@ -16,7 +16,11 @@ pub(super) fn editor_with_doc<'a>(
     markdown: &str,
     cx: &'a mut TestAppContext,
 ) -> (gpui::Entity<EditorView>, &'a mut VisualTestContext) {
-    cx.add_window_view(|_, cx| EditorView::new(test_doc(markdown), DocumentTheme::one_dark(), cx))
+    let (editor, cx) = cx.add_window_view(|_, cx| {
+        EditorView::new(test_doc(markdown), DocumentTheme::one_dark(), cx)
+    });
+    cx.simulate_resize(size(px(800.0), px(600.0)));
+    (editor, cx)
 }
 
 pub(super) fn chrome() -> md_theme::ChromeTokens {

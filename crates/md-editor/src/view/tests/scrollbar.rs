@@ -1,4 +1,5 @@
-use super::support::{chrome, editor_with_doc};
+use super::support::{chrome, editor_with_doc, focus_editor};
+use crate::view::draw::{is_well_carrier, well_content_size};
 use crate::view::scrollbar::{
     park_block_top_margin, park_block_top_scroll, search_reveal_scroll, select_autoscroll_can_move,
     select_autoscroll_delta,
@@ -6,8 +7,10 @@ use crate::view::scrollbar::{
 use crate::view::{EditorElement, EditorView, ScrollbarGeom, WellBar, WellHit, WellScroll};
 use gpui::TestAppContext;
 use gpui::VisualTestContext;
-use gpui::{point, px, size};
+use gpui::{Modifiers, ScrollWheelEvent, point, px, size};
+use md_core::Px;
 use md_core::block::BlockKind;
+use md_render::snapshot::TextPiece;
 
 #[test]
 fn scrollbar_hidden_when_content_fits() {
@@ -111,6 +114,8 @@ fn well_bar_on_axis_matches_the_explicit_constructors() {
         view_h: 200.0,
         content_w: 800.0,
         content_h: 500.0,
+        card_inner: None,
+        head_h: 0.0,
     };
     let s = WellScroll { x: 120.0, y: 100.0 };
     let dispatched_v = WellBar::on_axis(true, &hit, s, &c).expect("y overflow");
@@ -123,6 +128,94 @@ fn well_bar_on_axis_matches_the_explicit_constructors() {
     assert!(!dispatched_h.vertical);
     assert_eq!(dispatched_h.thumb_x, explicit_h.thumb_x);
     assert_eq!(dispatched_h.thumb_w, explicit_h.thumb_w);
+}
+
+#[test]
+fn well_bar_in_card_hugs_the_card_frame() {
+    let c = chrome();
+    let head_h = 41.0;
+    let card = (100.0, 50.0, 300.0, 200.0);
+    let v = WellBar::vertical_in_card(card, head_h, 120.0, 0.0, 400.0, &c).expect("y overflow");
+    let pad = c.scrollbar_pad;
+    assert_eq!(v.hit_x + v.hit_w, card.0 + card.2);
+    assert_eq!(
+        v.thumb_x + v.thumb_w,
+        card.0 + card.2 - 4.0,
+        "the thumb keeps 4px inside the border's inner edge"
+    );
+    assert!(v.thumb_x >= v.hit_x, "the thumb stays inside the hit band");
+    assert_eq!(v.hit_y, card.1 + head_h + pad);
+    assert_eq!(v.hit_y + v.hit_h, card.1 + card.3 - pad);
+    assert!((v.thumb_h / v.hit_h - 120.0 / 400.0).abs() < 1e-3);
+
+    let h = WellBar::horizontal_in_card(card, 500.0, 0.0, 900.0, &c).expect("x overflow");
+    assert_eq!(h.hit_y + h.hit_h, card.1 + card.3);
+    assert_eq!(
+        h.thumb_y + h.thumb_h,
+        card.1 + card.3 - 4.0,
+        "the thumb keeps 4px inside the bottom border's inner edge"
+    );
+    assert_eq!(h.hit_x, card.0 + pad);
+    assert_eq!(h.hit_x + h.hit_w, card.0 + card.2 - pad);
+    assert!((h.thumb_w / h.hit_w - 500.0 / 900.0).abs() < 1e-3);
+
+    let squat = WellBar::vertical_in_card(card, head_h, 120.0, 0.0, 400.0, &c);
+    let _ = squat;
+    let tiny = (100.0, 50.0, 300.0, head_h + pad);
+    assert!(WellBar::vertical_in_card(tiny, head_h, 120.0, 0.0, 400.0, &c).is_none());
+}
+
+#[test]
+fn well_content_size_matches_what_painting_can_scroll() {
+    assert_eq!(
+        well_content_size(BlockKind::Mermaid, false, 804.0, 900.0, 660.0, 420.0),
+        (660.0, 420.0)
+    );
+    assert_eq!(
+        well_content_size(BlockKind::Mermaid, true, 804.0, 900.0, 660.0, 420.0),
+        (804.0, 900.0)
+    );
+    assert_eq!(
+        well_content_size(BlockKind::Image, false, 700.0, 800.0, 660.0, 420.0),
+        (700.0, 800.0)
+    );
+    assert_eq!(
+        well_content_size(BlockKind::CodeBlock, false, 722.0, 24.0, 660.0, 24.0),
+        (722.0, 24.0)
+    );
+}
+
+#[test]
+fn well_bar_on_axis_speaks_the_well_origin_dialect() {
+    let c = chrome();
+    let hit = WellHit {
+        id: 0,
+        x: 48.0,
+        y: 60.0,
+        view_w: 600.0,
+        view_h: 100.0,
+        content_w: 600.0,
+        content_h: 500.0,
+        card_inner: Some((24.0, 1.0, 648.0, 300.0)),
+        head_h: 41.0,
+    };
+    let bar = WellBar::on_axis(true, &hit, WellScroll::default(), &c).expect("y overflow");
+    let lx = 672.0 - hit.x - 2.0;
+    let ly = bar.hit_y + bar.hit_h * 0.5;
+    assert!(
+        bar.contains(lx, ly),
+        "a band flush with the border must hit-test in the well-origin dialect (hit_x={})",
+        bar.hit_x
+    );
+    assert!(
+        hit.x + bar.hit_x + bar.hit_w > hit.x + hit.view_w,
+        "the band must sit outside the content area's right edge, hugging the card"
+    );
+    assert!(
+        (hit.x + bar.hit_x + bar.hit_w - 672.0).abs() < 1e-6,
+        "the band's right end must hug the card's inner right edge (computed {})",
+        hit.x + bar.hit_x + bar.hit_w
+    );
 }
 
 #[test]
@@ -293,6 +386,246 @@ fn park_block_top_scrolls_heading_to_viewport_top() {
         park_block_top_scroll(2000.0, 0.0, 400.0, 4000.0, f64::NAN),
         None
     );
+}
+
+fn code_well_card(
+    editor: &gpui::Entity<EditorView>,
+    cx: &mut VisualTestContext,
+) -> (TextPiece, (Px, Px, Px, Px)) {
+    let (_, prepaint) = cx.draw(
+        point(px(0.0), px(0.0)),
+        size(px(800.0), px(600.0)),
+        |_, _| EditorElement {
+            state: editor.clone(),
+        },
+    );
+    let piece = prepaint
+        .frame
+        .snapshot
+        .texts
+        .iter()
+        .find(|t| t.kind == BlockKind::CodeBlock && !t.edit_source)
+        .cloned()
+        .unwrap_or_else(|| panic!("the code piece must be in the first frame"));
+    let card = prepaint
+        .frame
+        .decorations
+        .iter()
+        .find(|d| d.hit_block == piece.block && d.role == piece.box_id.role)
+        .map(|d| d.rect_device)
+        .unwrap_or_else(|| panic!("the well-card decoration must be in the first frame"));
+    (piece, card)
+}
+
+#[gpui::test]
+fn wheel_over_the_well_head_feeds_the_well_not_the_document(cx: &mut TestAppContext) {
+    let code = format!("```rust\n{}```\n", "let x = 1;\n".repeat(160));
+    let md = format!("# title\n\n{code}\n\n{}", "tail\n\n".repeat(40));
+    let (editor, cx) = editor_with_doc(&md, cx);
+    let (piece, card) = code_well_card(&editor, cx);
+    assert!(
+        piece.art.height > piece.view_height,
+        "the fixture must overflow vertically: art={} view={}",
+        piece.art.height,
+        piece.view_height
+    );
+    let head_h = cx.update(|_, app| editor.read(app).state.theme.decoration.well_head_h);
+    cx.simulate_event(ScrollWheelEvent {
+        position: point(
+            px((card.0 + card.2 * 0.5) as f32),
+            px((card.1 + head_h * 0.5) as f32),
+        ),
+        delta: gpui::ScrollDelta::Lines(point(0.0, -3.0)),
+        ..Default::default()
+    });
+    cx.update(|_, app| {
+        let view = editor.read(app);
+        let s = view.well_scroll.get(&piece.block).copied();
+        assert!(
+            s.is_some_and(|s| s.y > 0.0),
+            "the wheel must feed the well, but the well scrolled {s:?}"
+        );
+        assert_eq!(
+            view.state.scroll, 0.0,
+            "the page must not scroll while the well fits"
+        );
+    });
+}
+
+#[gpui::test]
+fn wheel_over_the_well_head_chains_to_the_document_when_the_well_fits(cx: &mut TestAppContext) {
+    let md = format!("```rust\nfn x() {{}}\n```\n\n{}", "tail\n\n".repeat(60));
+    let (editor, cx) = editor_with_doc(&md, cx);
+    let (piece, card) = code_well_card(&editor, cx);
+    assert!(
+        piece.art.height <= piece.view_height,
+        "the fixture's well must fit: art={} view={}",
+        piece.art.height,
+        piece.view_height
+    );
+    let head_h = cx.update(|_, app| editor.read(app).state.theme.decoration.well_head_h);
+    cx.simulate_event(ScrollWheelEvent {
+        position: point(
+            px((card.0 + card.2 * 0.5) as f32),
+            px((card.1 + head_h * 0.5) as f32),
+        ),
+        delta: gpui::ScrollDelta::Lines(point(0.0, -3.0)),
+        ..Default::default()
+    });
+    cx.update(|_, app| {
+        let view = editor.read(app);
+        assert!(
+            view.well_scroll
+                .get(&piece.block)
+                .copied()
+                .unwrap_or_default()
+                .y
+                == 0.0,
+            "a fitting well must carry no scroll"
+        );
+        assert!(
+            view.state.scroll > 0.0,
+            "the overflow should hand the remainder to the page, but the page did not scroll"
+        );
+    });
+}
+
+#[gpui::test]
+fn mermaid_source_well_keeps_its_scroll_across_doc_scroll(cx: &mut TestAppContext) {
+    let md = format!(
+        "before\n\n```mermaid\nflowchart TD\n{}```\n\n{}",
+        "A-->B\n".repeat(120),
+        "para\n\n".repeat(40)
+    );
+    let (editor, cx) = editor_with_doc(&md, cx);
+    focus_editor(&editor, cx);
+    let draw = |editor: &gpui::Entity<EditorView>, cx: &mut VisualTestContext| {
+        cx.draw(
+            point(px(0.0), px(0.0)),
+            size(px(800.0), px(600.0)),
+            |_, _| EditorElement {
+                state: editor.clone(),
+            },
+        )
+        .1
+    };
+    let prepaint = draw(&editor, cx);
+    let preview = prepaint
+        .frame
+        .snapshot
+        .texts
+        .iter()
+        .find(|t| t.kind == BlockKind::Mermaid && !t.edit_source)
+        .cloned()
+        .expect("the preview piece must be in the first frame");
+    cx.simulate_click(
+        point(
+            px((preview.content_origin_device.0 + preview.content_width * 0.5) as f32),
+            px((preview.content_origin_device.1 + preview.view_height * 0.5) as f32),
+        ),
+        Modifiers::none(),
+    );
+
+    let prepaint = draw(&editor, cx);
+    let src = prepaint
+        .frame
+        .snapshot
+        .texts
+        .iter()
+        .find(|t| t.block == preview.block && t.edit_source)
+        .cloned()
+        .expect("the edit-state source piece must exist");
+    let max_y = (src.art.height - src.view_height).max(0.0);
+    assert!(
+        max_y > 0.0,
+        "the fixture must overflow vertically: art={}",
+        src.art.height
+    );
+    let wheel = |editor: &gpui::Entity<EditorView>, cx: &mut VisualTestContext, dy: f32| {
+        let doc = cx.update(|_, app| editor.read(app).state.scroll);
+        let top = src.content_origin_device.1.max(doc);
+        let bottom = (src.content_origin_device.1 + src.view_height).min(doc + 600.0);
+        let at = point(
+            px((src.content_origin_device.0 + src.content_width * 0.5) as f32),
+            px(((top + bottom) * 0.5 - doc) as f32),
+        );
+        cx.simulate_event(ScrollWheelEvent {
+            position: at,
+            delta: gpui::ScrollDelta::Lines(point(0.0, dy)),
+            ..Default::default()
+        });
+    };
+
+    for _ in 0..40 {
+        let at_bottom = cx.update(|_, app| {
+            editor
+                .read(app)
+                .well_scroll
+                .get(&src.block)
+                .copied()
+                .map(|s| s.y)
+                == Some(max_y)
+        });
+        if at_bottom {
+            break;
+        }
+        wheel(&editor, cx, -3.0);
+    }
+    let bottom = cx.update(|_, app| editor.read(app).well_scroll.get(&src.block).copied());
+    assert_eq!(
+        bottom.map(|s| s.y),
+        Some(max_y),
+        "the source well should bottom out (max={max_y}) but stopped at {bottom:?} — the scroll was reset to the top"
+    );
+
+    for _ in 0..2 {
+        wheel(&editor, cx, -3.0);
+    }
+    cx.update(|_, app| {
+        let view = editor.read(app);
+        assert!(view.state.scroll > 0.0, "after the well bottoms out the remainder should chain to the page, but the page did not scroll");
+        assert_eq!(
+            view.well_scroll.get(&src.block).copied().map(|s| s.y),
+            Some(max_y),
+            "once the page has scrolled, the well's scroll must not be reset to the top"
+        );
+    });
+
+    {
+        let prepaint_now = draw(&editor, cx);
+        let texts = &prepaint_now.frame.snapshot.texts;
+        let src_now = texts
+            .iter()
+            .find(|t| t.block == src.block && t.edit_source)
+            .expect("the source piece must still be in the window");
+        assert!(
+            is_well_carrier(texts, src_now),
+            "the source piece must be this block's scroll carrier"
+        );
+        for pv in texts
+            .iter()
+            .filter(|t| t.block == src.block && !t.edit_source)
+        {
+            assert!(
+                !is_well_carrier(texts, pv),
+                "the preview piece must not pose as the scroll carrier; scrolling the source leaves the preview in place"
+            );
+        }
+    }
+    wheel(&editor, cx, 3.0);
+    cx.update(|_, app| {
+        let s = editor
+            .read(app)
+            .well_scroll
+            .get(&src.block)
+            .copied()
+            .unwrap_or_default();
+        assert!(
+            s.y > 0.0 && s.y < max_y,
+            "scrolling back should walk up from the bottom, but sits at y={} (max={max_y})",
+            s.y
+        );
+    });
 }
 
 #[gpui::test]

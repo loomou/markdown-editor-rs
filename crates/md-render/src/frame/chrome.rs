@@ -36,7 +36,7 @@ pub(super) fn collect_chrome(pass: &Pass<'_>, span: ContainerSpan, out: &mut Vec
     let Some(chrome) = assembly.tree.nodes().get(&chrome_id) else {
         return;
     };
-    let x = inline_offset(&assembly.tree, box_id);
+    let x = inline_offset(&assembly.tree, box_id, pass.env.content_inset);
     let hit_block = first_text_box(&assembly.tree, box_id)
         .and_then(block_id_of)
         .unwrap_or(owner);

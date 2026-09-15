@@ -115,10 +115,6 @@ fn is_prose(kind: BlockKind) -> bool {
     matches!(kind, BlockKind::Paragraph | BlockKind::Heading(_))
 }
 
-fn is_doc_lead_flush(kind: BlockKind) -> bool {
-    is_prose(kind) || kind == BlockKind::Table
-}
-
 pub(super) fn flow_top_margin(
     theme: &LayoutTheme,
     doc: &Document,
@@ -130,7 +126,7 @@ pub(super) fn flow_top_margin(
     } else {
         theme.style_for(kind).margin.top
     };
-    if theme.doc_lead_zero && is_doc_lead_flush(kind) && is_kind_lead(doc, id, BlockKind::DocRoot) {
+    if theme.doc_lead_zero && is_kind_lead(doc, id, BlockKind::DocRoot) {
         return 0.0;
     }
     if is_list_item_lead(doc, id) {
