@@ -343,7 +343,7 @@ const PIXEL_PNG: &[u8] = &[
 #[gpui::test]
 fn relative_image_beside_the_markdown_file_loads(cx: &mut TestAppContext) {
     let dir = std::env::temp_dir().join(format!(
-        "md-test-editor-img-rel-{}-{}",
+        "markdown-editor-rs-editor-img-rel-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

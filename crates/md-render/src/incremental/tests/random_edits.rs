@@ -377,7 +377,7 @@ fn is_fence_marker_line(line: &str) -> bool {
 fn assert_save_reload_matches(doc: &Doc, context: &str) {
     let md = doc.document.to_markdown();
     let reloaded = loaded(&md);
-    if std::env::var_os("MD_TEST_RANDOM_DUMP_TREE").is_some() {
+    if std::env::var_os("MARKDOWN_EDITOR_RS_RANDOM_DUMP_TREE").is_some() {
         eprintln!("=== DUMP TREE (context={context}) ===");
         for id in doc.document.preorder() {
             let node = doc.document.arena.get(id).expect("live node");
@@ -700,10 +700,10 @@ fn assert_growth_stays_bounded(doc: &Doc, base: usize, productive: usize, contex
 
 #[test]
 fn random_edit_sequences_match_a_cold_engine() {
-    let case_start = env_start("MD_TEST_RANDOM_CASE_START");
-    let cases = env_count("MD_TEST_RANDOM_CASES", 16, 4096);
-    let steps = env_count("MD_TEST_RANDOM_STEPS", 256, 1024);
-    let trace_progress = std::env::var_os("MD_TEST_RANDOM_TRACE").is_some();
+    let case_start = env_start("MARKDOWN_EDITOR_RS_RANDOM_CASE_START");
+    let cases = env_count("MARKDOWN_EDITOR_RS_RANDOM_CASES", 16, 4096);
+    let steps = env_count("MARKDOWN_EDITOR_RS_RANDOM_STEPS", 256, 1024);
+    let trace_progress = std::env::var_os("MARKDOWN_EDITOR_RS_RANDOM_TRACE").is_some();
     let env = BoxLayoutEnvironment::default();
     let mut table_ops_attempted = 0usize;
     let mut table_ops_booked = 0usize;
@@ -860,9 +860,9 @@ fn failure_step(msg: &str) -> Option<usize> {
 
 #[test]
 fn random_edit_sequences_undo_to_the_bottom_restore_the_source() {
-    let case_start = env_start("MD_TEST_RANDOM_CASE_START");
-    let cases = env_count("MD_TEST_RANDOM_CASES", 8, 4096);
-    let trace_progress = std::env::var_os("MD_TEST_RANDOM_TRACE").is_some();
+    let case_start = env_start("MARKDOWN_EDITOR_RS_RANDOM_CASE_START");
+    let cases = env_count("MARKDOWN_EDITOR_RS_RANDOM_CASES", 8, 4096);
+    let trace_progress = std::env::var_os("MARKDOWN_EDITOR_RS_RANDOM_TRACE").is_some();
     const STEPS: usize = 32;
 
     for case in case_start..case_start.saturating_add(cases) {
@@ -878,7 +878,7 @@ fn random_edit_sequences_undo_to_the_bottom_restore_the_source() {
 
         for step in 0..STEPS {
             let op = random_edit_op(&mut rng);
-            let probe_step_undo = std::env::var_os("MD_TEST_RANDOM_STEP_UNDO").is_some();
+            let probe_step_undo = std::env::var_os("MARKDOWN_EDITOR_RS_RANDOM_STEP_UNDO").is_some();
             let revision_before = doc.document.revision();
             current = apply_op(&mut doc, current, op, &mut rng);
             if doc.document.revision() != revision_before {

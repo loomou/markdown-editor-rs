@@ -1,9 +1,9 @@
 use super::support::{editor_with_doc, focus_editor};
-use crate::view::EditorView;
+use crate::view::{EditorView, UnsavedChoice};
 use gpui::TestAppContext;
 use md_core::block::BlockKind;
-use md_core::doc::Doc;
-use md_core::document::{editor_options, load_markdown};
+use md_core::doc::{Cursor, Doc};
+use md_core::document::{Command, Sel, editor_options, load_markdown};
 use md_theme::DocumentTheme;
 
 const PIXEL_PNG: &[u8] = &[
@@ -17,7 +17,7 @@ const PIXEL_PNG: &[u8] = &[
 #[gpui::test]
 fn dropping_a_png_beside_the_markdown_inserts_a_relative_image(cx: &mut TestAppContext) {
     let dir = std::env::temp_dir().join(format!(
-        "md-test-editor-img-drop-{}-{}",
+        "markdown-editor-rs-editor-img-drop-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -116,4 +116,130 @@ fn dropping_a_non_image_does_nothing(cx: &mut TestAppContext) {
         let view = editor.read(app);
         assert_eq!(view.state.doc.text(view.state.cursor.block), Some("hello"));
     });
+}
+
+fn drop_dir(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "markdown-editor-rs-editor-{tag}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).expect("dir");
+    dir
+}
+
+#[gpui::test]
+fn dropping_a_markdown_file_opens_it_instead_of_the_empty_untitled_doc(cx: &mut TestAppContext) {
+    let dir = drop_dir("md-drop-open");
+    let png = dir.join("cat.png");
+    std::fs::write(&png, PIXEL_PNG).expect("png");
+    let md_path = dir.join("dropped.md");
+    std::fs::write(&md_path, "# dropped\n").expect("md");
+
+    let (editor, cx) = cx.add_window_view(|_, cx| {
+        EditorView::new(
+            Doc::new(load_markdown("", editor_options())),
+            DocumentTheme::one_dark(),
+            cx,
+        )
+    });
+    focus_editor(&editor, cx);
+    cx.update(|window, app| {
+        editor.update(app, |view, cx| {
+            view.drop_paths(&[png, md_path.clone()], window, cx);
+        });
+    });
+    cx.run_until_parked();
+
+    cx.update(|_, app| {
+        let view = editor.read(app);
+        assert_eq!(
+            view.state.doc.source_path.as_deref(),
+            Some(md_path.as_path()),
+            "the dropped markdown should replace the empty untitled doc"
+        );
+        let md = view.state.doc.document.to_markdown();
+        assert!(
+            md.contains("# dropped"),
+            "expected the dropped file's content, got {md:?}"
+        );
+    });
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[gpui::test]
+fn dropping_a_markdown_file_on_a_dirty_doc_asks_before_replacing(cx: &mut TestAppContext) {
+    let dir = drop_dir("md-drop-dirty");
+    let md_path = dir.join("late.md");
+    std::fs::write(&md_path, "late\n").expect("md");
+
+    let (editor, cx) = cx.add_window_view(|_, cx| {
+        EditorView::new(
+            Doc::new(load_markdown("draft\n", editor_options())),
+            DocumentTheme::one_dark(),
+            cx,
+        )
+    });
+    focus_editor(&editor, cx);
+    cx.update(|_, app| {
+        editor.update(app, |view, _| {
+            let leaf = view.state.doc.text_leaves()[0];
+            view.state.doc.apply(
+                Sel::collapsed(Cursor {
+                    block: leaf,
+                    offset: 0,
+                }),
+                Command::Insert { text: "x".into() },
+            );
+        });
+    });
+
+    cx.update(|window, app| {
+        editor.update(app, |view, cx| {
+            view.drop_paths(std::slice::from_ref(&md_path), window, cx);
+        });
+    });
+    cx.run_until_parked();
+    assert!(
+        cx.update(|_, app| editor.read(app).unsaved_nav.is_some()),
+        "a dirty doc must ask before the dropped file replaces it"
+    );
+    assert_eq!(
+        cx.update(|_, app| editor.read(app).state.doc.source_path.clone()),
+        None
+    );
+
+    cx.update(|window, app| {
+        editor.update(app, |view, cx| {
+            view.apply_unsaved_choice(UnsavedChoice::Cancel, window, cx);
+        });
+    });
+    cx.run_until_parked();
+    assert!(cx.update(|_, app| editor.read(app).unsaved_nav.is_none()));
+    assert!(cx.update(|_, app| editor.read(app).state.doc.is_dirty()));
+
+    cx.update(|window, app| {
+        editor.update(app, |view, cx| {
+            view.drop_paths(std::slice::from_ref(&md_path), window, cx);
+        });
+    });
+    cx.run_until_parked();
+    cx.update(|window, app| {
+        editor.update(app, |view, cx| {
+            view.apply_unsaved_choice(UnsavedChoice::Discard, window, cx);
+        });
+    });
+    cx.run_until_parked();
+    cx.update(|_, app| {
+        let view = editor.read(app);
+        assert_eq!(
+            view.state.doc.source_path.as_deref(),
+            Some(md_path.as_path()),
+            "confirming the dialog should open the dropped file"
+        );
+    });
+    let _ = std::fs::remove_dir_all(&dir);
 }

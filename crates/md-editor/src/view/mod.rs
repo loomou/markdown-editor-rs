@@ -51,7 +51,7 @@ pub(crate) mod table_toolbar;
 
 pub(crate) use insert_table::InsertTableField;
 pub(crate) use save::SaveConflictChoice;
-pub(crate) use unsaved::{PendingNav, UnsavedChoice, unsaved_file_name};
+pub(crate) use unsaved::{PendingNav, UnsavedChoice, doc_file_name, unsaved_file_name};
 
 #[cfg(test)]
 mod tests;
@@ -385,6 +385,7 @@ pub struct EditorView {
     well_scroll: HashMap<BlockId, WellScroll>,
     well_bar_drag: Option<(BlockId, bool, Px)>,
     pending_open: Option<String>,
+    pub(crate) pending_open_path: Option<std::path::PathBuf>,
     open_epoch: u64,
     ime_stale: bool,
     save: SaveState,

@@ -133,7 +133,7 @@ fn save_failure_cancels_pending_navigation(cx: &mut TestAppContext) {
     let (editor, cx) = editor_with_doc("hello\n", cx);
     let mut path = std::env::temp_dir();
     path.push(format!(
-        "md-test-editor-save-fail-dir-{}-{}",
+        "markdown-editor-rs-editor-save-fail-dir-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -483,12 +483,12 @@ fn dirty_title_adds_bullet_after_filename(cx: &mut TestAppContext) {
             view.sync_os_title(window);
         })
     });
-    assert_eq!(cx.window_title().as_deref(), Some("md-test · notes.md"));
+    assert_eq!(cx.window_title().as_deref(), Some("notes.md"));
     cx.update(|window, app| {
         editor.update(app, |view, _| {
             view.apply_cmd(Command::Insert { text: "x".into() });
             view.sync_os_title(window);
         })
     });
-    assert_eq!(cx.window_title().as_deref(), Some("md-test · notes.md •"));
+    assert_eq!(cx.window_title().as_deref(), Some("notes.md •"));
 }

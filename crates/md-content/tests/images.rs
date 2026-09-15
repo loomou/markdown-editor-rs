@@ -24,7 +24,7 @@ fn status_client(
 
 fn fixture_dir(tag: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!(
-        "md-test-img-pct-{}-{tag}-{}",
+        "markdown-editor-rs-img-pct-{}-{tag}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

@@ -124,6 +124,7 @@ impl EditorView {
             well_scroll: HashMap::new(),
             well_bar_drag: None,
             pending_open: None,
+            pending_open_path: None,
             open_epoch: 0,
             ime_stale: false,
             save: super::SaveState {
@@ -272,11 +273,15 @@ impl Render for EditorView {
                 }
             }))
             .can_drop(|v, _, _| {
-                v.downcast_ref::<ExternalPaths>()
-                    .is_some_and(|p| p.paths().iter().any(|path| images::is_image_path(path)))
+                v.downcast_ref::<ExternalPaths>().is_some_and(|p| {
+                    p.paths().iter().any(|path| {
+                        images::is_image_path(path)
+                            || crate::platform::open_markdown::is_markdown_path(path)
+                    })
+                })
             })
             .on_drop(cx.listener(|this, paths: &ExternalPaths, window, cx| {
-                this.drop_images(paths.paths(), window, cx);
+                this.drop_paths(paths.paths(), window, cx);
             }))
             .child(EditorElement { state: cx.entity() })
             .children(overlay)

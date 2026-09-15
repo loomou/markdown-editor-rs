@@ -10,7 +10,7 @@ default = []
 hot_path = ["md-layout/hot_path"]
 
 [[bin]]
-name = "md-editor"
+name = "markdown-editor-rs"
 path = "src/main.rs"
 test = false
 

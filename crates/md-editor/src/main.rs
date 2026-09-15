@@ -2,17 +2,23 @@
 
 use md_core::doc::Doc;
 use md_core::document::{dump_structure, editor_options, load_markdown};
+use md_editor::APP_NAME;
 use md_editor::Error;
 use md_editor::app::{RunConfig, run};
 use md_render::cold_trace;
 use std::path::PathBuf;
 
 fn main() {
+    md_editor::platform::paths::migrate_legacy_state_dir();
     let _log = md_editor::platform::log::init();
     md_editor::store::settings::init_language();
     let t_boot = std::time::Instant::now();
-    let md_test_path = std::env::var_os("MD_TEST_PATH").map(PathBuf::from);
-    let (doc, title, notice) = match md_test_path {
+    let startup_path = std::env::args_os()
+        .skip(1)
+        .map(PathBuf::from)
+        .find(|path| md_editor::platform::open_markdown::is_markdown_path(path))
+        .or_else(|| std::env::var_os("MARKDOWN_EDITOR_RS_PATH").map(PathBuf::from));
+    let (doc, title, notice) = match startup_path {
         Some(path) => match std::fs::read_to_string(&path) {
             Ok(md) => {
                 let t_parse = std::time::Instant::now();
@@ -47,18 +53,14 @@ fn main() {
                     .and_then(|n| n.to_str())
                     .unwrap_or("markdown")
                     .to_string();
-                (
-                    Doc::with_path(loaded, Some(path)),
-                    format!("md-test · {name}"),
-                    None,
-                )
+                (Doc::with_path(loaded, Some(path)), name, None)
             }
             Err(source) => {
                 let err = Error::Read { path, source };
                 tracing::error!(error = %err);
                 (
                     Doc::new(load_markdown("", editor_options())),
-                    "md-test · untitled".into(),
+                    APP_NAME.to_string(),
                     Some(err),
                 )
             }
@@ -67,7 +69,7 @@ fn main() {
             Some((doc, title)) => (doc, title, None),
             None => (
                 Doc::new(load_markdown("", editor_options())),
-                "md-test · untitled".into(),
+                APP_NAME.to_string(),
                 None,
             ),
         },

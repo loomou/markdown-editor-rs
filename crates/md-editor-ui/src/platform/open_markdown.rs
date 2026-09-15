@@ -424,7 +424,7 @@ mod ext_tests {
         use std::fs;
 
         let dir = std::env::temp_dir();
-        let name = format!("md-test-verbatim-{}.md", std::process::id());
+        let name = format!("markdown-editor-rs-verbatim-{}.md", std::process::id());
         let file = dir.join(&name);
         fs::write(&file, "probe\n").expect("seed");
         let source = dir.join("readme.md");

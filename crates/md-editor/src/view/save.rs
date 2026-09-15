@@ -450,7 +450,10 @@ mod tests {
         static N: AtomicU64 = AtomicU64::new(0);
         let n = N.fetch_add(1, Ordering::Relaxed);
         let mut p = std::env::temp_dir();
-        p.push(format!("md-test-save-{tag}-{}-{n}.md", std::process::id()));
+        p.push(format!(
+            "markdown-editor-rs-save-{tag}-{}-{n}.md",
+            std::process::id()
+        ));
         p
     }
 

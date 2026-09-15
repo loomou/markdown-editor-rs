@@ -12,3 +12,4 @@ mod outline;
 mod settings;
 mod shortcuts;
 mod tables;
+mod window;

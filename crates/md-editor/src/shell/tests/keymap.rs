@@ -232,7 +232,10 @@ fn the_unsaved_dialog_takes_the_current_save_key(cx: &mut TestAppContext) {
     cx.update(|_, app| {
         shell.update(app, |s, cx| s.rebind(Cmd::Save, "ctrl-alt-w", cx));
     });
-    let path = std::env::temp_dir().join(format!("md-test-unsaved-key-{}.md", std::process::id()));
+    let path = std::env::temp_dir().join(format!(
+        "markdown-editor-rs-unsaved-key-{}.md",
+        std::process::id()
+    ));
     let _ = std::fs::remove_file(&path);
     cx.update(|window, app| {
         shell.read(app).editor.clone().update(app, |v, cx| {

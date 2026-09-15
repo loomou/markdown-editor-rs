@@ -1,6 +1,6 @@
 use super::support::{context_labels, mono_px, stop_blink, test_doc, text_px};
 use crate::keymap::Cmd;
-use crate::shell::menu::MenuEntry::{Item, Separator, Submenu};
+use crate::shell::menu::MenuEntry::{Item, RecentSubmenu, Separator, Submenu};
 use crate::shell::menu::{
     FLYOUT_GAP, MENU_PAD, MENU_W, MenuId, clamp_menu_pos, entries_for, flyout_screen_rect,
     menu_entries, place_table_flyout, submenu_row_top,
@@ -19,6 +19,7 @@ fn menu_position_stays_non_negative_in_tiny_viewports() {
         MenuId::File,
         size(px(100.0), px(80.0)),
         false,
+        0,
     );
     assert!(pos.x >= px(0.0));
     assert!(pos.y >= px(0.0));
@@ -64,7 +65,7 @@ fn table_flyout_stays_in_viewport_near_the_bottom() {
 
 #[test]
 fn table_submenu_row_sits_below_paste() {
-    let y = submenu_row_top(MenuId::Context, true);
+    let y = submenu_row_top(MenuId::Context, true, 0);
     assert!(
         (y - (MENU_PAD + 26.0 + 26.0 + 9.0 + 26.0 + 26.0 + 9.0)).abs() < 0.5,
         "y={y}"
@@ -89,17 +90,17 @@ fn context_menu_hides_table_when_caret_is_outside() {
         ]
     );
     assert!(
-        entries_for(MenuId::File, true)
+        entries_for(MenuId::File, true, 0)
             .iter()
             .all(|e| !matches!(e, Submenu { .. }))
     );
     assert!(
-        entries_for(MenuId::Edit, true)
+        entries_for(MenuId::Edit, true, 0)
             .iter()
             .all(|e| !matches!(e, Submenu { .. }))
     );
     assert!(
-        entries_for(MenuId::View, true)
+        entries_for(MenuId::View, true, 0)
             .iter()
             .all(|e| !matches!(e, Submenu { .. }))
     );
@@ -122,7 +123,7 @@ fn context_menu_inserts_table_submenu_when_caret_is_in_table() {
             "Find",
         ]
     );
-    let table = entries_for(MenuId::Context, true)
+    let table = entries_for(MenuId::Context, true, 0)
         .into_iter()
         .find_map(|e| match e {
             Submenu { label, items } => Some((label, items)),
@@ -228,9 +229,11 @@ fn every_menu_label_has_a_chinese_form_too() {
     let keys: Vec<Key> = [MenuId::File, MenuId::Edit, MenuId::View, MenuId::Help]
         .iter()
         .flat_map(|id| menu_entries(*id))
-        .chain(entries_for(MenuId::Context, true).iter())
+        .chain(entries_for(MenuId::Context, true, 0).iter())
+        .chain(entries_for(MenuId::File, false, 3).iter())
         .filter_map(|e| match e {
             Item { label, .. } | Submenu { label, .. } => Some(*label),
+            RecentSubmenu => Some(Key::MenuOpenRecent),
             Separator => None,
         })
         .collect();
@@ -314,4 +317,119 @@ fn bar_menu_popup_aligns_to_the_label_left(cx: &mut TestAppContext) {
         pos.x,
         edit.origin.x
     );
+}
+
+#[test]
+fn the_file_menu_gains_a_recent_submenu_only_with_recents() {
+    assert!(
+        entries_for(MenuId::File, false, 0)
+            .iter()
+            .all(|e| !matches!(e, RecentSubmenu))
+    );
+    let entries = entries_for(MenuId::File, false, 5);
+    assert!(matches!(
+        entries[0],
+        Item {
+            label: Key::MenuNew,
+            ..
+        }
+    ));
+    assert!(matches!(
+        entries[1],
+        Item {
+            label: Key::MenuOpen,
+            ..
+        }
+    ));
+    assert!(matches!(entries[2], RecentSubmenu));
+}
+
+#[gpui::test]
+fn opening_a_document_records_it_as_recent(cx: &mut TestAppContext) {
+    use md_core::doc::Doc;
+    use md_core::document::{editor_options, load_markdown};
+
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
+    stop_blink(&shell, cx);
+    cx.run_until_parked();
+
+    let path = std::path::PathBuf::from(if cfg!(windows) {
+        "C:/notes/recipes.md"
+    } else {
+        "/tmp/recipes.md"
+    });
+    cx.update(|_, app| {
+        shell.update(app, |s, cx| {
+            s.editor.update(cx, |view, cx| {
+                view.replace_document(
+                    Doc::with_path(
+                        load_markdown("# hi\n", editor_options()),
+                        Some(path.clone()),
+                    ),
+                    cx,
+                );
+                cx.notify();
+            });
+        });
+    });
+    cx.run_until_parked();
+
+    shell.read_with(cx, |s, _| {
+        assert_eq!(s.recent_files, vec![path.clone()]);
+        assert!(
+            crate::shell::menu::entries_for(MenuId::File, false, s.recent_files.len())
+                .iter()
+                .any(|e| matches!(e, RecentSubmenu))
+        );
+    });
+}
+
+#[gpui::test]
+fn the_file_menu_lists_recent_documents_in_a_flyout(cx: &mut TestAppContext) {
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
+    stop_blink(&shell, cx);
+    cx.run_until_parked();
+
+    let file = std::env::temp_dir().join(format!(
+        "markdown-editor-rs-recent-menu-{}.md",
+        std::process::id()
+    ));
+    std::fs::write(&file, "# recent\n").expect("seed");
+    cx.update(|_, app| {
+        shell.update(app, |s, cx| {
+            s.recent_files = vec![file.clone()];
+            s.open_menu = Some((MenuId::File, point(px(10.), px(30.))));
+            cx.notify();
+        });
+    });
+    cx.run_until_parked();
+
+    let row = cx
+        .debug_bounds("menusub:MenuOpenRecent")
+        .expect("the Open Recent row should be painted");
+    cx.simulate_event(MouseMoveEvent {
+        position: row.center(),
+        pressed_button: None,
+        modifiers: gpui::Modifiers::default(),
+    });
+    cx.run_until_parked();
+    let item = cx
+        .debug_bounds("menurecent:0")
+        .expect("the recent file row should be painted in the flyout");
+    assert!(f32::from(item.size.width) > 0.0);
+
+    click_at(cx, item.center());
+    shell.read_with(cx, |s, _| {
+        assert!(s.open_menu.is_none(), "the menu should close on pick");
+    });
+    cx.run_until_parked();
+    shell.read_with(cx, |s, cx2| {
+        assert_eq!(
+            s.editor.read(cx2).state.doc.source_path.as_deref(),
+            Some(file.as_path()),
+            "picking the entry should open that file"
+        );
+        assert_eq!(s.recent_files.first(), Some(&file));
+    });
+    let _ = std::fs::remove_file(&file);
 }

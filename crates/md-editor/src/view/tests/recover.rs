@@ -10,7 +10,7 @@ fn unique_recovery_dir(tag: &str) -> std::path::PathBuf {
     let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let mut p = std::env::temp_dir();
     p.push(format!(
-        "md-test-editor-recovery-{tag}-{}-{n}",
+        "markdown-editor-rs-editor-recovery-{tag}-{}-{n}",
         std::process::id()
     ));
     p
@@ -164,5 +164,5 @@ fn recovered_document_opens_dirty_with_source_path(cx: &mut TestAppContext) {
             assert!(view.state.doc.document.to_markdown().contains("recovered"));
         })
     });
-    assert_eq!(cx.window_title().as_deref(), Some("md-test · notes.md •"));
+    assert_eq!(cx.window_title().as_deref(), Some("notes.md •"));
 }

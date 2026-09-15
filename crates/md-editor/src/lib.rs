@@ -1,3 +1,5 @@
+pub const APP_NAME: &str = "Markdown Editor RS";
+
 pub mod app;
 pub mod app_icon;
 

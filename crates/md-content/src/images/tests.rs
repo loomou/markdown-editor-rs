@@ -115,7 +115,7 @@ fn windows_drive_path_is_not_a_uri_scheme() {
 #[test]
 fn relative_file_next_to_markdown_resolves_and_roundtrips() {
     let dir = std::env::temp_dir().join(format!(
-        "md-test-img-rel-{}-{}",
+        "markdown-editor-rs-img-rel-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -170,7 +170,7 @@ fn is_image_path_reads_the_extension() {
 #[test]
 fn markdown_dest_is_relative_to_the_markdown_parent() {
     let dir = std::env::temp_dir().join(format!(
-        "md-test-img-dest-{}-{}",
+        "markdown-editor-rs-img-dest-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

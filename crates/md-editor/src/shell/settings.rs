@@ -602,7 +602,7 @@ impl Shell {
                     .text_size(px(15.))
                     .font_weight(FontWeight(600.0))
                     .text_color(t.text)
-                    .child("Markdown Editor RS"),
+                    .child(crate::APP_NAME),
             )
             .child(
                 div()

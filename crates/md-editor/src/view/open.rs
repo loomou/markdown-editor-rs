@@ -74,6 +74,7 @@ impl EditorView {
         self.search = Default::default();
         self.well_scroll.clear();
         self.pending_open = None;
+        self.pending_open_path = None;
         self.open_epoch = self.open_epoch.wrapping_add(1);
         self.ime_stale = false;
         self.save = super::SaveState {
@@ -97,7 +98,7 @@ impl EditorView {
         self.media_zoom = None;
     }
 
-    pub(super) fn open_from_path(
+    pub(crate) fn open_from_path(
         &mut self,
         path: std::path::PathBuf,
         window: &mut Window,

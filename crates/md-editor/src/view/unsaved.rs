@@ -17,20 +17,23 @@ pub(crate) enum PendingNav {
     Close,
 }
 
-pub(crate) fn unsaved_file_name(doc: &Doc) -> &str {
+pub(crate) fn doc_file_name(doc: &Doc) -> Option<&str> {
     doc.source_path
         .as_ref()
         .and_then(|p| p.file_name())
         .and_then(|n| n.to_str())
-        .unwrap_or("untitled")
+}
+
+pub(crate) fn unsaved_file_name(doc: &Doc) -> &str {
+    doc_file_name(doc).unwrap_or("untitled")
 }
 
 pub(crate) fn window_title(doc: &Doc) -> String {
-    let name = unsaved_file_name(doc);
+    let name = doc_file_name(doc).unwrap_or(crate::APP_NAME);
     if doc.is_dirty() {
-        format!("md-test · {name} •")
+        format!("{name} •")
     } else {
-        format!("md-test · {name}")
+        name.to_string()
     }
 }
 
@@ -100,6 +103,7 @@ impl EditorView {
         match choice {
             UnsavedChoice::Cancel => {
                 self.save.pending_after_save = None;
+                self.pending_open_path = None;
                 window.focus(&self.focus);
                 cx.notify();
             }
@@ -128,7 +132,13 @@ impl EditorView {
         self.save.pending_after_save = None;
         match nav {
             PendingNav::New => self.new_untitled(window, cx),
-            PendingNav::Open => self.prompt_open_markdown(window, cx),
+            PendingNav::Open => {
+                if let Some(path) = self.pending_open_path.take() {
+                    self.open_from_path(path, window, cx);
+                } else {
+                    self.prompt_open_markdown(window, cx);
+                }
+            }
             PendingNav::Close => {
                 self.discard_recovery_files(cx);
                 self.force_close = true;
@@ -187,9 +197,9 @@ mod tests {
     #[test]
     fn window_title_marks_dirty_and_untitled() {
         let mut doc = Doc::new(load_markdown("hi\n", editor_options()));
-        assert_eq!(window_title(&doc), "md-test · untitled");
+        assert_eq!(window_title(&doc), crate::APP_NAME);
         doc.source_path = Some(std::path::PathBuf::from("notes.md"));
-        assert_eq!(window_title(&doc), "md-test · notes.md");
+        assert_eq!(window_title(&doc), "notes.md");
         let leaf = doc.text_leaves()[0];
         doc.apply(
             Sel::collapsed(Cursor {
@@ -198,6 +208,6 @@ mod tests {
             }),
             Command::Insert { text: "x".into() },
         );
-        assert_eq!(window_title(&doc), "md-test · notes.md •");
+        assert_eq!(window_title(&doc), "notes.md •");
     }
 }

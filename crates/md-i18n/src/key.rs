@@ -35,6 +35,7 @@ i18n_keys! {
 
     MenuNew                 "新建"              "New"
     MenuOpen                "打开…"             "Open…"
+    MenuOpenRecent         "打开最近文件"      "Open Recent"
     MenuSaveAs              "另存为…"           "Save As…"
     MenuExit                "退出"              "Exit"
 

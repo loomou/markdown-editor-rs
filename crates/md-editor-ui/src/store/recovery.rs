@@ -122,7 +122,7 @@ pub fn startup() -> Option<(Doc, String)> {
     let draft = load()?;
     let name = draft.file_name().to_string();
     tracing::info!(path = %name, "restored crash recovery draft");
-    let title = format!("md-test · {name} •");
+    let title = format!("{name} •");
     Some((draft.into_doc(), title))
 }
 
@@ -146,7 +146,10 @@ mod tests {
         static N: AtomicU64 = AtomicU64::new(0);
         let n = N.fetch_add(1, Ordering::Relaxed);
         let mut p = std::env::temp_dir();
-        p.push(format!("md-test-recovery-{tag}-{}-{n}", std::process::id()));
+        p.push(format!(
+            "markdown-editor-rs-recovery-{tag}-{}-{n}",
+            std::process::id()
+        ));
         p
     }
 
