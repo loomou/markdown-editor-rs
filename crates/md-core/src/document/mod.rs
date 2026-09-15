@@ -23,6 +23,7 @@ mod nav;
 mod paste;
 mod promote;
 mod query;
+mod reclaim;
 mod reference;
 mod replay;
 mod syntax;

@@ -398,6 +398,20 @@ impl TextStore {
         self.index.push(TEXT_NONE);
     }
 
+    pub(crate) fn reset_or_push(&mut self, index: u32) {
+        let i = index as usize;
+        if i < self.index.len() {
+            self.clear_slot(index);
+        } else {
+            debug_assert_eq!(
+                i,
+                self.index.len(),
+                "texts slots must grow in lockstep with the arena"
+            );
+            self.index.push(TEXT_NONE);
+        }
+    }
+
     fn ensure_index(&mut self, node_index: u32) {
         let i = node_index as usize;
         if i >= self.index.len() {

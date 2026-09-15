@@ -59,6 +59,10 @@ pub struct IncrementalEngine {
 
     pub(super) block_edit: Option<md_core::block::BlockId>,
 
+    pub(super) last_resolved_top: Px,
+
+    pub(super) requested_y: Option<Px>,
+
     table_col_tracks: HashMap<BlockId, Vec<Px>>,
 }
 
@@ -176,12 +180,34 @@ impl IncrementalEngine {
             layout,
             spine,
             block_edit: doc.block_edit(),
+            last_resolved_top: 0.0,
+            requested_y: None,
             table_col_tracks,
         }
     }
 
     pub(super) fn clear_table_cons(&mut self) {
         self.table_cons = Rc::new(BTreeMap::new());
+    }
+
+    pub(super) fn invalidate_table_cons_slot(&mut self, block: BlockId) {
+        let lo = LayoutBoxId {
+            owner: md_layout::box_tree::BoxOwner::Block(block),
+            role: md_layout::box_tree::BoxRole::Frame,
+            local_key: 0,
+        };
+        let hi = LayoutBoxId {
+            local_key: u32::MAX,
+            ..lo
+        };
+        let stale: Vec<LayoutBoxId> = self.table_cons.range(lo..=hi).map(|(k, _)| *k).collect();
+        if stale.is_empty() {
+            return;
+        }
+        let cons = Rc::make_mut(&mut self.table_cons);
+        for k in stale {
+            cons.remove(&k);
+        }
     }
 
     pub(super) fn flatten_spine(&mut self) {
@@ -239,8 +265,8 @@ impl IncrementalEngine {
     }
 
     fn invalidate_table_col_tracks(&mut self, table: BlockId) {
+        self.invalidate_table_cons_slot(table);
         let tid = LayoutBoxId::frame(table);
-        Rc::make_mut(&mut self.table_cons).remove(&tid);
         let Some(node) = self.tree.nodes().get(&tid) else {
             return;
         };

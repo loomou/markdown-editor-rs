@@ -57,6 +57,8 @@ impl IncrementalEngine {
     ) -> PublishedFrame {
         let mut iterations = 0u32;
 
+        self.requested_y = (!sa.item.is_none() && self.spine.get(sa.item).is_some())
+            .then(|| self.spine.resolve(sa.item, sa.within));
         let mut sa = self.ensure_anchor_exact(sa, measure, solver);
 
         loop {
@@ -80,61 +82,50 @@ impl IncrementalEngine {
                     })
                 });
             }
-            if !force_publish {
-                if !sa.item.is_none() && self.spine.get(sa.item).is_none() {
-                    sa = match self.spine.y_to_item(top) {
-                        Some(item) => {
-                            let t = self.spine.item_top(item).unwrap_or(0.0);
-                            ScrollAnchor {
-                                item,
-                                within: (top - t).max(0.0),
-                            }
-                        }
-                        None => ScrollAnchor::top(),
-                    };
-                }
+            let top = self.spine.resolve(sa.item, sa.within);
+            let bottom = top + viewport_h;
+            let range = self.spine.visible(top, bottom);
 
-                let top = self.spine.resolve(sa.item, sa.within);
-                let bottom = top + viewport_h;
-                let range = self.spine.visible(top, bottom);
+            if !sa.item.is_none() && self.spine.get(sa.item).is_none() {
+                sa = self.anchor_at_y(self.requested_y.unwrap_or(top), measure, solver);
+            }
 
-                let mut pending: Vec<LayoutBoxId> = Vec::new();
-                let mut collapsed_in_window = false;
-                for pos in range {
-                    let item = self.spine.item_at(pos);
-                    match item.kind {
-                        FlowItemKind::Content { box_id } => {
-                            if !self
-                                .store
-                                .is_fresh(&self.tree, box_id, self.viewport_width())
-                                || !self.spine.effective_height(pos).is_exact()
-                            {
-                                pending.push(box_id);
-                            }
+            let mut pending: Vec<LayoutBoxId> = Vec::new();
+            let mut collapsed_in_window = false;
+            for pos in range {
+                let item = self.spine.item_at(pos);
+                match item.kind {
+                    FlowItemKind::Content { box_id } => {
+                        if !self
+                            .store
+                            .is_fresh(&self.tree, box_id, self.viewport_width())
+                            || !self.spine.effective_height(pos).is_exact()
+                        {
+                            pending.push(box_id);
                         }
-                        FlowItemKind::Collapsed { box_id } => {
-                            if self.tree.deferred_height(box_id).is_some()
-                                || self.tree.nodes().contains_key(&box_id)
-                                || self.realize_target(box_id).is_some()
-                            {
-                                collapsed_in_window = true;
-                            }
-                        }
-                        FlowItemKind::ContainerOpen { .. }
-                        | FlowItemKind::ContainerClose { .. }
-                        | FlowItemKind::Gap => {}
                     }
-                }
-
-                if !pending.is_empty() {
-                    for id in pending {
-                        self.materialize_one(id, measure, solver);
+                    FlowItemKind::Collapsed { box_id } => {
+                        if self.tree.deferred_height(box_id).is_some()
+                            || self.tree.nodes().contains_key(&box_id)
+                            || self.realize_target(box_id).is_some()
+                        {
+                            collapsed_in_window = true;
+                        }
                     }
-                    continue;
+                    FlowItemKind::ContainerOpen { .. }
+                    | FlowItemKind::ContainerClose { .. }
+                    | FlowItemKind::Gap => {}
                 }
-                if collapsed_in_window {
-                    continue;
+            }
+
+            if !pending.is_empty() && !force_publish {
+                for id in pending {
+                    self.materialize_one(id, measure, solver);
                 }
+                continue;
+            }
+            if collapsed_in_window && !force_publish {
+                continue;
             }
 
             let top = self.spine.resolve(sa.item, sa.within);
@@ -159,6 +150,8 @@ impl IncrementalEngine {
                 self.realize_warm(doc, top, bottom, viewport_h);
             }
 
+            self.last_resolved_top = top;
+            self.requested_y = None;
             return PublishedFrame {
                 iterations,
                 resolved_top: top,

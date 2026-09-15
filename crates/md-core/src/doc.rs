@@ -138,11 +138,11 @@ impl Doc {
     pub fn apply(&mut self, sel: Sel, cmd: Command) -> Cursor {
         let before = self.document.revision();
         let change_start = self.document.pending_changes().changes.len();
-        let _ = self.history.commit_compose();
+        let _ = self.history.commit_compose(&mut self.document);
         self.history.before_apply(&self.document, sel, &cmd);
         let c = self.apply_inner(sel, cmd);
         let delta = self.document.changes_since(change_start, before);
-        self.history.after_apply(&self.document, &delta, c);
+        self.history.after_apply(&mut self.document, &delta, c);
         self.touch_edit(before, Some(&delta));
         c
     }
@@ -153,7 +153,7 @@ impl Doc {
         self.history.begin_compose(&self.document, sel);
         let c = self.apply_inner(sel, cmd);
         let delta = self.document.changes_since(change_start, before);
-        self.history.note_compose(&self.document, &delta, c);
+        self.history.note_compose(&mut self.document, &delta, c);
         self.touch_edit(before, Some(&delta));
         c
     }
@@ -164,8 +164,8 @@ impl Doc {
             let change_start = self.document.pending_changes().changes.len();
             let c = self.apply_inner(sel, cmd);
             let delta = self.document.changes_since(change_start, before);
-            self.history.note_compose(&self.document, &delta, c);
-            let _ = self.history.commit_compose();
+            self.history.note_compose(&mut self.document, &delta, c);
+            let _ = self.history.commit_compose(&mut self.document);
             self.touch_edit(before, Some(&delta));
             return c;
         }
@@ -180,7 +180,7 @@ impl Doc {
     }
 
     pub fn commit_compose(&mut self) {
-        let _ = self.history.commit_compose();
+        let _ = self.history.commit_compose(&mut self.document);
     }
 
     pub fn is_composing(&self) -> bool {
@@ -220,7 +220,8 @@ impl Doc {
     fn absorb_settle(&mut self, start: usize, before: u64, sel: Sel) {
         let delta = self.document.changes_since(start, before);
         self.touch_edit(before, Some(&delta));
-        self.history.absorb_side_effect(&self.document, sel, delta);
+        self.history
+            .absorb_side_effect(&mut self.document, sel, delta);
     }
 
     pub fn retarget_focus(&mut self, caret: Cursor) -> Cursor {
