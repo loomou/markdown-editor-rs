@@ -1,16 +1,20 @@
-//! 解析完成的文档树:`Parsed` / `NodeRef` / `NodeKind`(feature `tree`)。
+//! The parsed document tree: `Parsed` / `NodeRef` / `NodeKind` (feature `tree`).
 //!
-//! 与 [`Parser`](crate::Parser) 的关系:`Parser` 把内部树拆成一次性事件
-//! 流,取走内部分配的字符串;`Parsed` 在构造时把全部行内解析跑完,之后
-//! 只借出引用,同一棵树可重复遍历。这是「下游不再逐叶重解析」的前提。
+//! Relation to [`Parser`](crate::Parser): `Parser` tears its internal tree
+//! apart into a one-shot event stream and takes the internally allocated
+//! strings with it; `Parsed` runs all inline parsing up front at construction
+//! and afterwards only lends out references, so the same tree can be walked
+//! repeatedly. That is the precondition for "downstream stops re-parsing
+//! every leaf".
 //!
-//! 两条路并行,不互转:`Parsed` 不实现迭代器,`Parser` 不暴露树。行内
-//! 节点的 span 与 `OffsetIter` 给出的 Range 相同(块级节点的 span 含
-//! 容器续行前缀,与事件层一致)。
+//! The two paths run side by side and never convert into each other: `Parsed`
+//! implements no iterator, and `Parser` exposes no tree. Inline node spans
+//! match the Ranges `OffsetIter` yields (block node spans include the
+//! container continuation prefixes, same as the event layer).
 //!
-//! 该模块不引入新的数据结构:遍历走 `Tree<Item>` 的 `child` / `next`
-//! 链,内容读取走 `Allocations` 的 `Index` 实现,不复制树、不建 parent
-//! 数组。
+//! This module adds no new data structures: traversal follows the `child` /
+//! `next` chain of `Tree<Item>`, content reads go through the `Index` impl on
+//! `Allocations`; the tree is not copied and no parent array is built.
 
 use crate::parse::{eager_parse, Allocations, BrokenLinkCallback, Item, ItemBody, RefDefs};
 use crate::strings::CowStr;
@@ -18,11 +22,14 @@ use crate::tree::{Tree, TreeIndex};
 use crate::{Alignment, BlockQuoteKind, HeadingLevel, LinkType, MetadataBlockKind, Options};
 use core::ops::Range;
 
-/// 解析完成的文档树。行内已全部 resolve,可重复只读遍历。
+/// A fully parsed document tree. All inline constructs are resolved; it can
+/// be walked read-only, as many times as needed.
 ///
-/// 与 [`Parser`](crate::Parser) 的区别:`Parser` 是一次性事件流,取走
-/// 内部分配的字符串;`Parsed` 持有整棵树并只借出引用。代价是构造时就
-/// 跑完全部行内解析,不像 `Parser` 那样按需惰性处理。
+/// Difference to [`Parser`](crate::Parser): `Parser` is a one-shot event
+/// stream that takes the internally allocated strings with it; `Parsed` owns
+/// the whole tree and only lends out references. The cost is that all inline
+/// parsing runs at construction time instead of lazily on demand like
+/// `Parser`.
 pub struct Parsed<'input> {
     text: &'input str,
     tree: Tree<Item>,
@@ -39,12 +46,13 @@ impl core::fmt::Debug for Parsed<'_> {
 }
 
 impl<'input> Parsed<'input> {
-    /// 解析整篇文档:块结构 + 全部行内。
+    /// Parse the whole document: block structure plus all inlines.
     pub fn new(text: &'input str, options: Options) -> Self {
         Self::new_with_broken_link_callback(text, options, None::<crate::DefaultBrokenLinkCallback>)
     }
 
-    /// 带断链回调的版本,与 `Parser::new_with_broken_link_callback` 对称。
+    /// The broken-link-callback variant, symmetric to
+    /// `Parser::new_with_broken_link_callback`.
     pub fn new_with_broken_link_callback<F: BrokenLinkCallback<'input>>(
         text: &'input str,
         options: Options,
@@ -54,31 +62,38 @@ impl<'input> Parsed<'input> {
         Parsed { text, tree, allocs }
     }
 
-    /// 只解析行内:把 `text` 当作单个段落的内容。
+    /// Parse inline only: treat `text` as the content of a single paragraph.
     ///
-    /// 给增量编辑用:一个 phrasing 叶的源文重解析时,不需要重新判定块
-    /// 结构(块结构由调用方的文档模型持有)。
+    /// Meant for incremental editing: re-parsing the source of one phrasing
+    /// leaf does not need to re-run block structure detection (the block
+    /// structure lives in the caller's document model).
     ///
-    /// **实现口径(重要)**:本方法并不真正关闭块级语法(CommonMark 的
-    /// 块规则不受 option 控制),它就是一次完整解析。调用方需要自己判定
-    /// 「`text` 是否恰好构成单个段落」——
-    /// `root().children().count() == 1` 且首个子节点是 `Paragraph` /
-    /// `TightParagraph`;不满足时(`text` 里有 `# `、`- `、围栏等块级
-    /// 语法)走「换块」分支。块语法在叶内出现的语义由调用方定义,不是
-    /// 本 API 的保证。
+    /// **Implementation contract (important)**: this method does not really
+    /// turn block syntax off (CommonMark block rules are not option-gated),
+    /// it is a full parse. The caller must decide whether `text` really forms
+    /// a single paragraph —
+    /// `root().children().count() == 1` with the first child a `Paragraph` /
+    /// `TightParagraph`; when that fails (`text` contains `# `, `- `, fences,
+    /// or other block syntax) take the "swap the block" branch. What block
+    /// syntax inside a leaf means is defined by the caller, not promised by
+    /// this API.
     pub fn inline_only(text: &'input str, options: Options) -> Self {
         Self::new(text, options)
     }
 
-    /// [`inline_only`](Self::inline_only) 的出口判定:结果是否为单个
-    /// 段落。false 表示 `text` 含块级语法(`# `、`- `、围栏 …)或多个
-    /// 根块,调用方应走「换块 / display = source」分支(`tree-api-07` §3
-    /// 的 reconcile 表)。
+    /// The exit check for [`inline_only`](Self::inline_only): whether the
+    /// result is a single paragraph. false means `text` contains block syntax
+    /// (`# `, `- `, fences, ...) or several root blocks, and the caller
+    /// should take the "swap the block / display = source" branch (the
+    /// reconcile table in `tree-api-07` §3).
     ///
-    /// 空 `text`(root 无孩子)按 true 处理:零内容段落的投影就是空,
-    /// 与「换块」分支的结果相同,不必让调用方多分一支。尾部只有引用定义
-    /// 时也是 true——定义收进 `reference_definitions()`,不占 root 的
-    /// 孩子(`with_definitions` 拼定义后重解析的场景,`tree-api-07` §4)。
+    /// Empty `text` (a root without children) counts as true: the projection
+    /// of a zero-content paragraph is empty, the same result the "swap the
+    /// block" branch would produce, so the caller needs no extra case. A
+    /// trailing run of reference definitions only also counts as true — the
+    /// definitions are collected into `reference_definitions()` and take up
+    /// no root children (the `with_definitions` re-parse scenario,
+    /// `tree-api-07` §4).
     pub fn is_single_paragraph(&self) -> bool {
         let mut children = self.root().children();
         match children.next() {
@@ -90,7 +105,8 @@ impl<'input> Parsed<'input> {
         }
     }
 
-    /// 文档根。`NodeKind::Root`,其 children 是顶层块。
+    /// The document root. `NodeKind::Root`; its children are the top-level
+    /// blocks.
     pub fn root(&self) -> NodeRef<'_, 'input> {
         NodeRef {
             parsed: self,
@@ -98,18 +114,19 @@ impl<'input> Parsed<'input> {
         }
     }
 
-    /// 原始输入。
+    /// The original input.
     pub fn text(&self) -> &'input str {
         self.text
     }
 
-    /// 与 `Parser::reference_definitions` 同语义。
+    /// Same semantics as `Parser::reference_definitions`.
     pub fn reference_definitions(&self) -> &RefDefs<'input> {
         &self.allocs.refdefs
     }
 
-    /// 脚注定义及其被引用次数(全部行内 resolve 之后是全篇准确值)。
-    /// 按 label 排序,顺序确定。
+    /// Footnote definitions and their use counts (document-wide exact
+    /// values once all inlines have resolved). Sorted by label, so the order
+    /// is deterministic.
     pub fn footnote_definitions(&self) -> impl Iterator<Item = (&str, usize)> + '_ {
         let mut defs: Vec<_> = self
             .allocs
@@ -122,7 +139,9 @@ impl<'input> Parsed<'input> {
         defs.into_iter()
     }
 
-    /// 节点总数(含 root、含在事件层隐形的 `TightParagraph`)。容量预估用。
+    /// Total node count (including the root and the `TightParagraph` nodes
+    /// that stay invisible on the event layer). Handy for capacity
+    /// estimates.
     pub fn node_count(&self) -> usize {
         self.tree.nodes().len()
     }
@@ -132,19 +151,22 @@ impl<'input> Parsed<'input> {
     }
 }
 
-/// 树中一个节点的只读句柄。`Copy`,随手传。
+/// A read-only handle to one node of the tree. `Copy`; pass it around
+/// freely.
 ///
-/// 没有反查父节点的方法:上游树没有 parent 指针,补一个 parent 数组
-/// 等于每节点多 8 字节;walk 时天然知道父亲。
+/// There is no parent lookup: the upstream tree carries no parent pointers,
+/// and adding a parent array would cost 8 more bytes per node; a walk knows
+/// the parent anyway.
 #[derive(Copy, Clone, Debug)]
 pub struct NodeRef<'a, 'input> {
     parsed: &'a Parsed<'input>,
-    /// `None` = 根(树的下标 0 是 dummy,`TreeIndex` 是 NonZero,表达不了)。
+    /// `None` = the root (tree index 0 is a dummy; `TreeIndex` is NonZero
+    /// and cannot express it).
     ix: Option<TreeIndex>,
 }
 
 impl<'a, 'input> NodeRef<'a, 'input> {
-    // ── 结构 ──────────────────────────────────────────────
+    // ── structure ────────────────────────────────────────
     pub fn kind(&self) -> NodeKind<'a, 'input> {
         let Some(ix) = self.ix else {
             return NodeKind::Root;
@@ -266,8 +288,9 @@ impl<'a, 'input> NodeRef<'a, 'input> {
         })
     }
 
-    // ── 位置 ──────────────────────────────────────────────
-    /// 源文字节范围。**块级节点含容器续行前缀**(`> `、列表缩进)。
+    // ── position ─────────────────────────────────────────
+    /// The byte range in the source text. **Block nodes include the
+    /// container continuation prefixes** (`> `, list indentation).
     pub fn span(&self) -> Range<usize> {
         match self.ix {
             None => 0..self.parsed.text.len(),
@@ -278,9 +301,10 @@ impl<'a, 'input> NodeRef<'a, 'input> {
         }
     }
 
-    // ── 内容 ──────────────────────────────────────────────
-    /// 文本节点的内容。借 input 的切片(`NodeKind::Text`)或借 arena
-    /// 里的解码结果(`NodeKind::TextOwned`);非文本节点返回 `None`。
+    // ── content ──────────────────────────────────────────
+    /// The content of a text node: a slice of the input (`NodeKind::Text`)
+    /// or the decoded result borrowed from the arena (`NodeKind::TextOwned`);
+    /// non-text nodes return `None`.
     pub fn text(&self) -> Option<&'a str> {
         let ix = self.ix?;
         let item = self.parsed.node(ix).item;
@@ -296,7 +320,7 @@ impl<'a, 'input> NodeRef<'a, 'input> {
     }
 }
 
-/// `child` / `next` 链上的迭代器,零分配。
+/// Iterator over the `child` / `next` chain; no allocations.
 #[derive(Clone, Debug)]
 pub struct Children<'a, 'input> {
     parsed: &'a Parsed<'input>,
@@ -316,16 +340,19 @@ impl<'a, 'input> Iterator for Children<'a, 'input> {
     }
 }
 
-/// 节点分类。信息全部挂在枚举上,消费方一次 match 就能建自己的节点。
+/// Node classification. All information hangs on the enum, so a consumer
+/// can build its own nodes from a single match.
 ///
-/// `Text` 与 `TextOwned` 分开是有意的:前者的 `span()` 与内容一一对应
-/// (可直接当 source range 用),后者的 span 是源范围但内容是解码结果
-/// (实体、smart quote、合成字符),长度与内容长度不等。
+/// `Text` and `TextOwned` are split on purpose: for the former, `span()` and
+/// content correspond one to one (usable directly as a source range); for
+/// the latter the span is the source range but the content is the decoded
+/// result (entities, smart quotes, synthesized characters), so the two
+/// lengths differ.
 #[derive(Clone, Debug)]
 pub enum NodeKind<'a, 'input> {
     Root,
 
-    // ── 块级容器 ──────────────────────────────────────────
+    // ── block containers ──────────────────────────────────
     BlockQuote(Option<BlockQuoteKind>),
     List(ListInfo),
     ListItem(ListItemInfo),
@@ -334,8 +361,8 @@ pub enum NodeKind<'a, 'input> {
     TableHead,
     TableRow,
     TableCell,
-    /// `Options::ENABLE_DEFINITION_LIST`。不开该 option 时不会出现,
-    /// 覆盖它避免消费方出现 unreachable。
+    /// Requires `Options::ENABLE_DEFINITION_LIST`. Never appears with the
+    /// option off; covering it keeps consumers free of unreachable arms.
     DefinitionList {
         tight: bool,
     },
@@ -344,10 +371,11 @@ pub enum NodeKind<'a, 'input> {
         indent: usize,
     },
 
-    // ── 块级叶子 ──────────────────────────────────────────
+    // ── block leaves ──────────────────────────────────────
     Paragraph,
-    /// 紧列表项里的段落。事件流里完全不发,走树时是真实节点:
-    /// **它的存在与否就是列表松紧判据**。
+    /// A paragraph inside a tight list item. Never emitted on the event
+    /// stream, but a real node when walking the tree: **its presence is the
+    /// list tightness criterion**.
     TightParagraph,
     Heading(HeadingInfo<'a, 'input>),
     CodeBlock(CodeBlockInfo<'a, 'input>),
@@ -355,7 +383,7 @@ pub enum NodeKind<'a, 'input> {
     MetadataBlock(MetadataBlockKind),
     Rule,
 
-    // ── 行内容器 ──────────────────────────────────────────
+    // ── inline containers ─────────────────────────────────
     Emphasis,
     Strong,
     Strikethrough,
@@ -364,26 +392,31 @@ pub enum NodeKind<'a, 'input> {
     Link(LinkInfo<'a, 'input>),
     Image(LinkInfo<'a, 'input>),
 
-    // ── 行内叶子 ──────────────────────────────────────────
-    /// 借 input 的切片。`span()` 与内容一一对应(可当 source_range)。
+    // ── inline leaves ─────────────────────────────────────
+    /// A slice borrowed from the input. `span()` and content correspond
+    /// one to one (usable as source_range).
     Text {
         backslash_escaped: bool,
     },
-    /// 解码后与源文不同的文本(实体、smart quote 产出的合成串)。
-    /// `span()` 仍是源范围,但长度与内容长度不等。
+    /// Text whose decoding differs from the source (synthesized strings
+    /// from entities and smart quotes). `span()` is still the source range,
+    /// but its length differs from the content length.
     TextOwned,
-    /// 单个合成字符(smart quote 等),内容不在 arena 里,以 `char` 给出。
+    /// A single synthesized character (smart quote etc.); the content is
+    /// not in the arena, it is given as a `char`.
     SynthesizedChar(char),
     Code(&'a CowStr<'input>),
     Math {
         content: &'a CowStr<'input>,
         display: bool,
     },
-    /// 行内 HTML。内容走 [`NodeRef::text`](`OwnedInlineHtml` 的内容在
-    /// arena 里,事件层同样发 `Event::InlineHtml`,归并到本变体)。
+    /// Inline HTML. Content goes through [`NodeRef::text`] (the
+    /// `OwnedInlineHtml` content lives in the arena; the event layer
+    /// likewise emits `Event::InlineHtml` for it, so it folds into this
+    /// variant).
     InlineHtml,
-    /// 行内 HTML 之外由 inline pass 产出的 HTML 文本段
-    /// (事件层的 `Event::Html`)。
+    /// HTML text segments the inline pass produces besides inline HTML
+    /// (`Event::Html` on the event layer).
     Html,
     FootnoteReference(&'a CowStr<'input>),
     TaskMarker {
@@ -397,19 +430,23 @@ pub enum NodeKind<'a, 'input> {
 
 #[derive(Copy, Clone, Debug)]
 pub struct ListInfo {
-    /// 上游 `ItemBody::List.0`。**紧 = 项内容不包段落。**
+    /// Upstream `ItemBody::List.0`. **Tight = item content carries no
+    /// paragraph wrapper.**
     pub tight: bool,
-    /// 标记字节:`-` `+` `*` `.` `)`。上游 `ItemBody::List.1`。
+    /// The marker byte: `-` `+` `*` `.` `)`. Upstream `ItemBody::List.1`.
     pub marker: u8,
-    /// 有序列表起始号;`marker` 是 `.` 或 `)` 时有意义。
+    /// The start number of an ordered list; meaningful when `marker` is
+    /// `.` or `)`.
     pub start: u64,
-    /// `marker` 是 `.` 或 `)`。便利方法,等价于自己判字节。
+    /// Whether `marker` is `.` or `)`. A convenience, equivalent to
+    /// checking the byte yourself.
     pub ordered: bool,
 }
 
 #[derive(Copy, Clone, Debug)]
 pub struct ListItemInfo {
-    /// 上游 `ItemBody::ListItem.0`:内容相对本项起点的缩进列数。
+    /// Upstream `ItemBody::ListItem.0`: the content indent in columns
+    /// relative to the item start.
     pub indent: usize,
 }
 
@@ -419,8 +456,9 @@ pub struct HeadingInfo<'a, 'input> {
     pub id: Option<&'a CowStr<'input>>,
     pub classes: &'a [CowStr<'input>],
     pub attrs: &'a [(CowStr<'input>, Option<CowStr<'input>>)],
-    /// setext 形式(`span()` 含下划线行)。按「span 首个非空白字节不是
-    /// `#`(或 `#` 后无空白/行尾)」判定,与 ATX 的规则一致。
+    /// Setext form (`span()` includes the underline row). Detected as "the
+    /// first non-whitespace byte of the span is not `#` (or the `#` is not
+    /// followed by whitespace/end of line)", matching the ATX rule.
     pub setext: bool,
 }
 
@@ -429,9 +467,10 @@ pub enum CodeBlockInfo<'a, 'input> {
     Indented,
     Fenced {
         info: &'a CowStr<'input>,
-        /// 围栏字符:`` ` `` 或 `~`。从 `span()` 首行扫出,上游未存。
+        /// The fence character: `` ` `` or `~`. Scanned from the first
+        /// line of `span()`; upstream does not store it.
         marker: u8,
-        /// 开围栏字符数(≥3)。
+        /// The number of opening fence characters (>= 3).
         len: u16,
     },
 }
@@ -444,8 +483,9 @@ pub struct LinkInfo<'a, 'input> {
     pub id: &'a CowStr<'input>,
 }
 
-/// 围栏字符与长度:扫 `span()` 首行。上游 `parse_fenced_code_block` 用完
-/// 即弃,树里只有 info string,这里补扫一次。
+/// Fence character and length, scanned from the first line of `span()`.
+/// Upstream `parse_fenced_code_block` discards them after use; the tree
+/// only keeps the info string, so this re-scans.
 fn fence_style(text: &str, span: Range<usize>) -> (u8, u16) {
     let line = text.get(span).unwrap_or("").lines().next().unwrap_or("");
     let line = line.trim_start_matches(' ');
@@ -454,8 +494,10 @@ fn fence_style(text: &str, span: Range<usize>) -> (u8, u16) {
     (marker, len.clamp(3, u16::MAX as usize) as u16)
 }
 
-/// setext 判定:首个非空白字节不是 `#`,或是 `#` 但后面既非空白也非行尾
-/// (那不是合法 ATX,正文被 setext 下划线行抬成标题)。
+/// Setext detection: the first non-whitespace byte is not `#`, or it is
+/// `#` but followed by neither whitespace nor end of line (not a valid ATX
+/// opener; the text was lifted into a heading by the setext underline
+/// row).
 fn is_setext_span(text: &str, span: Range<usize>) -> bool {
     let line = text.get(span).unwrap_or("").lines().next().unwrap_or("");
     let trimmed = line.trim_start();

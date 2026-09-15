@@ -1,10 +1,12 @@
-//! tree API 与事件流的一致性(feature `tree`,见仓库 docs
-//! `tree-api-03-fork-impl.md` §6)。
+//! Consistency of the tree API with the event stream (feature `tree`; see
+//! the repo docs `tree-api-03-fork-impl.md` §6).
 //!
-//! 核心保证:`Parsed` 走树得到的结构、span 与 `Parser` 事件流逐一对齐
-//! ——这是 `resolve_all_inlines` / `is_container_body` 正确性的唯一防线。
-//! 夹具:上游全部 spec 文件(CommonMark / GFM / specs)× 三组 options,
-//! 外加边界清单与混合生成器。
+//! Core guarantee: the structure and spans `Parsed` yields from the tree
+//! line up one to one with the `Parser` event stream — this is the only
+//! line of defense for the correctness of `resolve_all_inlines` /
+//! `is_container_body`. Fixtures: every upstream spec file (CommonMark /
+//! GFM / specs) x three option sets, plus a boundary list and a mixed
+//! generator.
 
 #![cfg(feature = "tree")]
 
@@ -12,14 +14,16 @@ use pulldown_cmark::{Event, NodeKind, Options, Parsed, Parser, Tag, TagEnd};
 use std::fmt::Write;
 use std::path::PathBuf;
 
-// ── 夹具 ────────────────────────────────────────────────
+// ── fixtures ────────────────────────────────────────────
 
 fn spec_files() -> Vec<(String, String)> {
     let mut paths = Vec::new();
-    // 测试进程的 cwd 不保证是 crate 根,用编译期路径拼。
-    // CommonMark 下两份(spec + smart_punct)、GitHub 下三份、specs 下
-    // 15 份(specs/definition_lists.txt 等即使 md-test 侧不开该 option,
-    // 树侧也必须覆盖它的变体)。
+    // The test process cwd is not guaranteed to be the crate root, so
+    // build the path at compile time. Two files under CommonMark (spec +
+    // smart_punct), three under GitHub, fifteen under specs
+    // (specs/definition_lists.txt and friends: even when the md-test side
+    // leaves that option off, the tree side must still cover its
+    // variants).
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     for dir in ["third_party/CommonMark", "third_party/GitHub", "specs"] {
         let entries = std::fs::read_dir(base.join(dir))
@@ -60,7 +64,7 @@ fn option_sets() -> Vec<(&'static str, Options)> {
     ]
 }
 
-/// md-test `docs/tree-api-03-fork-impl.md` §7 边界清单。
+/// The boundary list from md-test `docs/tree-api-03-fork-impl.md` §7.
 const BOUNDARY: &[&str] = &[
     "- one\n- two\n",
     "- one\n\n- two\n",
@@ -84,8 +88,9 @@ fn deep_quote(depth: usize) -> String {
     format!("{}a\n", "> ".repeat(depth))
 }
 
-/// 混合构造生成器(精简版 md-test `unique_mixed`):每轮 14 种构造
-/// 各一段,把全部块级与行内路径搅在一起。
+/// Mixed-construct generator (a trimmed md-test `unique_mixed`): one
+/// stretch of each of 14 constructs per round, stirring every block and
+/// inline path together.
 fn mixed(n: usize) -> String {
     let mut out = String::new();
     for i in 0..n {
@@ -111,7 +116,7 @@ fn mixed(n: usize) -> String {
     out
 }
 
-// ── 事件侧形状串 ────────────────────────────────────────
+// ── event-side shape strings ─────────────────────────────
 
 fn tag_name(tag: &Tag<'_>) -> String {
     match tag {
@@ -177,7 +182,7 @@ fn shape_via_events(src: &str, opts: Options) -> String {
     out
 }
 
-// ── 树侧形状串 ──────────────────────────────────────────
+// ── tree-side shape strings ──────────────────────────────
 
 fn shape_via_tree(src: &str, opts: Options) -> String {
     let parsed = Parsed::new(src, opts);
@@ -261,7 +266,7 @@ fn is_tree_container(kind: &NodeKind<'_, '_>) -> bool {
 fn walk_shape(node: pulldown_cmark::NodeRef<'_, '_>, out: &mut String) {
     let kind = node.kind();
     match &kind {
-        // 事件层隐形:只下钻,不产行。
+        // Invisible on the event layer: descend only, emit no line.
         NodeKind::Root | NodeKind::TightParagraph => {
             for child in node.children() {
                 walk_shape(child, out);
@@ -282,13 +287,14 @@ fn walk_shape(node: pulldown_cmark::NodeRef<'_, '_>, out: &mut String) {
     }
 }
 
-// ── 测试 ────────────────────────────────────────────────
+// ── tests ────────────────────────────────────────────────
 
 fn assert_shapes_match(src: &str, opts: Options, ctx: &str) {
     let events = shape_via_events(src, opts);
     let tree = shape_via_tree(src, opts);
     if events != tree {
-        // 首个差异行打出来,别把整份形状串糊进断言。
+        // Print the first differing line instead of pasting the whole
+        // shape string into the assertion.
         let mut detail = String::new();
         for (i, (a, b)) in events.lines().zip(tree.lines()).enumerate() {
             if a != b {
@@ -336,8 +342,9 @@ fn tree_matches_event_stream_mixed() {
     }
 }
 
-/// 同一个 `Parsed` 遍历两遍结果相同 —— 没有漏掉的 `take_*`,
-/// 也是 md-test 删逐叶重解析的正确性依据。
+/// Walking the same `Parsed` twice yields the same result — no `take_*`
+/// was missed, and it is the correctness basis for md-test dropping
+/// per-leaf re-parsing.
 #[test]
 fn parsed_is_reusable() {
     let src = mixed(60);
@@ -350,12 +357,13 @@ fn parsed_is_reusable() {
     }
 }
 
-/// 遍历全树 `kind()` 不 panic(`Maybe*` 残留会在这里炸出来)。
+/// `kind()` over the whole tree must not panic (leftover `Maybe*` bodies
+/// blow up here).
 #[test]
 fn no_unresolved_inlines() {
     for (_name, src) in spec_files() {
         for (_opt_name, opts) in option_sets() {
-            // dump_tree 对每个节点调 kind()
+            // dump_tree calls kind() on every node
             let parsed = Parsed::new(&src, opts);
             let _ = dump_tree(&parsed);
         }
@@ -384,7 +392,8 @@ fn dump_tree(parsed: &Parsed<'_>) -> String {
     out
 }
 
-/// 列表松紧双判据一致:`ListInfo.tight` 与「项内容是否包 Paragraph」。
+/// The two list-tightness criteria agree: `ListInfo.tight` and "does the
+/// item content wrap a Paragraph".
 #[test]
 fn list_tightness_matches_children() {
     let src = mixed(60);
@@ -404,8 +413,9 @@ fn list_tightness_matches_children() {
                         )
                     })
                     .is_some_and(|c| matches!(c.kind(), NodeKind::Paragraph));
-                // 紧列表项内容直接是文本(TightParagraph 包着);松列表项
-                // 内容包 Paragraph。两判据必须同向。
+                // A tight list item's content is text directly (wrapped
+                // in TightParagraph); a loose item wraps a Paragraph. Both
+                // criteria must point the same way.
                 if info.tight {
                     assert!(!child_is_para, "tight list item wraps Paragraph");
                     assert!(
@@ -424,8 +434,8 @@ fn list_tightness_matches_children() {
     walk(parsed.root());
 }
 
-/// `inline_only` / `is_single_paragraph` 的出口判定(`tree-api-03` §1 方案 A
-/// 与 `tree-api-07` §3 的边界清单)。
+/// Exit checks for `inline_only` / `is_single_paragraph` (the `tree-api-03`
+/// §1 plan A and the `tree-api-07` §3 boundary list).
 #[test]
 fn inline_only_single_paragraph_exit() {
     let opts = Options::all();
@@ -462,7 +472,8 @@ fn inline_only_single_paragraph_exit() {
             "should NOT be single paragraph: {src:?}"
         );
     }
-    // 单段落内的行内树照常解析(岛投影的输入)。
+    // The inline tree inside a single paragraph still parses (input for
+    // island projection).
     let parsed = Parsed::inline_only("plain *em* `c` ![alt](u.png)", opts);
     let para = parsed.root().first_child().expect("paragraph");
     let kinds: Vec<bool> = para
