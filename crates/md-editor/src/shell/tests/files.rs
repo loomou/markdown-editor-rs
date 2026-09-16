@@ -105,7 +105,7 @@ fn edit_menu_paste_lands_at_the_caret(cx: &mut TestAppContext) {
     stop_blink(&shell, cx);
     cx.update(|window, app| {
         let focus = shell.read(app).editor_focus().clone();
-        focus.focus(window);
+        focus.focus(window, app);
         app.write_to_clipboard(gpui::ClipboardItem::new_string("**b**".into()));
     });
     cx.simulate_keystrokes("end");

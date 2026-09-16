@@ -575,6 +575,7 @@ impl Shell {
                     offset: point(px(0.), px(14.)),
                     blur_radius: px(40.),
                     spread_radius: px(0.),
+                    inset: false,
                 }])
             })
             .on_mouse_down_out({
@@ -747,6 +748,7 @@ impl Shell {
                 offset: point(px(0.), px(14.)),
                 blur_radius: px(40.),
                 spread_radius: px(0.),
+                inset: false,
             }])
             .occlude()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -831,6 +833,7 @@ impl Shell {
                 offset: point(px(0.), px(14.)),
                 blur_radius: px(40.),
                 spread_radius: px(0.),
+                inset: false,
             }])
             .occlude()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())

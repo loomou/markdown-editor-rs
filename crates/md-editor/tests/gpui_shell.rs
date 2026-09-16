@@ -18,7 +18,7 @@ fn editor_can_mount_and_focus(cx: &mut TestAppContext) {
 
     let focused = cx.update(|window, app| {
         let focus = editor.read(app).focus.clone();
-        focus.focus(window);
+        focus.focus(window, app);
         focus.is_focused(window)
     });
     assert!(
@@ -45,7 +45,7 @@ fn editor_routes_text_and_keyboard_input_to_document_state(cx: &mut TestAppConte
 
     cx.update(|window, app| {
         let focus = editor.read(app).focus.clone();
-        focus.focus(window);
+        focus.focus(window, app);
     });
     cx.simulate_input("X");
     cx.simulate_keystrokes("left right");
@@ -70,7 +70,7 @@ fn editor_routes_editing_keys_and_break_to_document_state(cx: &mut TestAppContex
 
     cx.update(|window, app| {
         let focus = editor.read(app).focus.clone();
-        focus.focus(window);
+        focus.focus(window, app);
     });
     cx.simulate_input("xy");
     cx.simulate_keystrokes("backspace delete enter");
@@ -102,7 +102,7 @@ fn editor_routes_shift_enter_as_one_soft_break(cx: &mut TestAppContext) {
 
     cx.update(|window, app| {
         let focus = editor.read(app).focus.clone();
-        focus.focus(window);
+        focus.focus(window, app);
     });
     cx.simulate_keystrokes("right shift-enter");
 
@@ -126,7 +126,7 @@ fn editor_routes_tab_without_inserting_a_second_tab_character(cx: &mut TestAppCo
 
     cx.update(|window, app| {
         let focus = editor.read(app).focus.clone();
-        focus.focus(window);
+        focus.focus(window, app);
         editor.update(app, |view, _| {
             let block = view.state.doc.text_leaves()[1];
             view.state.cursor = Cursor { block, offset: 0 };
@@ -155,7 +155,7 @@ fn editor_routes_tab_into_a_paragraph_once(cx: &mut TestAppContext) {
 
     cx.update(|window, app| {
         let focus = editor.read(app).focus.clone();
-        focus.focus(window);
+        focus.focus(window, app);
         editor.update(app, |view, _| {
             let block = view.state.doc.text_leaves()[0];
             view.state.cursor = Cursor { block, offset: 0 };
@@ -184,7 +184,7 @@ fn editor_routes_primary_bracket_as_indent(cx: &mut TestAppContext) {
 
     cx.update(|window, app| {
         let focus = editor.read(app).focus.clone();
-        focus.focus(window);
+        focus.focus(window, app);
         editor.update(app, |view, _| {
             let block = view.state.doc.text_leaves()[0];
             view.state.cursor = Cursor { block, offset: 0 };

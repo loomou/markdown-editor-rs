@@ -28,10 +28,6 @@ struct CappedHttpClient {
 }
 
 impl HttpClient for CappedHttpClient {
-    fn type_name(&self) -> &'static str {
-        std::any::type_name::<Self>()
-    }
-
     fn user_agent(&self) -> Option<&http_client::http::HeaderValue> {
         None
     }

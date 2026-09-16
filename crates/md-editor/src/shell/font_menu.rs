@@ -146,6 +146,7 @@ impl FontMenu {
                 offset: point(px(0.), px(14.)),
                 blur_radius: px(40.),
                 spread_radius: px(0.),
+                inset: false,
             }])
             .occlude()
             .on_mouse_down_out(move |_: &MouseDownEvent, _: &mut Window, cx: &mut App| {

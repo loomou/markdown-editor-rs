@@ -18,14 +18,12 @@ pub struct ShapeMedia {
     pub block_code_lang: Rc<HashMap<u32, String>>,
 }
 
-#[derive(Clone)]
 pub struct ShapeBand {
     pub height: Px,
     pub text_dy: Px,
     pub parts: Vec<ShapePart>,
 }
 
-#[derive(Clone)]
 pub enum ShapePart {
     Text {
         line: Box<WrappedLine>,
@@ -59,7 +57,6 @@ pub enum ShapePart {
     },
 }
 
-#[derive(Clone)]
 pub struct ShapeArtifact {
     pub lines: Vec<WrappedLine>,
     pub(crate) row_map: Vec<(usize, u32)>,

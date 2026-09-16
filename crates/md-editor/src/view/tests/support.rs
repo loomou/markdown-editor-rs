@@ -36,7 +36,7 @@ pub(super) const TABLE_3ROW: &str = "| a | b |\n| --- | --- |\n| c | d |\n| e | 
 pub(super) fn focus_editor(editor: &gpui::Entity<EditorView>, cx: &mut VisualTestContext) {
     cx.update(|window, app| {
         let focus = editor.read(app).focus.clone();
-        focus.focus(window);
+        focus.focus(window, app);
     });
 }
 

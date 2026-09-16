@@ -8,7 +8,7 @@ fn typing_inline_spaces_keeps_source_display_caret_and_shape_in_sync(cx: &mut Te
     let (editor, cx) = editor_with_doc("", cx);
     cx.update(|window, app| {
         let focus = editor.read(app).focus.clone();
-        focus.focus(window);
+        focus.focus(window, app);
     });
 
     cx.simulate_input("a");
@@ -136,7 +136,7 @@ fn key_dispatch_a_then_space_keeps_inline_run_ranges_and_caret(cx: &mut TestAppC
     let (editor, cx) = editor_with_doc("", cx);
     cx.update(|window, app| {
         let focus = editor.read(app).focus.clone();
-        focus.focus(window);
+        focus.focus(window, app);
     });
 
     cx.simulate_keystrokes("a");
@@ -194,7 +194,7 @@ fn key_dispatch_consecutive_spaces_covers_every_inline_byte(cx: &mut TestAppCont
     let (editor, cx) = editor_with_doc("", cx);
     cx.update(|window, app| {
         let focus = editor.read(app).focus.clone();
-        focus.focus(window);
+        focus.focus(window, app);
     });
 
     cx.simulate_keystrokes("a space space b");
@@ -219,7 +219,7 @@ fn key_dispatch_space_steps_keep_inline_ranges_contiguous(cx: &mut TestAppContex
     let (editor, cx) = editor_with_doc("", cx);
     cx.update(|window, app| {
         let focus = editor.read(app).focus.clone();
-        focus.focus(window);
+        focus.focus(window, app);
     });
 
     cx.simulate_keystrokes("a");
@@ -267,7 +267,7 @@ fn key_dispatch_a_then_space_renders_the_trailing_space_and_end_caret(cx: &mut T
     let (editor, cx) = editor_with_doc("", cx);
     cx.update(|window, app| {
         let focus = editor.read(app).focus.clone();
-        focus.focus(window);
+        focus.focus(window, app);
     });
 
     cx.simulate_keystrokes("a space");
@@ -299,7 +299,7 @@ fn key_dispatch_space_advances_rendered_width_and_caret_once(cx: &mut TestAppCon
     let (editor, cx) = editor_with_doc("", cx);
     cx.update(|window, app| {
         let focus = editor.read(app).focus.clone();
-        focus.focus(window);
+        focus.focus(window, app);
     });
 
     cx.simulate_keystrokes("a");
@@ -342,7 +342,7 @@ fn tab_advances_rendered_width_and_caret(cx: &mut TestAppContext) {
     let (editor, cx) = editor_with_doc("hello\n", cx);
     cx.update(|window, app| {
         let focus = editor.read(app).focus.clone();
-        focus.focus(window);
+        focus.focus(window, app);
         editor.update(app, |view, _| {
             let block = view.state.doc.text_leaves()[0];
             view.state.cursor = md_core::doc::Cursor { block, offset: 0 };

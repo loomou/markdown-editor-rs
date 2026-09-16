@@ -22,7 +22,7 @@ impl Shell {
     fn start_recording(&mut self, cmd: Cmd, window: &mut Window, cx: &mut Context<'_, Self>) {
         self.recording = Some(cmd);
         self.record_note = None;
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         cx.notify();
     }
 
@@ -36,7 +36,7 @@ impl Shell {
         }
         self.recording = None;
         self.record_note = None;
-        window.focus(&self.editor_focus);
+        window.focus(&self.editor_focus, cx);
         cx.notify();
         true
     }
@@ -95,7 +95,7 @@ impl Shell {
         self.record_note = note;
         self.sync_editor_keymap(cx);
         self.save_settings();
-        window.focus(&self.editor_focus);
+        window.focus(&self.editor_focus, cx);
         cx.notify();
     }
 

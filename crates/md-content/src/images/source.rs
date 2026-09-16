@@ -4,7 +4,7 @@ use super::{
     SOURCE_RETRY_MAX, SourceError, SourceLoad,
 };
 use futures::AsyncReadExt;
-use gpui::{App, Image, ImageFormat, RenderImage, http_client};
+use gpui::{App, Image, ImageFormat, http_client};
 use image::ImageReader;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
@@ -142,13 +142,6 @@ fn load_remote(url: String, cx: &mut App) -> SourceLoad {
         Image::from_bytes(format, bytes)
             .to_image_data(svg)
             .map_err(|e| SourceError::Fatal(crate::Error::Image(e.to_string().into())))
-            .map(|img| {
-                if format == ImageFormat::Svg {
-                    svg_bgra(img)
-                } else {
-                    img
-                }
-            })
             .and_then(|img| {
                 native_dims(img).ok_or_else(|| {
                     SourceError::Fatal(crate::Error::Image(md_i18n::Key::ImageEmpty.into()))
@@ -182,13 +175,6 @@ fn decode_bytes_from_path(path: PathBuf, format: Option<ImageFormat>, cx: &mut A
         Image::from_bytes(format, bytes)
             .to_image_data(svg)
             .map_err(|e| SourceError::Fatal(crate::Error::Image(e.to_string().into())))
-            .map(|img| {
-                if format == ImageFormat::Svg {
-                    svg_bgra(img)
-                } else {
-                    img
-                }
-            })
             .and_then(|img| {
                 native_dims(img).ok_or_else(|| {
                     SourceError::Fatal(crate::Error::Image(md_i18n::Key::ImageEmpty.into()))
@@ -217,13 +203,6 @@ fn decode_data(
         Image::from_bytes(format, bytes)
             .to_image_data(svg)
             .map_err(|e| SourceError::Fatal(crate::Error::Image(e.to_string().into())))
-            .map(|img| {
-                if format == ImageFormat::Svg {
-                    svg_bgra(img)
-                } else {
-                    img
-                }
-            })
             .and_then(|img| {
                 native_dims(img).ok_or_else(|| {
                     SourceError::Fatal(crate::Error::Image(md_i18n::Key::ImageEmpty.into()))
@@ -250,24 +229,6 @@ fn decompress_svgz_bounded(bytes: Vec<u8>) -> Result<Vec<u8>, SourceError> {
         )));
     }
     Ok(out)
-}
-
-fn svg_bgra(img: Arc<RenderImage>) -> Arc<RenderImage> {
-    let Some(bytes) = img.as_bytes(0) else {
-        return img;
-    };
-    let mut swapped = bytes.to_vec();
-    for pixel in swapped.chunks_exact_mut(4) {
-        pixel.swap(0, 2);
-    }
-    let size = img.size(0);
-    let (w, h) = (size.width.0.max(0) as u32, size.height.0.max(0) as u32);
-    match image::ImageBuffer::from_raw(w, h, swapped) {
-        Some(buffer) => Arc::new(RenderImage::new(smallvec::smallvec![image::Frame::new(
-            buffer,
-        )])),
-        None => img,
-    }
 }
 
 pub(super) fn detect_format(bytes: &[u8]) -> Option<ImageFormat> {

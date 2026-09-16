@@ -26,7 +26,14 @@ pub fn paint_at(
         origin: point(px(ox), px(oy)),
         size: size(px(dw), px(dh)),
     };
-    let _ = window.paint_image(bounds, Corners::all(px(0.0)), image.clone(), 0, false);
+    let _ = window.paint_image(
+        bounds,
+        bounds,
+        Corners::all(px(0.0)),
+        image.clone(),
+        0,
+        false,
+    );
 }
 
 #[cfg(test)]

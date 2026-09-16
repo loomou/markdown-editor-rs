@@ -233,7 +233,7 @@ impl Shell {
         if let Some(err) = notice {
             self.set_startup_notice(err, cx);
         }
-        window.focus(&self.editor_focus);
+        window.focus(&self.editor_focus, cx);
     }
 
     fn theme(&self) -> ShellTheme {

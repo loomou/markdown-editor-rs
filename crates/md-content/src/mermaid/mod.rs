@@ -202,7 +202,14 @@ pub fn paint_ready(
         origin: point(px(x), px(y)),
         size: size(px(w), px(h)),
     };
-    let _ = window.paint_image(bounds, Corners::all(px(0.0)), ready.image.clone(), 0, false);
+    let _ = window.paint_image(
+        bounds,
+        bounds,
+        Corners::all(px(0.0)),
+        ready.image.clone(),
+        0,
+        false,
+    );
 }
 
 fn paint_rect(

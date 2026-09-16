@@ -80,7 +80,7 @@ impl FindBar {
         }
         self.query.select_all();
         self.query.mouse_up();
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         self.start_blink(cx);
         cx.notify();
     }
@@ -125,7 +125,7 @@ impl FindBar {
         let editor = self.editor.clone();
         editor.update(cx, |v, cx| {
             v.clear_search();
-            window.focus(&v.focus);
+            window.focus(&v.focus, cx);
             cx.notify();
         });
     }
@@ -207,7 +207,7 @@ impl FindBar {
             .lookup(&ev.keystroke)
             .filter(|c| matches!(c, Cmd::Find | Cmd::Quit | Cmd::FindNext | Cmd::FindPrev));
         if cmd == Some(Cmd::Find) {
-            window.focus(&self.focus);
+            window.focus(&self.focus, cx);
             self.query.wake();
             cx.stop_propagation();
             return true;
@@ -323,6 +323,7 @@ impl Render for FindBar {
                 offset: point(px(0.), px(10.)),
                 blur_radius: px(28.),
                 spread_radius: px(0.),
+                inset: false,
             }])
             .font_family(chrome.status_font)
             .text_size(px(chrome.status_size_px))
@@ -334,7 +335,7 @@ impl Render for FindBar {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _: &MouseDownEvent, window, cx| {
-                    window.focus(&this.focus);
+                    window.focus(&this.focus, cx);
                     cx.notify();
                 }),
             )
@@ -676,7 +677,7 @@ mod tests {
         let (shell, cx) = shell_with("needle and needle\n", cx);
         let (find, bounds) = open_find(&shell, "needle", cx);
         cx.update(|window, app| {
-            shell.read(app).editor_focus().clone().focus(window);
+            shell.read(app).editor_focus().clone().focus(window, app);
         });
         cx.run_until_parked();
         assert!(
@@ -918,7 +919,7 @@ mod tests {
         let editor = cx.update(|_, app| shell.read(app).editor().clone());
         let period = Duration::from_millis(DocumentTheme::one_dark().paint.caret_blink_ms as u64);
         cx.update(|window, app| {
-            shell.read(app).editor_focus().clone().focus(window);
+            shell.read(app).editor_focus().clone().focus(window, app);
         });
         cx.run_until_parked();
         assert!(
@@ -948,7 +949,7 @@ mod tests {
         );
         let (find, _) = open_find(&shell, "hello", cx);
         cx.update(|window, app| {
-            shell.read(app).editor_focus().clone().focus(window);
+            shell.read(app).editor_focus().clone().focus(window, app);
         });
         cx.run_until_parked();
         let period = Duration::from_millis(DocumentTheme::one_dark().paint.caret_blink_ms as u64);

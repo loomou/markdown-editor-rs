@@ -99,7 +99,7 @@ impl Shell {
         }
         let m = &ev.keystroke.modifiers;
         if !crate::ui::chord::has_chord(m) && ev.keystroke.key == "enter" {
-            window.focus(&self.focus);
+            window.focus(&self.focus, cx);
             cx.stop_propagation();
             cx.notify();
             return;
@@ -134,7 +134,7 @@ impl Shell {
         if let Some(picker) = self.color_picker.as_mut() {
             picker.sync_hex(color, false);
         }
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         cx.notify();
         true
     }
@@ -147,7 +147,7 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        window.focus(&self.hex_focus);
+        window.focus(&self.hex_focus, cx);
         if let Some(picker) = self.color_picker.as_mut() {
             picker.hex.mouse_down(at, click_count, shift);
         }

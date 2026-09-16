@@ -179,13 +179,13 @@ impl EditorView {
             Ok(SaveWriteResult::Conflict) => {
                 self.unsaved_nav = None;
                 self.save_conflict = Some(path);
-                window.focus(&self.save_conflict_focus);
+                window.focus(&self.save_conflict_focus, cx);
                 cx.notify();
             }
             Err(source) => {
                 self.save.pending_after_save = None;
                 self.unsaved_nav = None;
-                window.focus(&self.focus);
+                window.focus(&self.focus, cx);
                 self.set_notice(crate::Error::Save { path, source }, cx);
             }
         }
@@ -285,7 +285,7 @@ impl EditorView {
         match choice {
             SaveConflictChoice::Cancel => {
                 self.save.pending_after_save = None;
-                window.focus(&self.focus);
+                window.focus(&self.focus, cx);
                 cx.notify();
             }
             SaveConflictChoice::Overwrite => {

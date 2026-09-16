@@ -1,8 +1,8 @@
 use crate::ShellAssets;
 use crate::shell::{CloseFind, Shell};
 use gpui::{
-    App, AppContext, Application, Bounds, KeyBinding, Pixels, SharedString, TitlebarOptions,
-    WindowBounds, WindowOptions, px,
+    App, AppContext, Bounds, KeyBinding, Pixels, SharedString, TitlebarOptions, WindowBounds,
+    WindowOptions, px,
 };
 use md_core::doc::Doc;
 use md_theme::DocumentTheme;
@@ -18,7 +18,7 @@ pub fn run(doc: Doc, config: RunConfig) {
     let title = config.title;
     let notice = config.notice;
     md_render::cold_trace::mark_gpui();
-    Application::new()
+    gpui_platform::application()
         .with_http_client(md_content::images::http_client())
         .with_assets(ShellAssets::from_crate_assets())
         .run(move |cx: &mut App| {
@@ -79,7 +79,7 @@ pub fn run(doc: Doc, config: RunConfig) {
                             handle.update(cx, |s, cx| s.on_window_should_close(window, cx))
                         });
                         let flush_handle = shell.clone();
-                        cx.on_window_closed(move |cx| {
+                        cx.on_window_closed(move |cx, _window_id| {
                             flush_handle.update(cx, |s, _| s.flush_window_geometry());
                         })
                         .detach();
@@ -94,7 +94,7 @@ pub fn run(doc: Doc, config: RunConfig) {
                 md_render::cold_trace::gpui_ms()
             ));
 
-            cx.on_window_closed(|cx| cx.quit()).detach();
+            cx.on_window_closed(|cx, _window_id| cx.quit()).detach();
             cx.activate(true);
         });
 }

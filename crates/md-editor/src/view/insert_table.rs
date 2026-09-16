@@ -97,7 +97,7 @@ impl EditorView {
             self.clear_search();
         }
         self.insert_table = Some(InsertTableState::new());
-        window.focus(&self.insert_table_focus);
+        window.focus(&self.insert_table_focus, cx);
         cx.notify();
     }
 
@@ -105,7 +105,7 @@ impl EditorView {
         if self.insert_table.take().is_none() {
             return;
         }
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         cx.notify();
     }
 
@@ -120,7 +120,7 @@ impl EditorView {
         self.insert_table = None;
         self.apply_cmd(Command::Table(TableOp::Insert { rows, cols }));
         self.note_edit(cx);
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         cx.notify();
     }
 

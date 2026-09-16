@@ -158,7 +158,7 @@ fn undo_during_ime_then_delete_does_not_repaint_undone_glyphs(cx: &mut TestAppCo
     let (editor, cx) = editor_with_doc("", cx);
     cx.update(|window, app| {
         let focus = editor.read(app).focus.clone();
-        focus.focus(window);
+        focus.focus(window, app);
     });
     cx.update(|window, app| {
         editor.update(app, |view, cx| {
@@ -255,7 +255,7 @@ fn a_vertical_step_during_ime_interrupts_the_composition(cx: &mut TestAppContext
     let (editor, cx) = editor_with_doc("abc\n\nxyz\n", cx);
     cx.update(|window, app| {
         let focus = editor.read(app).focus.clone();
-        focus.focus(window);
+        focus.focus(window, app);
     });
     let a = cx.update(|window, app| {
         let mut a = None;

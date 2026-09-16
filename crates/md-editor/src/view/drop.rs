@@ -12,7 +12,7 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         if let Some(path) = paths
             .iter()
             .find(|path| crate::platform::open_markdown::is_markdown_path(path))
@@ -34,7 +34,7 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         let source = self.state.doc.source_path.clone();
         let mut snippets = Vec::new();
         for path in paths {

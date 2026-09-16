@@ -316,7 +316,7 @@ impl EditorView {
         let key = ev.keystroke.key.as_str();
         if key == "escape" && !crate::ui::chord::has_chord(m) {
             self.close_media_zoom(cx);
-            window.focus(&self.focus);
+            window.focus(&self.focus, cx);
             return true;
         }
         if !ev.is_held
@@ -429,13 +429,13 @@ impl EditorView {
                         });
                     }
                     self.clear_search();
-                    window.focus(&self.focus);
+                    window.focus(&self.focus, cx);
                 } else if self.table_ui.reorder.is_some() {
                     self.cancel_table_reorder(cx);
-                    window.focus(&self.focus);
+                    window.focus(&self.focus, cx);
                 } else if self.table_ui.picker_open {
                     self.close_table_picker(true, cx);
-                    window.focus(&self.focus);
+                    window.focus(&self.focus, cx);
                 } else {
                     self.state.selection = None;
                     self.select_anchor = None;

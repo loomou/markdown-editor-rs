@@ -27,7 +27,8 @@ fn svg_source_uses_bgra_channels(cx: &mut gpui::TestAppContext) {
     assert_eq!(
         pixel,
         &[0, 0, 255, 255],
-        "RenderImage and the display-layer raster consume BGRA; leaving SVG RGBA unswapped flips red and blue"
+        "RenderImage and the display-layer raster consume BGRA; gpui's SVG rasterizer swaps RGBA to \
+         BGRA itself, so red must arrive as [0,0,255]"
     );
 }
 
@@ -71,8 +72,9 @@ fn svg_embedded_png_is_painted(cx: &mut gpui::TestAppContext) {
     assert_eq!(
         pixel,
         &[56, 34, 12, 255],
-        "an opaque embedded PNG must paint: RGBA [12,34,56] goes through svg_bgra to BGRA \
-         [56,34,12] with alpha 255; fully transparent means the raster was dropped by the backend"
+        "an opaque embedded PNG must paint: gpui's SVG rasterizer emits BGRA, so RGBA [12,34,56] \
+         lands as [56,34,12] with alpha 255; fully transparent means the raster was dropped by the \
+         backend"
     );
 }
 
