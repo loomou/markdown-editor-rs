@@ -9,7 +9,7 @@ use crate::ui::theme::{OUTLINE_ROW_H, OUTLINE_W};
 use gpui::TestAppContext;
 use gpui::{MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent};
 use gpui::{point, px, size};
-use md_core::doc::Doc;
+use md_core::doc::{Cursor, Doc};
 use md_core::document::{editor_options, load_markdown};
 
 #[gpui::test]
@@ -735,4 +735,27 @@ fn shell_caches_follow_the_replaced_document_when_the_revision_collides(cx: &mut
         labels.iter().all(|l| l.contains("B")),
         "the outline still holds rows of the previous document: {labels:?}"
     );
+}
+
+#[test]
+fn outline_label_ignores_the_revealed_form_under_the_caret() {
+    let mut doc = Doc::new(load_markdown(
+        "## 用 `cargo fmt` 格式化\n\nbody\n",
+        editor_options(),
+    ));
+    let block = doc.text_leaves()[0];
+    let before = doc.document.revision();
+    doc.retarget_focus(Cursor { block, offset: 4 });
+    assert_ne!(
+        doc.document.revision(),
+        before,
+        "the fixture must bump the revision for this test to discriminate"
+    );
+    let id = doc.document.live_id(block).expect("live heading");
+    assert!(
+        doc.document.display(id).contains('`'),
+        "the caret should reveal the code span: {:?}",
+        doc.document.display(id)
+    );
+    assert_eq!(outline_rows(&doc)[0].label, "用 cargo fmt 格式化");
 }
