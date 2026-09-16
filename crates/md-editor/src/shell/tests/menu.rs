@@ -270,6 +270,25 @@ fn click_at(cx: &mut gpui::VisualTestContext, at: gpui::Point<gpui::Pixels>) {
     cx.run_until_parked();
 }
 
+fn scroll_at(cx: &mut gpui::VisualTestContext, at: gpui::Point<gpui::Pixels>) {
+    cx.simulate_event(gpui::ScrollWheelEvent {
+        position: at,
+        delta: gpui::ScrollDelta::Lines(point(0.0, -3.0)),
+        ..Default::default()
+    });
+    cx.run_until_parked();
+}
+
+fn open_menu_at(shell: &gpui::Entity<Shell>, cx: &mut gpui::VisualTestContext, id: MenuId) {
+    cx.update(|_, app| {
+        shell.update(app, |s, cx| {
+            s.open_menu = Some((id, point(px(40.), px(60.))));
+            cx.notify();
+        });
+    });
+    cx.run_until_parked();
+}
+
 #[gpui::test]
 fn bar_menu_popup_aligns_to_the_label_left(cx: &mut TestAppContext) {
     let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
@@ -432,4 +451,74 @@ fn the_file_menu_lists_recent_documents_in_a_flyout(cx: &mut TestAppContext) {
         assert_eq!(s.recent_files.first(), Some(&file));
     });
     let _ = std::fs::remove_file(&file);
+}
+
+#[gpui::test]
+fn scrolling_dismisses_the_context_menu(cx: &mut TestAppContext) {
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
+    stop_blink(&shell, cx);
+    cx.run_until_parked();
+
+    open_menu_at(&shell, cx, MenuId::Context);
+    shell.read_with(cx, |s, _| {
+        assert!(
+            s.open_menu.is_some(),
+            "precondition: the context menu should be open"
+        )
+    });
+
+    scroll_at(cx, point(px(240.), px(220.)));
+    shell.read_with(cx, |s, _| {
+        assert!(
+            s.open_menu.is_none(),
+            "a wheel scroll should dismiss the context menu"
+        );
+    });
+}
+
+#[gpui::test]
+fn scrolling_dismisses_the_menu_bar_dropdown(cx: &mut TestAppContext) {
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
+    stop_blink(&shell, cx);
+    cx.run_until_parked();
+
+    open_menu_at(&shell, cx, MenuId::File);
+    shell.read_with(cx, |s, _| {
+        assert!(
+            s.open_menu.is_some(),
+            "precondition: the File dropdown should be open"
+        )
+    });
+
+    scroll_at(cx, point(px(240.), px(220.)));
+    shell.read_with(cx, |s, _| {
+        assert!(
+            s.open_menu.is_none(),
+            "a wheel scroll should dismiss the menu-bar dropdown"
+        );
+    });
+}
+
+#[gpui::test]
+fn scrolling_dismisses_the_menu_even_under_the_pointer(cx: &mut TestAppContext) {
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
+    stop_blink(&shell, cx);
+    cx.run_until_parked();
+
+    open_menu_at(&shell, cx, MenuId::Context);
+    scroll_at(cx, point(px(60.), px(80.)));
+    shell.read_with(cx, |s, _| {
+        assert!(
+            s.open_menu.is_none(),
+            "the wheel should dismiss the menu wherever the pointer rests"
+        );
+    });
+
+    scroll_at(cx, point(px(60.), px(80.)));
+    shell.read_with(cx, |s, _| {
+        assert!(
+            s.open_menu.is_none(),
+            "scrolling with no menu open should be a no-op"
+        );
+    });
 }

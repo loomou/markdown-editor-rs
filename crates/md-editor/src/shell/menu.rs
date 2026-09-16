@@ -5,8 +5,8 @@ use crate::view::table_commands::{TABLE_MENU, TableMenuEntry};
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, Bounds, BoxShadow, ClickEvent, Context, Div, Entity, InteractiveElement, IntoElement,
-    MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, Pixels, Point, Size, Stateful,
-    StatefulInteractiveElement, Styled, Window, canvas, div, point, px, rgba,
+    MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, Pixels, Point, ScrollWheelEvent,
+    Size, Stateful, StatefulInteractiveElement, Styled, Window, canvas, div, point, px, rgba,
 };
 use md_core::document::TableOp;
 use md_i18n::{Key, t as t18};
@@ -393,10 +393,34 @@ fn recent_flyout_screen_rect(
 const MENU_REOPEN_COOLDOWN: std::time::Duration = std::time::Duration::from_millis(150);
 
 impl Shell {
-    fn close_menu(&mut self, cx: &mut Context<'_, Self>) {
+    pub(super) fn close_menu(&mut self, cx: &mut Context<'_, Self>) {
         self.open_menu = None;
         self.clear_table_submenu_state(cx);
         self.menu_closed_at = Some(std::time::Instant::now());
+    }
+
+    pub(super) fn menu_scroll_dismisser(&self, this: Entity<Self>) -> Option<impl IntoElement> {
+        self.open_menu.map(|_| {
+            canvas(
+                |_, _, _| (),
+                move |_, _, window, _| {
+                    window.on_mouse_event(move |_: &ScrollWheelEvent, phase, _, cx| {
+                        if !phase.bubble() {
+                            return;
+                        }
+                        this.update(cx, |shell, cx| {
+                            if shell.open_menu.is_none() {
+                                return;
+                            }
+                            shell.close_menu(cx);
+                            cx.notify();
+                        });
+                    });
+                },
+            )
+            .absolute()
+            .size_full()
+        })
     }
 
     pub(super) fn clear_table_submenu_state(&mut self, cx: &mut Context<'_, Self>) {
