@@ -21,6 +21,7 @@ publish = false
 
 [workspace.lints.rust]
 rust_2018_idioms = { level = "warn" }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }
 
 [workspace.lints.clippy]
 all = { level = "warn" }
