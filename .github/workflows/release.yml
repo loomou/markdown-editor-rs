@@ -63,7 +63,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          prefix: release-${{ matrix.target }}
+          key: release-${{ matrix.target }}
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
