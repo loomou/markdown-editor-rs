@@ -329,7 +329,7 @@ impl Shell {
                                     ListHorizontalSizingBehavior::Unconstrained,
                                 )
                                 .with_width_from_item(measure_ix)
-                                .track_scroll(self.outline_scroll.clone()),
+                                .track_scroll(&self.outline_scroll),
                             )
                             .children(self.outline_scrollbars(t, this.clone())),
                     ),
@@ -506,7 +506,7 @@ impl Shell {
                 editor.update(cx, |view, cx| {
                     view.jump_to_block(block);
                     cx.notify();
-                    window.focus(&view.focus);
+                    window.focus(&view.focus, cx);
                 });
             })
             .child(

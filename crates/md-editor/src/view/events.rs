@@ -93,7 +93,7 @@ pub(super) fn on_mouse_down(f: &InputFrame, window: &mut Window) {
             if !hb.is_hovered(win) {
                 return;
             }
-            win.focus(&fh);
+            win.focus(&fh, cx);
             ent.update(cx, |v, cx| {
                 v.dismiss_table_panels(cx);
                 let Some(c) = v.hit_cursor_at(&slot_snap, slot_rev, local, win, cx) else {
@@ -120,7 +120,7 @@ pub(super) fn on_mouse_down(f: &InputFrame, window: &mut Window) {
             return;
         }
 
-        win.focus(&fh);
+        win.focus(&fh, cx);
         let shift = ev.modifiers.shift;
         ent.update(cx, |v, cx| {
             if let Some(chrome) = v.table_ui.chrome

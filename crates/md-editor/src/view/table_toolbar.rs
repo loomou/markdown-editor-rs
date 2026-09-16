@@ -103,7 +103,7 @@ impl EditorView {
         }
         self.apply_cmd(Command::Table(op));
         self.note_edit(cx);
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         cx.notify();
     }
 
@@ -210,7 +210,7 @@ impl EditorView {
         self.table_ui.picker_drag = false;
         self.table_ui.picker_hover = None;
         self.note_edit(cx);
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         cx.notify();
     }
 
@@ -281,6 +281,7 @@ fn bar_shadow() -> Vec<BoxShadow> {
         offset: point(px(0.), px(10.)),
         blur_radius: px(28.),
         spread_radius: px(0.),
+        inset: false,
     }]
 }
 
@@ -380,7 +381,7 @@ fn grid_button(
         move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
             editor.update(cx, |v, cx| {
                 v.toggle_table_picker(cx);
-                window.focus(&v.focus);
+                window.focus(&v.focus, cx);
             });
         }
     })
@@ -432,6 +433,7 @@ fn picker_panel(
             offset: point(px(0.), px(14.)),
             blur_radius: px(40.),
             spread_radius: px(0.),
+            inset: false,
         }])
         .occlude()
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -620,7 +622,7 @@ fn more_button(t: ShellTheme, more_open: bool, editor: Entity<EditorView>) -> St
         move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
             editor.update(cx, |v, cx| {
                 v.set_table_more_open(!v.table_ui.more_open, cx);
-                window.focus(&v.focus);
+                window.focus(&v.focus, cx);
             });
         }
     })
@@ -690,6 +692,7 @@ fn more_menu(t: ShellTheme, chord: Option<String>, editor: Entity<EditorView>) -
             offset: point(px(0.), px(14.)),
             blur_radius: px(40.),
             spread_radius: px(0.),
+            inset: false,
         }])
         .occlude()
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())

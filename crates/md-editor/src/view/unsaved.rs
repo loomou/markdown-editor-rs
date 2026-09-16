@@ -60,7 +60,7 @@ impl EditorView {
             return true;
         }
         if self.save_conflict.is_some() {
-            window.focus(&self.save_conflict_focus);
+            window.focus(&self.save_conflict_focus, cx);
             return false;
         }
         if !self.state.doc.is_dirty() {
@@ -78,7 +78,7 @@ impl EditorView {
     ) {
         self.bind_window(window);
         if self.save_conflict.is_some() {
-            window.focus(&self.save_conflict_focus);
+            window.focus(&self.save_conflict_focus, cx);
             return;
         }
         if !self.state.doc.is_dirty() {
@@ -86,7 +86,7 @@ impl EditorView {
             return;
         }
         self.unsaved_nav = Some(nav);
-        window.focus(&self.unsaved_focus);
+        window.focus(&self.unsaved_focus, cx);
         cx.notify();
     }
 
@@ -104,7 +104,7 @@ impl EditorView {
             UnsavedChoice::Cancel => {
                 self.save.pending_after_save = None;
                 self.pending_open_path = None;
-                window.focus(&self.focus);
+                window.focus(&self.focus, cx);
                 cx.notify();
             }
             UnsavedChoice::Discard => {
@@ -150,7 +150,7 @@ impl EditorView {
     pub(crate) fn new_untitled(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
         self.replace_document(Doc::new(load_markdown("", editor_options())), cx);
         self.sync_os_title(window);
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         cx.notify();
     }
 

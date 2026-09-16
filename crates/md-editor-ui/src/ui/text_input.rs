@@ -3,7 +3,8 @@ use gpui::ClipboardItem;
 use gpui::{
     App, Bounds, Context, Element, ElementId, ElementInputHandler, Entity, EntityInputHandler,
     FocusHandle, Font, GlobalElementId, Hsla, InspectorElementId, IntoElement, LayoutId, Modifiers,
-    PaintQuad, Pixels, Point, ShapedLine, SharedString, TextRun, Window, fill, point, px, size,
+    PaintQuad, Pixels, Point, ShapedLine, SharedString, TextAlign, TextRun, Window, fill, point,
+    px, size,
 };
 use md_core::Px;
 use md_core::doc::floor_char_boundary;
@@ -807,7 +808,7 @@ impl<V: TextInputHost> Element for TextInputElement<V> {
         {
             window.paint_quad(quad);
         }
-        let _ = line.paint(st.row_origin, st.row_h, window, cx);
+        let _ = line.paint(st.row_origin, st.row_h, TextAlign::Left, None, window, cx);
         if live
             && blink_visible
             && let Some(caret) = st.caret.take()

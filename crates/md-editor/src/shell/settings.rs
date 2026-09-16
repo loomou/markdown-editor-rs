@@ -347,6 +347,7 @@ impl Shell {
                 let viewport = window.viewport_size();
                 let at = match ev {
                     ClickEvent::Mouse(m) => m.up.position,
+                    ClickEvent::Touch(t) => t.position,
                     ClickEvent::Keyboard(_) => point(viewport.width * 0.5, viewport.height * 0.3),
                 };
                 trigger.update(cx, |shell, cx| {
@@ -443,6 +444,7 @@ impl Shell {
                         offset: point(px(0.), px(1.)),
                         blur_radius: px(3.),
                         spread_radius: px(0.),
+                        inset: false,
                     }]),
             )
     }
@@ -554,7 +556,7 @@ impl Shell {
                 d.child(
                     div()
                         .debug_selector(|| "note:no-settings-home".into())
-                        .flex_shrink()
+                        .flex_shrink_1()
                         .text_size(px(11.5))
                         .text_color(t.text_disabled)
                         .child(t18(Key::SetColorsNoHome)),

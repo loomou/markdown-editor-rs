@@ -19,7 +19,7 @@ fn f5_and_f6_toggle_editor_flags_off_by_default(cx: &mut TestAppContext) {
     stop_blink(&shell, cx);
     cx.update(|window, app| {
         let focus = shell.read(app).editor_focus().clone();
-        focus.focus(window);
+        focus.focus(window, app);
     });
 
     let (show_fps, stress) = cx.update(|_, app| {
@@ -54,7 +54,7 @@ fn the_find_key_opens_the_bar_and_seeds_the_search(cx: &mut TestAppContext) {
     stop_blink(&shell, cx);
     cx.update(|window, app| {
         let focus = shell.read(app).editor_focus().clone();
-        focus.focus(window);
+        focus.focus(window, app);
     });
 
     cx.simulate_keystrokes(&key_for(Cmd::Find));
@@ -85,7 +85,7 @@ fn rebinding_find_moves_the_key_and_retires_the_old_one(cx: &mut TestAppContext)
     stop_blink(&shell, cx);
     cx.update(|window, app| {
         let focus = shell.read(app).editor_focus().clone();
-        focus.focus(window);
+        focus.focus(window, app);
     });
     let old = key_for(Cmd::Find);
 
@@ -117,7 +117,7 @@ fn the_editor_gets_the_new_table_too(cx: &mut TestAppContext) {
     stop_blink(&shell, cx);
     cx.update(|window, app| {
         let focus = shell.read(app).editor_focus().clone();
-        focus.focus(window);
+        focus.focus(window, app);
     });
     cx.simulate_input("x");
     cx.run_until_parked();
@@ -181,7 +181,7 @@ fn find_next_works_from_the_document_too(cx: &mut TestAppContext) {
     stop_blink(&shell, cx);
     cx.update(|window, app| {
         let focus = shell.read(app).editor_focus().clone();
-        focus.focus(window);
+        focus.focus(window, app);
     });
 
     cx.simulate_keystrokes(&key_for(Cmd::FindNext));
@@ -196,7 +196,7 @@ fn find_next_works_from_the_document_too(cx: &mut TestAppContext) {
     settle_find(cx);
     cx.update(|window, app| {
         let focus = shell.read(app).editor_focus().clone();
-        focus.focus(window);
+        focus.focus(window, app);
     });
     let active = |cx: &mut VisualTestContext| {
         cx.update(|_, app| shell.read(app).editor.read(app).search.active)
@@ -273,7 +273,7 @@ fn a_key_the_editor_declines_reaches_the_shell(cx: &mut TestAppContext) {
     stop_blink(&shell, cx);
     cx.update(|window, app| {
         let focus = shell.read(app).editor_focus().clone();
-        focus.focus(window);
+        focus.focus(window, app);
     });
     cx.update(|_, app| {
         shell.update(app, |s, cx| {
@@ -312,7 +312,7 @@ fn close_find_clears_editor_search_state(cx: &mut TestAppContext) {
     stop_blink(&shell, cx);
     cx.update(|window, app| {
         let focus = shell.read(app).editor_focus().clone();
-        focus.focus(window);
+        focus.focus(window, app);
     });
 
     cx.simulate_keystrokes(&key_for(Cmd::Find));

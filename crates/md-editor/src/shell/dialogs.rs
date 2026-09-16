@@ -214,6 +214,7 @@ impl Shell {
                 offset: point(px(0.), px(18.)),
                 blur_radius: px(50.),
                 spread_radius: px(0.),
+                inset: false,
             }])
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(
@@ -330,6 +331,7 @@ impl Shell {
                 offset: point(px(0.), px(18.)),
                 blur_radius: px(50.),
                 spread_radius: px(0.),
+                inset: false,
             }])
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(
@@ -542,6 +544,7 @@ impl Shell {
                 offset: point(px(0.), px(18.)),
                 blur_radius: px(50.),
                 spread_radius: px(0.),
+                inset: false,
             }])
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(

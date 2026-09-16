@@ -42,7 +42,7 @@ fn outline_scrolls_when_headings_overflow_the_panel(cx: &mut TestAppContext) {
         "all eighty headings should make it into the outline"
     );
     let base = scroll.0.borrow().base_handle.clone();
-    let room = base.max_offset().height;
+    let room = base.max_offset().y;
     assert!(
         room > px(0.0) || scroll.is_scrollable(),
         "an outline of {rows} rows should scroll: leftover room {room:?}"
@@ -143,7 +143,7 @@ fn outline_scrolls_horizontally_when_heading_is_wide(cx: &mut TestAppContext) {
 
     let scroll = cx.update(|_, app| shell.read(app).outline_scroll.clone());
     let base = scroll.0.borrow().base_handle.clone();
-    let room = base.max_offset().width;
+    let room = base.max_offset().x;
     assert!(
         room > px(0.0),
         "the outline cannot scroll sideways past a long heading: room left {room:?}"

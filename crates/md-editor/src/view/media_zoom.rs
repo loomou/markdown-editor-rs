@@ -636,7 +636,7 @@ pub(crate) fn paint_zoom(
         size: size(px(w.max(1.0)), px(h.max(1.0))),
     };
     window.paint_quad(gpui::fill(bounds, v.state.theme.paint.canvas.hsla()));
-    let _ = window.paint_image(bounds, Corners::all(px(0.0)), image, 0, false);
+    let _ = window.paint_image(bounds, bounds, Corners::all(px(0.0)), image, 0, false);
 }
 
 #[cfg(test)]
