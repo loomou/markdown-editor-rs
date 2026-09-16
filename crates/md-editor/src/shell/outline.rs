@@ -25,20 +25,40 @@ pub(super) struct OutlineRow {
 pub(super) fn outline_rows(doc: &Doc) -> Vec<OutlineRow> {
     let mut rows: Vec<OutlineRow> = Vec::new();
 
-    for id in doc.document.preorder() {
-        let Some(node) = doc.document.arena.get(id) else {
-            continue;
-        };
-        if let BlockKind::Heading(level) = node.kind {
+    doc.document.for_each_collapsed_text_leaf(|block, text| {
+        if let Some(BlockKind::Heading(level)) = doc.document.kind(block) {
             rows.push(OutlineRow {
-                block: id.index,
+                block,
                 level,
-                label: doc.document.display(id).trim().to_string(),
+                label: text.trim().to_string(),
             });
         }
-    }
+        true
+    });
 
     rows
+}
+
+fn outline_rows_match(doc: &Doc, rows: &[OutlineRow]) -> bool {
+    let mut seen = 0;
+    let mut same = true;
+
+    doc.document.for_each_collapsed_text_leaf(|block, text| {
+        if let Some(BlockKind::Heading(level)) = doc.document.kind(block) {
+            let Some(row) = rows.get(seen) else {
+                same = false;
+                return false;
+            };
+            if row.block != block || row.level != level || row.label != text.trim() {
+                same = false;
+                return false;
+            }
+            seen += 1;
+        }
+        true
+    });
+
+    same && seen == rows.len()
 }
 
 fn outline_row_metrics(row: &OutlineRow) -> (f32, f32, FontWeight) {
@@ -188,9 +208,16 @@ impl OutlineCache {
     pub(super) fn get(&mut self, window: &Window, doc: &Doc) -> bool {
         let identity = doc.identity();
         let switched = self.identity != identity;
-        self.refresh_with(window, identity, doc.document.revision(), || {
-            outline_rows(doc)
-        });
+        let revision = doc.document.revision();
+
+        if switched || self.revision != revision {
+            if switched || !outline_rows_match(doc, &self.rows) {
+                self.refresh_with(window, identity, revision, || outline_rows(doc));
+            } else {
+                self.revision = revision;
+            }
+        }
+
         switched
     }
 }
