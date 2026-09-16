@@ -441,6 +441,7 @@ impl Render for Shell {
                 let in_table = id == MenuId::Context && editor.caret_in_table();
                 self.menu_popup(t, id, pos, in_table, window.viewport_size(), this.clone())
             }))
+            .children(self.menu_scroll_dismisser(this.clone()))
             .children(self.color_picker_overlay(t, &this))
             .children(self.font_menu_overlay(t, &this))
             .children(self.unsaved_overlay(t, this.clone(), editor))
