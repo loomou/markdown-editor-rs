@@ -1,5 +1,6 @@
 mod support;
 
+mod anchor;
 mod copy;
 mod history;
 mod image_source;

@@ -20,6 +20,7 @@ use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::rc::Rc;
 
+mod anchor;
 mod clipboard;
 mod draw;
 mod drop;
@@ -158,6 +159,8 @@ pub struct EditorState {
     pub env: BoxLayoutEnvironment,
 
     pub shape_cache: Rc<md_content::shaper::ShapeCache>,
+
+    pub(crate) anchor_cache: anchor::AnchorCache,
 
     pub(crate) diag: Rc<RefCell<Diagnostics>>,
 

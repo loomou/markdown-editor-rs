@@ -27,6 +27,7 @@ pub fn with_markdown_extension(path: PathBuf) -> PathBuf {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OpenTarget {
     Ignore,
+    Anchor(String),
     Url(String),
     Local(PathBuf),
     ConfirmLocal(PathBuf),
@@ -34,8 +35,15 @@ pub enum OpenTarget {
 
 pub fn classify_dest(dest: &str, source_path: Option<&Path>) -> OpenTarget {
     let dest = dest.trim();
-    if dest.is_empty() || dest.starts_with('#') {
+    if dest.is_empty() {
         return OpenTarget::Ignore;
+    }
+    if let Some(anchor) = dest.strip_prefix('#') {
+        return if anchor.is_empty() {
+            OpenTarget::Ignore
+        } else {
+            OpenTarget::Anchor(anchor.to_owned())
+        };
     }
     let lower = dest.to_ascii_lowercase();
     if lower.starts_with("javascript:") || lower.starts_with("data:") {
@@ -438,6 +446,30 @@ mod ext_tests {
         assert!(
             !target.to_string_lossy().starts_with(r"\\?\"),
             "the verbatim prefix leaked into the open path: {target:?}"
+        );
+    }
+
+    #[test]
+    fn an_in_page_anchor_is_kept_for_the_editor() {
+        let source = Path::new("C:/notes/readme.md");
+        assert_eq!(
+            classify_dest("#this-is-a-title", Some(source)),
+            OpenTarget::Anchor("this-is-a-title".into())
+        );
+        assert_eq!(
+            classify_dest("  #%E4%B8%AD%E6%96%87  ", Some(source)),
+            OpenTarget::Anchor("%E4%B8%AD%E6%96%87".into())
+        );
+        assert_eq!(classify_dest("#", Some(source)), OpenTarget::Ignore);
+        assert_eq!(classify_dest("", Some(source)), OpenTarget::Ignore);
+    }
+
+    #[test]
+    fn a_fragment_on_a_url_is_not_an_in_page_anchor() {
+        let source = Path::new("C:/notes/readme.md");
+        assert_eq!(
+            classify_dest("https://example.com/page#section", Some(source)),
+            OpenTarget::Url("https://example.com/page#section".into())
         );
     }
 

@@ -1,5 +1,6 @@
 mod support;
 
+mod anchor;
 mod caret;
 mod clipboard;
 mod cursor;

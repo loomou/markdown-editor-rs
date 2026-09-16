@@ -6,6 +6,7 @@ use std::sync::Arc;
 use text::TextStore;
 
 mod alloc;
+mod anchor;
 mod arena;
 mod bind;
 mod change;
@@ -35,6 +36,7 @@ mod write;
 #[cfg(test)]
 mod tests;
 
+pub use anchor::{HeadingAnchor, decode_anchor, find_anchor, heading_anchors, slug};
 pub use arena::{DocumentArena, NodeId};
 pub use change::{ChangeSet, DocChange};
 pub use chars::{floor_char_boundary, next_char_boundary, prev_char_boundary};

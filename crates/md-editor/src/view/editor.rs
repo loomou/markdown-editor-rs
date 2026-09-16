@@ -86,6 +86,7 @@ impl EditorView {
                 resolved_top: 0.0,
                 env: BoxLayoutEnvironment::default(),
                 shape_cache: md_content::shaper::ShapeCache::new(),
+                anchor_cache: Default::default(),
                 diag: Rc::new(RefCell::new(Diagnostics::default())),
                 incremental: None,
                 incremental_enabled: true,

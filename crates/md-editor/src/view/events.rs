@@ -243,7 +243,7 @@ pub(super) fn on_mouse_down(f: &InputFrame, window: &mut Window) {
                 x: local.0,
                 y: local.1,
                 motion: CursorMotion::from_shift(shift),
-                follow_link: ev.modifiers.control,
+                follow_link: ev.modifiers.secondary(),
                 select_word: ev.click_count == 2 && !shift,
             };
             if !v.place_caret_at_hit(&slot_snap, slot_rev, click, win, cx) {
@@ -374,6 +374,12 @@ pub(super) fn on_mouse_up(f: &InputFrame, window: &mut Window) {
                 use crate::platform::open_markdown::{OpenTarget, classify_dest};
                 match classify_dest(&dest, v.state.doc.source_path.as_deref()) {
                     OpenTarget::Ignore => {}
+                    OpenTarget::Anchor(anchor) => {
+                        if let Some(block) = v.state.anchor_cache.resolve(&v.state.doc, &anchor) {
+                            v.jump_to_block(block);
+                            cx.notify();
+                        }
+                    }
                     OpenTarget::Url(url) => cx.open_url(&url),
                     OpenTarget::Local(path) => cx.open_with_system(&path),
                     OpenTarget::ConfirmLocal(path) => {
