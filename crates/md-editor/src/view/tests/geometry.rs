@@ -136,7 +136,7 @@ fn inline_code_gets_a_plate_that_hugs_the_text(cx: &mut TestAppContext) {
     let (pad_x, pad_y) = (inline.inline_code_pad_x, inline.inline_code_pad_y);
 
     assert_eq!(snap.inline_code_device.len(), 1);
-    let (plate_x, plate_y, plate_w, plate_h) = snap.inline_code_device[0];
+    let (plate_x, plate_y, plate_w, plate_h) = snap.inline_code_device[0].rect;
     let piece = snap
         .texts
         .iter()
@@ -183,7 +183,7 @@ fn inline_code_in_a_table_cell_gets_a_plate(cx: &mut TestAppContext) {
     );
     let frame = &drawn.1.frame;
     assert_eq!(frame.snapshot.inline_code_device.len(), 1);
-    let (plate_x, plate_y, plate_w, plate_h) = frame.snapshot.inline_code_device[0];
+    let (plate_x, plate_y, plate_w, plate_h) = frame.snapshot.inline_code_device[0].rect;
     let cell = frame
         .snapshot
         .cells
@@ -223,8 +223,9 @@ fn wrapped_inline_code_does_not_paint_the_line_slack(cx: &mut TestAppContext) {
     let first_row_plate_right = snap
         .inline_code_device
         .iter()
+        .map(|p| p.rect)
         .filter(|(x, y, w, h)| *w > 0.0 && *x + *w > ox && *y < oy + row_h && *y + *h > oy)
-        .map(|(x, _, w, _)| *x + *w)
+        .map(|(x, _, w, _)| x + w)
         .fold(ox, f64::max);
     assert!(
         first_row_plate_right < col_right - 8.0,
@@ -507,4 +508,81 @@ fn content_column_follows_typoras_tiered_caps_and_centers(cx: &mut TestAppContex
         "after the tier jump piece widths should differ by {:.0}, differ by {dtier}",
         cap_wide - cap_mid
     );
+}
+
+#[gpui::test]
+fn a_plate_below_a_clamped_code_well_stays_in_its_own_row(cx: &mut TestAppContext) {
+    use crate::view::WellScroll;
+    use crate::view::paint::{collect_well_hits, overlay_in_well};
+    use std::collections::HashMap;
+
+    let code: String = (1..=20).map(|i| format!("// line {i}\n")).collect();
+    let md = format!(
+        "```rust\n{code}```\n\n7. `arena.append_child(ListItem#2, Paragraph#3)` \u{2192} **then**\n"
+    );
+    let (editor, cx) = editor_with_doc(&md, cx);
+    let drawn = cx.draw(
+        point(px(0.0), px(0.0)),
+        size(px(800.0), px(600.0)),
+        |_, _| EditorElement {
+            state: editor.clone(),
+        },
+    );
+    let frame = &drawn.1.frame;
+    let snap = &frame.snapshot;
+
+    let well = snap
+        .texts
+        .iter()
+        .find(|t| t.kind == BlockKind::CodeBlock)
+        .expect("the code block");
+    assert!(
+        well.view_height < well.art.height,
+        "the code block must be taller than the well cap for this case to mean anything"
+    );
+    let para = snap
+        .texts
+        .iter()
+        .find(|t| {
+            frame
+                .assembly
+                .tree
+                .text(t.box_id)
+                .contains("arena.append_child")
+        })
+        .expect("the list item paragraph");
+    assert!(
+        para.content_origin_device.1 < well.content_origin_device.1 + well.art.height,
+        "the paragraph must sit inside the well's content extent, which is what used to swallow it"
+    );
+
+    let wells = collect_well_hits(&snap.texts, &snap.decorations, &DocumentTheme::one_dark());
+    assert!(
+        wells.iter().any(|w| w.id == well.block),
+        "the code block must be registered as a well"
+    );
+
+    let plate = snap
+        .inline_code_device
+        .iter()
+        .find(|p| p.block == para.block)
+        .expect("the paragraph must own a plate");
+    assert!(
+        plate.rect.1 >= para.content_origin_device.1
+            && plate.rect.1 + plate.rect.3 <= para.content_origin_device.1 + para.view_height,
+        "the plate {:?} must sit in the paragraph's row {:.1}..{:.1}",
+        plate.rect,
+        para.content_origin_device.1,
+        para.content_origin_device.1 + para.view_height
+    );
+
+    for y in [0.0, 108.0] {
+        let scrolls = HashMap::from([(well.block, WellScroll { x: 0.0, y })]);
+        let painted = overlay_in_well(plate.rect, Some(plate.block), &wells, &snap.texts, &scrolls);
+        assert_eq!(
+            painted,
+            Some(plate.rect),
+            "the plate must paint where it belongs, not inside the well at scroll {y}"
+        );
+    }
 }
