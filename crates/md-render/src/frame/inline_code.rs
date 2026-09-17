@@ -1,7 +1,7 @@
 use super::geometry::VisibleGeom;
 use super::request::Pass;
 use super::rows::{PlacedText, clamp_text_range, row_bands};
-use crate::snapshot::DeviceRect;
+use crate::snapshot::InlineCodePlate;
 use md_core::Px;
 use md_core::inline::{InlineMarks, InlineRun};
 use std::ops::Range;
@@ -24,7 +24,10 @@ fn code_ranges(runs: &[InlineRun]) -> Vec<Range<usize>> {
     out
 }
 
-pub(super) fn inline_code_plates_device(pass: &Pass<'_>, geom: &VisibleGeom) -> Vec<DeviceRect> {
+pub(super) fn inline_code_plates_device(
+    pass: &Pass<'_>,
+    geom: &VisibleGeom,
+) -> Vec<InlineCodePlate> {
     let pad = (
         pass.theme.inline.inline_code_pad_x,
         pass.theme.inline.inline_code_pad_y,
@@ -42,7 +45,12 @@ pub(super) fn inline_code_plates_device(pass: &Pass<'_>, geom: &VisibleGeom) -> 
     out
 }
 
-fn push_code_plates(pass: &Pass<'_>, p: PlacedText<'_>, pad: (Px, Px), out: &mut Vec<DeviceRect>) {
+fn push_code_plates(
+    pass: &Pass<'_>,
+    p: PlacedText<'_>,
+    pad: (Px, Px),
+    out: &mut Vec<InlineCodePlate>,
+) {
     let (assembly, shaper, art) = (pass.assembly, pass.shaper, p.art);
     let node = assembly.tree.get(p.box_id);
     let ranges = code_ranges(assembly.tree.runs_of(node));
@@ -65,12 +73,15 @@ fn push_code_plates(pass: &Pass<'_>, p: PlacedText<'_>, pad: (Px, Px), out: &mut
             let left = if band.is_first { pad_x } else { 0.0 };
             let right = if band.is_last { pad_x } else { 0.0 };
             let (dy, h) = shaper.caret_ink(node.shape_kind(), node.type_slot(), art, band.row);
-            out.push((
-                ox + band.start_x - left,
-                oy + art.row_top(band.row) + dy - pad_y,
-                w + left + right,
-                h + pad_y * 2.0,
-            ));
+            out.push(InlineCodePlate {
+                block: p.block,
+                rect: (
+                    ox + band.start_x - left,
+                    oy + art.row_top(band.row) + dy - pad_y,
+                    w + left + right,
+                    h + pad_y * 2.0,
+                ),
+            });
         }
     }
 }

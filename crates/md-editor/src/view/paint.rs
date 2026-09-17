@@ -17,7 +17,7 @@ use md_content::{images, math, mermaid};
 use md_core::Px;
 use md_core::block::{BlockId, BlockKind};
 use md_core::inline::InlineAlign;
-use md_render::snapshot::Frame;
+use md_render::snapshot::{DeviceRect, Frame};
 use md_theme::{ChromeTokens, DocumentTheme};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -138,7 +138,7 @@ impl EditorElement {
         if let Some(r) = f.caret_device
             && st.caret_on
             && let Some(r) =
-                overlay_in_well(r, &well_hits, &f.texts, &well_scroll, Some(caret_block))
+                overlay_in_well(r, Some(caret_block), &well_hits, &f.texts, &well_scroll)
         {
             window.paint_quad(gpui::fill(ctx.bounds(r), paint.caret.hsla()));
         }
@@ -541,8 +541,10 @@ fn paint_under_text(f: &Frame, wells: &[WellHit], ctx: &PaintCtx<'_>, window: &m
         caret_block,
         ..
     } = *ctx;
-    for r in &f.inline_code_device {
-        if let Some(r) = overlay_in_well(*r, wells, &f.texts, well_scroll, None) {
+    for plate in &f.inline_code_device {
+        if let Some(r) =
+            overlay_in_well(plate.rect, Some(plate.block), wells, &f.texts, well_scroll)
+        {
             window.paint_quad(
                 gpui::fill(ctx.bounds(r), theme.inline.inline_code_fill.hsla())
                     .corner_radii(px(theme.inline.inline_code_radius)),
@@ -551,25 +553,25 @@ fn paint_under_text(f: &Frame, wells: &[WellHit], ctx: &PaintCtx<'_>, window: &m
     }
 
     for r in &f.search_device {
-        if let Some(r) = overlay_in_well(*r, wells, &f.texts, well_scroll, None) {
+        if let Some(r) = overlay_in_well(*r, None, wells, &f.texts, well_scroll) {
             window.paint_quad(gpui::fill(ctx.bounds(r), paint.search_match.hsla()));
         }
     }
 
     for r in &f.search_active_device {
-        if let Some(r) = overlay_in_well(*r, wells, &f.texts, well_scroll, None) {
+        if let Some(r) = overlay_in_well(*r, None, wells, &f.texts, well_scroll) {
             window.paint_quad(gpui::fill(ctx.bounds(r), paint.search_match_active.hsla()));
         }
     }
 
     for r in &f.selection_device {
-        if let Some(r) = overlay_in_well(*r, wells, &f.texts, well_scroll, None) {
+        if let Some(r) = overlay_in_well(*r, None, wells, &f.texts, well_scroll) {
             window.paint_quad(gpui::fill(ctx.bounds(r), paint.selection.hsla()));
         }
     }
 
     for r in &f.ime_device {
-        if let Some(r) = overlay_in_well(*r, wells, &f.texts, well_scroll, Some(caret_block)) {
+        if let Some(r) = overlay_in_well(*r, Some(caret_block), wells, &f.texts, well_scroll) {
             window.paint_quad(gpui::fill(ctx.bounds(r), paint.ime.hsla()));
         }
     }
@@ -772,7 +774,7 @@ fn paint_task_check(window: &mut Window, bounds: Bounds<Pixels>, color: Hsla) {
     }
 }
 
-fn collect_well_hits(
+pub(super) fn collect_well_hits(
     texts: &[md_render::snapshot::TextPiece],
     decorations: &[md_render::snapshot::DecorationPiece],
     theme: &DocumentTheme,
@@ -814,41 +816,44 @@ fn collect_well_hits(
         .collect()
 }
 
-fn overlay_in_well(
-    r: (Px, Px, Px, Px),
+pub(super) fn overlay_in_well(
+    r: DeviceRect,
+    owner: Option<BlockId>,
     wells: &[WellHit],
     texts: &[md_render::snapshot::TextPiece],
     scrolls: &HashMap<BlockId, WellScroll>,
-    prefer: Option<BlockId>,
-) -> Option<(Px, Px, Px, Px)> {
-    let well = if let Some(id) = prefer {
-        wells.iter().find(|w| w.id == id)
-    } else if let Some(w) = wells
-        .iter()
-        .find(|w| origin_in(r, w.x, w.y, w.view_w, w.view_h))
-    {
-        Some(w)
-    } else if texts.iter().any(|t| {
-        !is_scroll_well(t.kind, t.edit_source)
-            && origin_in(
-                r,
-                t.content_origin_device.0,
-                t.content_origin_device.1,
-                t.content_width,
-                t.view_height,
-            )
-    }) {
-        None
-    } else {
-        wells.iter().find(|w| {
-            origin_in(
-                r,
-                w.x,
-                w.y,
-                w.view_w.max(w.content_w),
-                w.view_h.max(w.content_h),
-            )
-        })
+) -> Option<DeviceRect> {
+    let well = match owner {
+        Some(id) => wells.iter().find(|w| w.id == id),
+        None => {
+            if let Some(w) = wells
+                .iter()
+                .find(|w| origin_in(r, w.x, w.y, w.view_w, w.view_h))
+            {
+                Some(w)
+            } else if texts.iter().any(|t| {
+                !is_scroll_well(t.kind, t.edit_source)
+                    && origin_in(
+                        r,
+                        t.content_origin_device.0,
+                        t.content_origin_device.1,
+                        t.content_width,
+                        t.view_height,
+                    )
+            }) {
+                None
+            } else {
+                wells.iter().find(|w| {
+                    origin_in(
+                        r,
+                        w.x,
+                        w.y,
+                        w.view_w.max(w.content_w),
+                        w.view_h.max(w.content_h),
+                    )
+                })
+            }
+        }
     };
     match well {
         Some(w) => {
@@ -899,4 +904,111 @@ fn paint_well_bar(
     window.paint_quad(
         gpui::fill(ctx.bounds(thumb), chrome.scrollbar_thumb.hsla()).corner_radii(radius),
     );
+}
+
+#[cfg(test)]
+mod well_overlay_tests {
+    use super::{WellHit, WellScroll, overlay_in_well};
+    use md_core::Px;
+    use md_core::block::BlockId;
+    use std::collections::HashMap;
+
+    const WELL: BlockId = 52;
+    const PARA: BlockId = 55;
+
+    fn code_well() -> WellHit {
+        WellHit {
+            id: WELL,
+            x: 70.0,
+            y: 205.0,
+            view_w: 760.0,
+            view_h: 420.0,
+            content_w: 760.0,
+            content_h: 528.0,
+            card_inner: None,
+            head_h: 0.0,
+        }
+    }
+
+    fn scrolled(y: Px) -> HashMap<BlockId, WellScroll> {
+        HashMap::from([(WELL, WellScroll { x: 0.0, y })])
+    }
+
+    fn assert_rect(got: Option<(Px, Px, Px, Px)>, want: (Px, Px, Px, Px)) {
+        let got = got.expect("a rect");
+        for (a, b) in [
+            (got.0, want.0),
+            (got.1, want.1),
+            (got.2, want.2),
+            (got.3, want.3),
+        ] {
+            assert!((a - b).abs() < 1e-9, "{got:?} != {want:?}");
+        }
+    }
+
+    #[test]
+    fn a_plate_of_the_block_below_a_clamped_well_keeps_its_own_row() {
+        let wells = [code_well()];
+        let plate = (85.0, 669.6, 418.8, 22.8);
+        for s in [0.0, 108.0] {
+            let got = overlay_in_well(plate, Some(PARA), &wells, &[], &scrolled(s));
+            assert_eq!(
+                got,
+                Some(plate),
+                "the paragraph sits past the well, so its plate must not be pulled in"
+            );
+        }
+    }
+
+    #[test]
+    fn a_plate_inside_its_own_well_follows_the_scroll() {
+        let wells = [code_well()];
+        let got = overlay_in_well(
+            (85.0, 400.0, 100.0, 22.8),
+            Some(WELL),
+            &wells,
+            &[],
+            &scrolled(108.0),
+        );
+        assert_rect(got, (85.0, 292.0, 100.0, 22.8));
+    }
+
+    #[test]
+    fn a_plate_straddling_the_well_bottom_is_cut_there() {
+        let wells = [code_well()];
+        let got = overlay_in_well(
+            (85.0, 620.0, 100.0, 22.8),
+            Some(WELL),
+            &wells,
+            &[],
+            &scrolled(0.0),
+        );
+        assert_rect(got, (85.0, 620.0, 100.0, 5.0));
+    }
+
+    #[test]
+    fn a_plate_scrolled_out_of_its_well_paints_nothing() {
+        let wells = [code_well()];
+        let got = overlay_in_well(
+            (85.0, 690.0, 100.0, 22.8),
+            Some(WELL),
+            &wells,
+            &[],
+            &scrolled(0.0),
+        );
+        assert_eq!(got, None);
+    }
+
+    #[test]
+    fn an_ownerless_rect_still_falls_back_to_the_well_geometry() {
+        let wells = [code_well()];
+        let got = overlay_in_well(
+            (85.0, 300.0, 100.0, 22.8),
+            None,
+            &wells,
+            &[],
+            &scrolled(108.0),
+        );
+        assert_rect(got, (85.0, 205.0, 100.0, 9.8));
+    }
 }

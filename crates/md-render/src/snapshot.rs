@@ -63,6 +63,12 @@ pub struct CellPiece {
     pub header: bool,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct InlineCodePlate {
+    pub block: BlockId,
+    pub rect: DeviceRect,
+}
+
 #[derive(Clone)]
 pub struct DecorationPiece {
     pub rect_device: DeviceRect,
@@ -99,7 +105,7 @@ pub struct LayoutSnapshot {
     pub caret_device: Option<DeviceRect>,
     pub caret_logical_y: Option<Px>,
     pub selection_device: Vec<DeviceRect>,
-    pub inline_code_device: Vec<DeviceRect>,
+    pub inline_code_device: Vec<InlineCodePlate>,
     pub search_device: Vec<DeviceRect>,
     pub search_active_device: Vec<DeviceRect>,
     pub ime_device: Vec<DeviceRect>,
