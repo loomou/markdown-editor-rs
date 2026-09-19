@@ -407,3 +407,19 @@ fn select_all_backspace_clears_a_document_that_opens_with_a_break(cx: &mut TestA
         });
     }
 }
+
+#[gpui::test]
+fn paste_host_reads_through_a_select_all_that_reaches_a_break(cx: &mut TestAppContext) {
+    for md in ["---\n123\n", "123\n\n---\n"] {
+        let (editor, cx) = editor_with_doc(md, cx);
+        focus_editor(&editor, cx);
+        cx.simulate_keystrokes("secondary-a");
+        cx.update(|_, app| {
+            assert_eq!(
+                editor.read(app).paste_host(),
+                Some(BlockKind::Paragraph),
+                "{md:?}"
+            );
+        });
+    }
+}

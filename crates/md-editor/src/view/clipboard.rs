@@ -104,9 +104,15 @@ impl EditorView {
             return self.state.doc.kind(sel.head.block);
         }
         let leaves = self.state.doc.text_leaves();
-        let a = leaves.iter().position(|&b| b == sel.anchor.block)?;
-        let h = leaves.iter().position(|&b| b == sel.head.block)?;
-        let first = leaves[a.min(h)];
+        let a = leaves
+            .iter()
+            .position(|&b| b == sel.anchor.block)
+            .unwrap_or(0);
+        let h = leaves
+            .iter()
+            .position(|&b| b == sel.head.block)
+            .unwrap_or(leaves.len().saturating_sub(1));
+        let first = *leaves.get(a.min(h))?;
         match self.state.doc.kind(first) {
             Some(BlockKind::TableCell) => Some(BlockKind::Paragraph),
             other => other,
