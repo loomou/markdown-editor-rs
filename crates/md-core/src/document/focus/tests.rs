@@ -8,6 +8,10 @@ use crate::block::TextEditStrategy;
 use crate::document::NodeId;
 use crate::document::bind::identity_map;
 use crate::document::bind::source_to_display_map;
+use crate::document::bind::{
+    display_to_source_content_end, display_to_source_first, display_to_source_inner,
+    display_to_source_outer,
+};
 use crate::document::edit::{Caret, Sel};
 use crate::document::{Document, editor_options, load_markdown};
 use crate::inline::InlineMarks;
@@ -792,6 +796,91 @@ fn nested_math_preview_targets_the_inner_construct() {
             &doc.display(id)[m.display.clone()],
             "$x$",
             "source={source:?}: the reveal range must cover the formula inside the revealed display"
+        );
+    }
+}
+
+#[test]
+fn revealed_strong_shifts_only_the_tail_of_the_map() {
+    let source = "a **bcd** e~~f~~g";
+    let (display, runs, s2d) = map(source);
+    assert_eq!(display, "a bcd efg");
+    assert_eq!(
+        s2d,
+        vec![0, 1, 2, 2, 2, 3, 4, 5, 5, 5, 6, 7, 7, 7, 8, 8, 8, 9]
+    );
+
+    let f = focus_at(source, &display, &runs, &s2d, 3).expect("focus");
+    assert_eq!(f.display, "a **bcd** efg");
+    assert_eq!(f.span, 2..9);
+    assert_eq!(f.caret, 5);
+    assert_eq!(
+        f.s2d,
+        vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 11, 12, 12, 12, 13]
+    );
+    assert_eq!(
+        f.s2d.last().copied(),
+        Some(f.display.len()),
+        "the expanded map must still reach the end of the expanded display"
+    );
+    assert!(
+        f.s2d.windows(2).all(|w| w[0] <= w[1]),
+        "the expanded map must stay monotone"
+    );
+
+    for i in 2..=9 {
+        assert_eq!(f.s2d[i], i, "the revealed bytes map one to one at {i}");
+    }
+    for (i, slot) in f.s2d.iter().enumerate().skip(10) {
+        assert_eq!(
+            *slot,
+            s2d[i] + 4,
+            "everything past the reveal shifts by the 4 bytes the two `**` pairs hide"
+        );
+    }
+}
+
+#[test]
+fn collapsed_reverse_lookups_split_on_the_construct_boundaries() {
+    let source = "a **bcd** e~~f~~g";
+    let (display, _, s2d) = map(source);
+    assert_eq!(display, "a bcd efg");
+
+    let lookups: Vec<_> = (0..=display.len())
+        .map(|at| {
+            (
+                display_to_source_inner(&s2d, at),
+                display_to_source_outer(&s2d, at),
+                display_to_source_first(&s2d, at),
+                display_to_source_content_end(&s2d, at),
+            )
+        })
+        .collect();
+    assert_eq!(
+        lookups,
+        vec![
+            (0, 0, 0, 0),
+            (1, 1, 1, 1),
+            (4, 4, 2, 2),
+            (5, 5, 5, 5),
+            (6, 6, 6, 6),
+            (9, 9, 7, 7),
+            (10, 10, 10, 10),
+            (13, 13, 11, 11),
+            (16, 16, 14, 14),
+            (17, 17, 17, 17),
+        ]
+    );
+    for at in 0..display.len() {
+        assert_eq!(
+            display_to_source_inner(&s2d, at),
+            display_to_source_outer(&s2d, at),
+            "a collapsed map has no expanded region, so the two sides must agree at {at}"
+        );
+        assert_eq!(
+            display_to_source_first(&s2d, at),
+            display_to_source_content_end(&s2d, at),
+            "a collapsed map has no delimiter-only region, so the two must agree at {at}"
         );
     }
 }
