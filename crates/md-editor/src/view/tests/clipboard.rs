@@ -382,3 +382,28 @@ fn select_all_backspace_clears_a_heading_document(cx: &mut TestAppContext) {
         });
     }
 }
+
+#[gpui::test]
+fn select_all_backspace_clears_a_document_that_opens_with_a_break(cx: &mut TestAppContext) {
+    for md in ["---\n123\n", "123\n\n---\n", "---\n"] {
+        let (editor, cx) = editor_with_doc(md, cx);
+        focus_editor(&editor, cx);
+        cx.simulate_keystrokes("secondary-a");
+        cx.simulate_keystrokes("backspace");
+        cx.update(|_, app| {
+            let view = editor.read(app);
+            let leaves = view.state.doc.text_leaves();
+            assert_eq!(leaves.len(), 1, "{md:?}");
+            assert_eq!(
+                view.state.doc.kind(leaves[0]),
+                Some(BlockKind::Paragraph),
+                "{md:?}"
+            );
+            assert_eq!(
+                view.state.doc.document.to_markdown(),
+                "",
+                "{md:?} must not leave the thematic break behind"
+            );
+        });
+    }
+}

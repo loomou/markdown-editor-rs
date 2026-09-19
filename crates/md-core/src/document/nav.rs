@@ -1,5 +1,5 @@
-use super::{Document, NodeId};
-use crate::block::BlockId;
+use super::{Caret, Document, NodeId, Sel};
+use crate::block::{BlockId, BlockKind};
 use std::cmp::Ordering;
 
 impl Document {
@@ -61,6 +61,83 @@ impl Document {
             return Some(self.root.index);
         }
         self.next_text_leaf(self.root).map(|id| id.index)
+    }
+
+    pub fn whole_document_sel(&self) -> Option<Sel> {
+        let mut leaves = self.text_leaves();
+        if leaves.len() > 1
+            && self.kind(leaves[leaves.len() - 1]) == Some(BlockKind::Paragraph)
+            && self
+                .live_id(leaves[leaves.len() - 1])
+                .is_some_and(|id| self.caret_text(id).is_empty())
+        {
+            leaves.pop();
+        }
+        let first = *leaves.first()?;
+        let last = *leaves.last()?;
+        let anchor = self
+            .textless_block_before(self.live_id(first)?)
+            .unwrap_or(first);
+        let head = self
+            .textless_block_after(self.live_id(last)?)
+            .unwrap_or(last);
+        let head_offset = self
+            .live_id(head)
+            .map(|id| self.caret_text(id).len())
+            .unwrap_or(0);
+        Some(Sel {
+            anchor: Caret {
+                block: anchor,
+                offset: 0,
+            },
+            head: Caret {
+                block: head,
+                offset: head_offset,
+            },
+        })
+    }
+
+    fn textless_block_before(&self, stop: NodeId) -> Option<BlockId> {
+        let mut cur = self.root;
+        while let Some(next) = self.preorder_next(cur) {
+            if next == stop {
+                return None;
+            }
+            if !self.subtree_has_text_leaf(next) {
+                return Some(next.index);
+            }
+            cur = next;
+        }
+        None
+    }
+
+    fn textless_block_after(&self, start: NodeId) -> Option<BlockId> {
+        let mut cur = self.preorder_next(start);
+        while let Some(next) = cur {
+            if !self.subtree_has_text_leaf(next) {
+                return Some(next.index);
+            }
+            cur = self.preorder_next(next);
+        }
+        None
+    }
+
+    pub(crate) fn subtree_has_text_leaf(&self, id: NodeId) -> bool {
+        let mut stack = vec![id];
+        while let Some(cur) = stack.pop() {
+            let Some(node) = self.arena.get(cur) else {
+                continue;
+            };
+            if node.kind.is_text_leaf() {
+                return true;
+            }
+            let mut child = node.first_child;
+            while let Some(c) = child {
+                stack.push(c);
+                child = self.arena.get(c).and_then(|n| n.next_sibling);
+            }
+        }
+        false
     }
 
     pub fn nth_text_leaf_from(&self, from: BlockId, delta: i32) -> Option<BlockId> {

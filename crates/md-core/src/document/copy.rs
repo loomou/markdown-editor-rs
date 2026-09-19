@@ -17,6 +17,9 @@ struct CopiedDeps {
 
 impl Document {
     pub fn copy_markdown(&self, sel: Sel) -> String {
+        if self.selection_reaches_textless_block(sel) {
+            return self.whole_document_markdown();
+        }
         let mut leaves = Vec::new();
         let mut i0 = None;
         let mut i1 = None;
@@ -54,6 +57,17 @@ impl Document {
         let piece = self.copy_leaf_span(&leaves, lo_i, hi_i, from, to, &mut deps);
         let piece = self.with_footnote_definitions(&mut deps, piece);
         self.with_reference_definitions(&deps.links, piece)
+    }
+
+    fn selection_reaches_textless_block(&self, sel: Sel) -> bool {
+        [sel.anchor.block, sel.head.block].into_iter().any(|block| {
+            self.live_id(block)
+                .is_some_and(|id| !self.subtree_has_text_leaf(id))
+        })
+    }
+
+    fn whole_document_markdown(&self) -> String {
+        self.to_markdown().trim_end_matches('\n').to_string()
     }
 
     fn with_footnote_definitions(&self, deps: &mut CopiedDeps, mut out: String) -> String {

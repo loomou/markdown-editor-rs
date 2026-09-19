@@ -29,15 +29,33 @@ pub(super) fn delete_sel(doc: &mut Document, sel: Sel) -> Option<Caret> {
     if sel.anchor.block == sel.head.block {
         return None;
     }
-    let (span, forward) = leaves_between(doc, sel.anchor.block, sel.head.block)?;
-    let anchor = doc.visual_caret_to_collapsed(sel.anchor);
-    let head = doc.visual_caret_to_collapsed(sel.head);
-    doc.clear_inline_focus();
-    let (from, to) = if forward {
-        (anchor.offset, head.offset)
-    } else {
-        (head.offset, anchor.offset)
+    let anchor_leaf = snap_forward(doc, sel.anchor.block)?;
+    let head_leaf = snap_backward(doc, sel.head.block)?;
+    let edges = Edges {
+        top: sel.anchor.block != anchor_leaf,
+        bottom: sel.head.block != head_leaf,
     };
+    let (span, forward) = if anchor_leaf == head_leaf {
+        (vec![anchor_leaf], true)
+    } else {
+        leaves_between(doc, anchor_leaf, head_leaf)?
+    };
+    let (start, end, start_leaf, end_leaf) = if forward {
+        (sel.anchor, sel.head, anchor_leaf, head_leaf)
+    } else {
+        (sel.head, sel.anchor, head_leaf, anchor_leaf)
+    };
+    let from = if start.block == start_leaf {
+        doc.visual_caret_to_collapsed(start).offset
+    } else {
+        0
+    };
+    let to = if end.block == end_leaf {
+        doc.visual_caret_to_collapsed(end).offset
+    } else {
+        leaf_len(doc, end_leaf)
+    };
+    doc.clear_inline_focus();
     let first = *span.first()?;
     let last = *span.last()?;
     let t0 = super::table::cell_table(doc, first);
@@ -47,7 +65,29 @@ pub(super) fn delete_sel(doc: &mut Document, sel: Sel) -> Option<Caret> {
     {
         return delete_in_table(doc, table, first, from, last, to);
     }
-    delete_across(doc, &span, from, to)
+    delete_across(doc, &span, from, to, edges)
+}
+
+#[derive(Clone, Copy, Default)]
+pub(super) struct Edges {
+    top: bool,
+    bottom: bool,
+}
+
+fn snap_forward(doc: &Document, block: BlockId) -> Option<BlockId> {
+    let id = doc.live_id(block)?;
+    if doc.arena.get(id)?.kind.is_text_leaf() {
+        return Some(block);
+    }
+    doc.next_text_leaf(id).map(|id| id.index)
+}
+
+fn snap_backward(doc: &Document, block: BlockId) -> Option<BlockId> {
+    let id = doc.live_id(block)?;
+    if doc.arena.get(id)?.kind.is_text_leaf() {
+        return Some(block);
+    }
+    doc.prev_text_leaf(id).map(|id| id.index)
 }
 
 fn delete_in_table(
@@ -92,13 +132,19 @@ fn delete_in_table(
     })
 }
 
-fn delete_across(doc: &mut Document, span: &[BlockId], from: usize, to: usize) -> Option<Caret> {
+fn delete_across(
+    doc: &mut Document,
+    span: &[BlockId],
+    from: usize,
+    to: usize,
+    edges: Edges,
+) -> Option<Caret> {
     let first = *span.first()?;
     let last = *span.last()?;
     let lists = super::list::lists_touching_span(doc, span);
     let first_table = super::table::cell_table(doc, first);
     let last_table = super::table::cell_table(doc, last);
-    let doomed = doomed_structures(doc, span, first, last);
+    let doomed = doomed_structures(doc, span, first, last, edges);
     if let Some(table) = first_table
         && last_table.is_none()
         && let Some((table_start, table_end)) = super::table::table_end_cells(doc, table)
@@ -279,6 +325,7 @@ fn doomed_structures(
     _span: &[BlockId],
     first: BlockId,
     last: BlockId,
+    edges: Edges,
 ) -> Vec<NodeId> {
     let Some(first_id) = doc.live_id(first) else {
         return Vec::new();
@@ -303,6 +350,8 @@ fn doomed_structures(
     let (Some(lo), Some(hi)) = (first_index, last_index) else {
         return Vec::new();
     };
+    let lo = if edges.top { lo } else { lo + 1 };
+    let hi = if edges.bottom { hi + 1 } else { hi };
     let mut seen = 0usize;
     let mut doomed: Vec<NodeId> = Vec::new();
     for id in doc.preorder() {
@@ -311,7 +360,7 @@ fn doomed_structures(
         };
         if node.kind.is_text_leaf() {
             seen += 1;
-        } else if seen > lo
+        } else if seen >= lo
             && seen <= hi
             && matches!(node.kind, crate::block::BlockKind::ThematicBreak)
             && node.parent.is_some()
