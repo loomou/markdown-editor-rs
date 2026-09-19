@@ -62,10 +62,11 @@ fn outline_rows_match(doc: &Doc, rows: &[OutlineRow]) -> bool {
 }
 
 fn outline_row_metrics(row: &OutlineRow) -> (f32, f32, FontWeight) {
+    let indent = 12.0 * f32::from(row.level.clamp(1, 6));
     match row.level {
-        1 => (12.0, 12.5, FontWeight(600.0)),
-        2 => (24.0, 12.5, FontWeight(400.0)),
-        _ => (38.0, 12.0, FontWeight(400.0)),
+        1 => (indent, 12.5, FontWeight(600.0)),
+        2 => (indent, 12.5, FontWeight(400.0)),
+        _ => (indent, 12.0, FontWeight(400.0)),
     }
 }
 
