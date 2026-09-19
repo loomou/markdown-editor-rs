@@ -882,4 +882,35 @@ mod tests {
             "markdown={markdown:?}"
         );
     }
+
+    #[test]
+    fn deleting_a_display_range_consumes_the_source_it_covers() {
+        let source = "a **bcd** e~~f~~g";
+        for (range, left) in [
+            (2usize..5, "a **** e~~f~~g\n"),
+            (2usize..6, "a **e~~f~~g\n"),
+            (7usize..9, "a **bcd** e~~\n"),
+        ] {
+            let mut doc = Doc::new(load_markdown(source, editor_options()));
+            let leaf = doc.text_leaves()[0];
+            doc.apply(
+                Sel {
+                    anchor: Cursor {
+                        block: leaf,
+                        offset: range.start,
+                    },
+                    head: Cursor {
+                        block: leaf,
+                        offset: range.end,
+                    },
+                },
+                Command::DeleteForward,
+            );
+            assert_eq!(
+                doc.document.to_markdown(),
+                left,
+                "display range {range:?} on {source:?}"
+            );
+        }
+    }
 }
