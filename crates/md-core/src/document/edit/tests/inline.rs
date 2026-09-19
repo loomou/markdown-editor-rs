@@ -497,3 +497,33 @@ fn editing_a_second_block_bumps_the_revealed_one() {
          (revealed {revealed_rev} -> unfocused {unfocused_rev})"
     );
 }
+
+#[test]
+fn caret_crosses_the_trailing_space_of_a_revealed_strong() {
+    use crate::document::chars::{next_char_boundary, prev_char_boundary};
+    use crate::document::focus::FocusBias;
+
+    let mut doc = load_markdown("", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let end = type_chars(&mut doc, caret(leaf, 0), "a **v** ");
+    let collapsed = doc.text_of(leaf).unwrap().to_string();
+    assert_eq!(collapsed, "a v ");
+
+    let before = doc.retarget_inline_focus_biased(
+        caret(leaf, prev_char_boundary(&collapsed, end.offset)),
+        FocusBias::Left,
+    );
+    assert_eq!(doc.text_of(leaf).unwrap(), "a **v** ", "the strong reveals");
+    assert_eq!(before.offset, 7, "the caret sits before the trailing space");
+
+    let typed = type_chars(&mut doc, before, " ");
+    assert_eq!(doc.text_of(leaf).unwrap(), "a v  ");
+    assert_eq!(typed.offset, 4, "the caret must follow the space it typed");
+
+    let text = doc.text_of(leaf).unwrap().to_string();
+    let right = doc.retarget_inline_focus_biased(
+        caret(leaf, next_char_boundary(&text, typed.offset)),
+        FocusBias::Right,
+    );
+    assert_eq!(right.offset, 5, "the arrow must cross the second space");
+}

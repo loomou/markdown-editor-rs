@@ -308,10 +308,38 @@ pub(crate) fn restore_visible_ws(
             display = next;
         }
     }
+    remap_trailing_ws(source, &display, &mut s2d);
     if let Some(last) = s2d.last_mut() {
         *last = display.len();
     }
     (display, s2d, runs)
+}
+
+fn leading_spaces(s: &str) -> usize {
+    s.bytes().take_while(|&b| b == b' ').count()
+}
+
+fn remap_trailing_ws(source: &str, display: &str, s2d: &mut [usize]) {
+    let src_end = source.len();
+    let src_ws = source.trim_end_matches([' ', '\n', '\r']).len();
+    let disp_ws = display.trim_end_matches([' ', '\n', '\r']).len();
+    if s2d.len() != src_end + 1 || src_ws >= src_end || disp_ws >= display.len() {
+        return;
+    }
+    let src_spaces = leading_spaces(&source[src_ws..]);
+    let disp_spaces = leading_spaces(&display[disp_ws..]);
+    let src_breaks = src_end - src_ws - src_spaces;
+    let disp_breaks = display.len() - disp_ws - disp_spaces;
+    for k in 0..=src_spaces {
+        if let Some(slot) = s2d.get_mut(src_ws + k) {
+            *slot = disp_ws + k.min(disp_spaces);
+        }
+    }
+    for j in 0..=src_breaks {
+        if let Some(slot) = s2d.get_mut(src_ws + src_spaces + j) {
+            *slot = disp_ws + disp_spaces + j.min(disp_breaks);
+        }
+    }
 }
 
 fn shift_run_displays(runs: &mut [InlineRun], at: usize, by: usize) {
@@ -850,7 +878,7 @@ mod tests {
             Vec::new(),
         );
         assert_eq!(d, "title ");
-        assert_eq!(*s2d.last().unwrap(), 6);
+        assert_eq!(s2d, vec![0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6]);
         let (d, s2d, _) = restore_visible_ws(
             BlockKind::Paragraph,
             "hello \n",
@@ -859,7 +887,7 @@ mod tests {
             Vec::new(),
         );
         assert_eq!(d, "hello \n");
-        assert_eq!(*s2d.last().unwrap(), 7);
+        assert_eq!(s2d, vec![0, 1, 2, 3, 4, 5, 6, 7]);
         let (d, s2d, _) = restore_visible_ws(
             BlockKind::Paragraph,
             "\nabc",
@@ -868,8 +896,23 @@ mod tests {
             Vec::new(),
         );
         assert_eq!(d, "\nabc");
-        assert_eq!(s2d[1], 1);
-        assert_eq!(*s2d.last().unwrap(), 4);
+        assert_eq!(s2d, vec![0, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn restore_visible_ws_maps_each_restored_trailing_space() {
+        let src = "a **v**  ";
+        let frag = load_markdown(src, editor_options());
+        let id = frag.live_id(frag.text_leaves()[0]).expect("leaf");
+        let (d, s2d, _) = restore_visible_ws(
+            BlockKind::Paragraph,
+            src,
+            frag.display(id).to_string(),
+            source_to_display_map(src, &[]),
+            Vec::new(),
+        );
+        assert_eq!(d, "a v  ");
+        assert_eq!(s2d, vec![0, 1, 2, 2, 2, 3, 3, 3, 4, 5]);
     }
 
     #[test]
