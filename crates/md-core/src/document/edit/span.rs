@@ -235,9 +235,31 @@ fn delete_across(doc: &mut Document, span: &[BlockId], from: usize, to: usize) -
     } else {
         quote_caret
     };
-    Some(super::list::collapse_empty_after_span(
-        doc, &lists, caret, true,
-    ))
+    let caret = super::list::collapse_empty_after_span(doc, &lists, caret, true);
+    Some(demote_emptied_survivor(doc, caret))
+}
+
+fn demote_emptied_survivor(doc: &mut Document, caret: Caret) -> Caret {
+    if leaf_len(doc, caret.block) > 0 {
+        return caret;
+    }
+    let Some(id) = doc.live_id(caret.block) else {
+        return caret;
+    };
+    doc.try_demote_heading(id)
+        .or_else(|| doc.try_demote_empty_block(id))
+        .or_else(|| lift_out_of_emptied_wrapper(doc, id))
+        .unwrap_or(caret)
+}
+
+fn lift_out_of_emptied_wrapper(doc: &mut Document, id: NodeId) -> Option<Caret> {
+    let wrapper = doc.arena.get(id).and_then(|n| n.parent)?;
+    let only_child = doc.arena.get(wrapper).and_then(|n| n.first_child) == Some(id)
+        && doc.arena.get(id).and_then(|n| n.next_sibling).is_none();
+    if !only_child {
+        return None;
+    }
+    doc.try_lift_wrapper(id)
 }
 
 fn tables_in_span(doc: &Document, span: &[BlockId]) -> Vec<NodeId> {
