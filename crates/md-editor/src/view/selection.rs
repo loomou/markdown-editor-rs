@@ -205,9 +205,11 @@ impl EditorView {
         }
         let leaves = self.state.doc.text_leaves();
         let pos = |block| leaves.iter().position(|&b| b == block);
-        let (Some(ai), Some(h_i), Some(ci)) = (pos(a.block), pos(h.block), pos(c.block)) else {
+        let Some(ci) = pos(c.block) else {
             return false;
         };
+        let ai = pos(a.block).unwrap_or(0);
+        let h_i = pos(h.block).unwrap_or(leaves.len());
         let (lo, hi) = if (ai, a.offset) <= (h_i, h.offset) {
             ((ai, a.offset), (h_i, h.offset))
         } else {

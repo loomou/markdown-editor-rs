@@ -89,35 +89,12 @@ impl EditorView {
     }
 
     pub(crate) fn select_all(&mut self) {
-        let mut leaves = self.state.doc.text_leaves();
-        if leaves.len() > 1 {
-            let last = *leaves.last().expect("last");
-            if self.state.doc.kind(last) == Some(BlockKind::Paragraph)
-                && self
-                    .state
-                    .doc
-                    .caret_text(last)
-                    .is_some_and(|t| t.is_empty())
-            {
-                leaves.pop();
-            }
-        }
-        let (Some(&first), Some(&last)) = (leaves.first(), leaves.last()) else {
+        let Some(sel) = self.state.doc.whole_document_sel() else {
             return;
         };
         let follow = self.follow_caret;
-        let end = self.state.doc.caret_text(last).map_or(0, |t| t.len());
-        self.select_anchor = Some(Cursor {
-            block: first,
-            offset: 0,
-        });
-        self.place_cursor(
-            Cursor {
-                block: last,
-                offset: end,
-            },
-            CursorMotion::Extend,
-        );
+        self.select_anchor = Some(sel.anchor);
+        self.place_cursor(sel.head, CursorMotion::Extend);
         self.follow_caret = follow;
     }
 
@@ -127,9 +104,15 @@ impl EditorView {
             return self.state.doc.kind(sel.head.block);
         }
         let leaves = self.state.doc.text_leaves();
-        let a = leaves.iter().position(|&b| b == sel.anchor.block)?;
-        let h = leaves.iter().position(|&b| b == sel.head.block)?;
-        let first = leaves[a.min(h)];
+        let a = leaves
+            .iter()
+            .position(|&b| b == sel.anchor.block)
+            .unwrap_or(0);
+        let h = leaves
+            .iter()
+            .position(|&b| b == sel.head.block)
+            .unwrap_or(leaves.len().saturating_sub(1));
+        let first = *leaves.get(a.min(h))?;
         match self.state.doc.kind(first) {
             Some(BlockKind::TableCell) => Some(BlockKind::Paragraph),
             other => other,

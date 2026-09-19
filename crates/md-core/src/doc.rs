@@ -117,6 +117,10 @@ impl Doc {
         self.document.first_text_leaf()
     }
 
+    pub fn whole_document_sel(&self) -> Option<Sel> {
+        self.document.whole_document_sel()
+    }
+
     pub fn for_each_text_leaf(&self, visit: impl FnMut(BlockId, &str) -> bool) {
         self.document.for_each_text_leaf(visit)
     }
@@ -912,5 +916,69 @@ mod tests {
                 "display range {range:?} on {source:?}"
             );
         }
+    }
+
+    #[test]
+    fn select_all_delete_clears_a_document_that_opens_with_a_break() {
+        for source in [
+            "---\n123\n",
+            "123\n\n---\n",
+            "---\n---\n123\n",
+            "---\n",
+            "123\n\n---\n\n456\n",
+        ] {
+            for name in ["backward", "forward"] {
+                let mut doc = Doc::new(load_markdown(source, editor_options()));
+                doc.enable_trailing_blank();
+                let sel = doc.whole_document_sel().expect("selection");
+                let cmd = if name == "backward" {
+                    Command::DeleteBackward
+                } else {
+                    Command::DeleteForward
+                };
+                doc.apply(sel, cmd);
+                let left = doc.text_leaves();
+                assert_eq!(left.len(), 1, "{source:?} {name}");
+                assert_eq!(
+                    doc.kind(left[0]),
+                    Some(BlockKind::Paragraph),
+                    "{source:?} {name}"
+                );
+                assert_eq!(doc.text(left[0]), Some(""), "{source:?} {name}");
+                assert_eq!(
+                    doc.document.to_markdown(),
+                    "",
+                    "{source:?} {name} must not keep the break behind"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn select_all_copy_carries_the_break_along() {
+        for source in ["---\n123\n", "123\n\n---\n", "---\n"] {
+            let mut doc = Doc::new(load_markdown(source, editor_options()));
+            doc.enable_trailing_blank();
+            let sel = doc.whole_document_sel().expect("selection");
+            let copied = doc.copy_markdown(sel);
+            let again = load_markdown(&copied, editor_options());
+            assert!(
+                again
+                    .preorder()
+                    .into_iter()
+                    .any(|id| again.kind(id.index) == Some(BlockKind::ThematicBreak)),
+                "{source:?} copied as {copied:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn select_all_takes_a_break_that_sits_between_the_text() {
+        let mut doc = Doc::new(load_markdown("123\n\n---\n\n456\n", editor_options()));
+        doc.enable_trailing_blank();
+        let sel = doc.whole_document_sel().expect("selection");
+        assert_eq!(doc.copy_markdown(sel), "123\n\n---\n\n456");
+        doc.apply(sel, Command::DeleteForward);
+        assert_eq!(doc.document.to_markdown(), "");
     }
 }
