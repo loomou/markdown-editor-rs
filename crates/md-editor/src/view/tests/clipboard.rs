@@ -356,3 +356,29 @@ fn well_copy_check_mark_fades_and_a_second_click_resets_it(cx: &mut TestAppConte
         );
     });
 }
+
+#[gpui::test]
+fn select_all_backspace_clears_a_heading_document(cx: &mut TestAppContext) {
+    for md in ["# heading\n123\n", "# heading\n\n123\n"] {
+        let (editor, cx) = editor_with_doc(md, cx);
+        focus_editor(&editor, cx);
+        cx.simulate_keystrokes("secondary-a");
+        cx.simulate_keystrokes("backspace");
+        cx.update(|_, app| {
+            let view = editor.read(app);
+            let leaves = view.state.doc.text_leaves();
+            assert_eq!(leaves.len(), 1, "{md:?}");
+            assert_eq!(
+                view.state.doc.kind(leaves[0]),
+                Some(BlockKind::Paragraph),
+                "{md:?}"
+            );
+            assert_eq!(view.state.doc.text(leaves[0]), Some(""), "{md:?}");
+            assert_eq!(
+                view.state.doc.document.to_markdown(),
+                "",
+                "{md:?} must not leave the heading marker behind"
+            );
+        });
+    }
+}

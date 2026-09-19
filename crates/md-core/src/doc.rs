@@ -579,6 +579,46 @@ mod tests {
     }
 
     #[test]
+    fn select_all_delete_drops_the_first_blocks_marker() {
+        for source in [
+            "# heading\n123\n",
+            "# heading\n\n123\n",
+            "> quote\n> more\n\n123\n",
+            "```\ncode\n```\n\n123\n",
+        ] {
+            for cmd in [Command::DeleteBackward, Command::DeleteForward] {
+                let mut doc = Doc::new(load_markdown(source, editor_options()));
+                doc.enable_trailing_blank();
+                let leaves = doc.text_leaves();
+                let end = doc.caret_text(leaves[1]).unwrap_or("").len();
+                let caret = doc.apply(
+                    Sel {
+                        anchor: Cursor {
+                            block: leaves[0],
+                            offset: 0,
+                        },
+                        head: Cursor {
+                            block: leaves[1],
+                            offset: end,
+                        },
+                    },
+                    cmd,
+                );
+                let left = doc.text_leaves();
+                assert_eq!(left.len(), 1, "{source:?}");
+                assert_eq!(doc.kind(left[0]), Some(BlockKind::Paragraph), "{source:?}");
+                assert_eq!(doc.text(left[0]), Some(""), "{source:?}");
+                assert_eq!(caret.block, left[0], "{source:?}");
+                assert_eq!(
+                    doc.document.to_markdown(),
+                    "",
+                    "{source:?} must not leave the first block's marker behind"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn enter_on_empty_editor_doc_stays_live_and_accepts_text() {
         let mut doc = Doc::new(load_markdown("", editor_options()));
         doc.enable_trailing_blank();
