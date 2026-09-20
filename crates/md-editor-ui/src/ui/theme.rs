@@ -4,7 +4,7 @@ use md_theme::AppTokens;
 
 pub const TITLE_BAR_H: f32 = 34.0;
 pub const STATUS_BAR_H: f32 = 28.0;
-pub const OUTLINE_W: f32 = 220.0;
+pub const OUTLINE_W: f32 = 280.0;
 pub const OUTLINE_HEAD_H: f32 = 32.0;
 pub const OUTLINE_ROW_H: f32 = 24.0;
 pub const OUTLINE_SB: f32 = 8.0;

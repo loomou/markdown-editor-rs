@@ -41,14 +41,18 @@ fn outline_scrolls_when_headings_overflow_the_panel(cx: &mut TestAppContext) {
         rows, 80,
         "all eighty headings should make it into the outline"
     );
-    let base = scroll.0.borrow().base_handle.clone();
-    let room = base.max_offset().y;
+    assert_eq!(
+        scroll.item_count(),
+        80,
+        "the list state must be told about every row"
+    );
+    let room = scroll.max_offset_for_scrollbar().y;
     assert!(
-        room > px(0.0) || scroll.is_scrollable(),
+        room > px(0.0),
         "an outline of {rows} rows should scroll: leftover room {room:?}"
     );
 
-    let pos = base.bounds().center();
+    let pos = scroll.viewport_bounds().center();
     cx.simulate_event(gpui::ScrollWheelEvent {
         position: pos,
         delta: gpui::ScrollDelta::Pixels(point(px(0.0), px(-240.0))),
@@ -58,8 +62,8 @@ fn outline_scrolls_when_headings_overflow_the_panel(cx: &mut TestAppContext) {
     cx.run_until_parked();
     let scrolled = cx.update(|_, app| {
         let s = &shell.read(app).outline_scroll;
-        let y = s.0.borrow().base_handle.offset().y;
-        let top = ((-f32::from(y)) / OUTLINE_ROW_H).floor() as i32;
+        let y = s.scroll_px_offset_for_scrollbar().y;
+        let top = s.logical_scroll_top().item_ix;
         (y, top)
     });
     assert!(
@@ -85,31 +89,18 @@ fn outline_y_scroll_is_auto_when_headings_fit(cx: &mut TestAppContext) {
         })
     });
     cx.run_until_parked();
-    let (scrollable, size) = cx.update(|_, app| {
+    let (room, viewport) = cx.update(|_, app| {
         let s = &shell.read(app).outline_scroll;
-        (s.is_scrollable(), s.0.borrow().last_item_size)
+        (s.max_offset_for_scrollbar().y, s.viewport_bounds().size)
     });
-    let size = size.expect("the outline list should have been measured");
     assert!(
-        size.contents.height <= size.item.height,
-        "a few headings should not overflow into a vertical scroll: viewport {:?} contents {:?}",
-        size.item.height,
-        size.contents.height
+        room <= px(0.5),
+        "a few headings should not overflow into a vertical scroll: room {room:?}"
     );
     assert!(
-        !scrollable,
-        "with few headings the vertical scrollbar should hide on auto"
-    );
-    assert!(
-        size.contents.width <= size.item.width + px(1.0),
-        "short headings should not leave sideways room to scroll: viewport {:?} contents {:?}",
-        size.item.width,
-        size.contents.width
-    );
-    assert!(
-        f32::from(size.item.width) >= OUTLINE_W - 4.0,
+        f32::from(viewport.width) >= OUTLINE_W - 4.0,
         "the outline frame should be a fixed {OUTLINE_W}px, but the list viewport is {:?}",
-        size.item.width
+        viewport.width
     );
 }
 
@@ -127,7 +118,7 @@ fn outline_thumb_hides_when_content_fits_and_tracks_offset() {
 }
 
 #[gpui::test]
-fn outline_scrolls_horizontally_when_heading_is_wide(cx: &mut TestAppContext) {
+fn outline_wraps_a_wide_heading_instead_of_scrolling_sideways(cx: &mut TestAppContext) {
     let long = "a very long outline heading ".repeat(20);
     let md = format!("# {long}\n\nBody\n");
     let (shell, cx) =
@@ -141,35 +132,47 @@ fn outline_scrolls_horizontally_when_heading_is_wide(cx: &mut TestAppContext) {
     });
     cx.run_until_parked();
 
-    let scroll = cx.update(|_, app| shell.read(app).outline_scroll.clone());
-    let base = scroll.0.borrow().base_handle.clone();
-    let room = base.max_offset().x;
+    let (row, viewport, before) = cx.update(|_, app| {
+        let s = &shell.read(app).outline_scroll;
+        (
+            s.bounds_for_item(0)
+                .expect("the first row should have been laid out"),
+            s.viewport_bounds(),
+            s.scroll_px_offset_for_scrollbar(),
+        )
+    });
     assert!(
-        room > px(0.0),
-        "the outline cannot scroll sideways past a long heading: room left {room:?}"
+        row.size.height > px(OUTLINE_ROW_H),
+        "a heading far wider than the panel must take more than one line: {:?}",
+        row.size.height
+    );
+    assert!(
+        row.size.width <= viewport.size.width + px(1.0),
+        "the wrapped row must stay inside the panel: row {:?} viewport {:?}",
+        row.size.width,
+        viewport.size.width
+    );
+    assert!(
+        cx.debug_bounds("outline-sb-x").is_none(),
+        "the outline must not grow a horizontal scrollbar"
     );
 
-    let pos = base.bounds().center();
     cx.simulate_event(gpui::ScrollWheelEvent {
-        position: pos,
+        position: viewport.center(),
         delta: gpui::ScrollDelta::Pixels(point(px(-160.0), px(0.0))),
         modifiers: gpui::Modifiers::default(),
         touch_phase: gpui::TouchPhase::Moved,
     });
     cx.run_until_parked();
-    let x = cx.update(|_, app| {
+    let after = cx.update(|_, app| {
         shell
             .read(app)
             .outline_scroll
-            .0
-            .borrow()
-            .base_handle
-            .offset()
-            .x
+            .scroll_px_offset_for_scrollbar()
     });
-    assert!(
-        x < px(0.0),
-        "the horizontal wheel did not scroll the outline: offset {x:?}"
+    assert_eq!(
+        after, before,
+        "a sideways wheel must not move the outline: {before:?} -> {after:?}"
     );
 }
 
@@ -450,25 +453,27 @@ fn outline_view(
     shell: &gpui::Entity<Shell>,
     rows: &[u32],
 ) -> (usize, std::ops::Range<usize>) {
-    let (current, y, item_h) = cx.update(|_, app| {
+    let (current, state) = cx.update(|_, app| {
         let s = shell.read(app);
-        let st = s.outline_scroll.0.borrow();
-        (
-            s.outline_current,
-            f32::from(st.base_handle.offset().y),
-            st.last_item_size
-                .map(|sz| f32::from(sz.item.height))
-                .unwrap_or(0.0),
-        )
+        (s.outline_current, s.outline_scroll.clone())
     });
     let ix = rows
         .iter()
         .position(|&b| Some(b) == current)
         .expect("the current row must be in the list");
-    let top = ((-y) / OUTLINE_ROW_H).max(0.0) as usize;
-    let bottom_px = (-y + item_h).max(0.0);
-    let last = (bottom_px / OUTLINE_ROW_H).ceil() as usize;
-    (ix, top..last.max(top + 1))
+    let viewport = state.viewport_bounds();
+    let start = state.logical_scroll_top().item_ix;
+    let mut end = start;
+    for i in start..rows.len() {
+        let Some(bounds) = state.bounds_for_item(i) else {
+            break;
+        };
+        if bounds.top() >= viewport.bottom() {
+            break;
+        }
+        end = i + 1;
+    }
+    (ix, start..end.max(start + 1))
 }
 
 fn jump_to(shell: &gpui::Entity<Shell>, cx: &mut gpui::VisualTestContext, block: u32) {
@@ -560,16 +565,16 @@ fn outline_panel_keeps_the_current_row_visible(cx: &mut TestAppContext) {
         "the one-row scroll should be spared when the current row sits far from both edges: view {view:?}"
     );
 
-    let base = shell.read_with(cx, |s, _| s.outline_scroll.0.borrow().base_handle.clone());
+    let pos = shell.read_with(cx, |s, _| s.outline_scroll.viewport_bounds().center());
     cx.simulate_event(gpui::ScrollWheelEvent {
-        position: base.bounds().center(),
+        position: pos,
         delta: gpui::ScrollDelta::Pixels(point(px(0.0), px(96.0))),
         modifiers: gpui::Modifiers::default(),
         touch_phase: gpui::TouchPhase::Moved,
     });
     cx.run_until_parked();
     let after_user = shell.read_with(cx, |s, _| {
-        f32::from(s.outline_scroll.0.borrow().base_handle.offset().y)
+        f32::from(s.outline_scroll.scroll_px_offset_for_scrollbar().y)
     });
     let (_, view) = outline_view(cx, &shell, &blocks);
     assert!(
@@ -590,7 +595,7 @@ fn outline_panel_keeps_the_current_row_visible(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert_eq!(
         shell.read_with(cx, |s, _| f32::from(
-            s.outline_scroll.0.borrow().base_handle.offset().y
+            s.outline_scroll.scroll_px_offset_for_scrollbar().y
         )),
         after_user,
         "with the current row visible, a repaint should not reclaim the user-scrolled panel"
@@ -641,7 +646,7 @@ fn outline_switches_to_the_newly_opened_document(cx: &mut TestAppContext) {
         Some(rows_a[60].block)
     );
     let scrolled = shell.read_with(cx, |s, _| {
-        f32::from(s.outline_scroll.0.borrow().base_handle.offset().y)
+        f32::from(s.outline_scroll.scroll_px_offset_for_scrollbar().y)
     });
     assert!(
         scrolled < -OUTLINE_ROW_H * 8.0,
@@ -684,7 +689,7 @@ fn outline_switches_to_the_newly_opened_document(cx: &mut TestAppContext) {
         "the highlight should move to the new document's first row"
     );
     let top = shell.read_with(cx, |s, _| {
-        f32::from(s.outline_scroll.0.borrow().base_handle.offset().y)
+        f32::from(s.outline_scroll.scroll_px_offset_for_scrollbar().y)
     });
     assert_eq!(
         top, 0.0,
