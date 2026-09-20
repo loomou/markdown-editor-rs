@@ -92,9 +92,9 @@ fn ensure_composed_block_builds_an_offscreen_quote() {
     let solver = FallbackSolver;
     engine.assemble_with_doc(&doc, ScrollAnchor::top(), 600.0, &measure, &solver);
     let target = leaf_containing(&doc, "findme");
-    assert!(!engine.debug_block_on_spine(target));
+    assert!(!engine.block_is_on_spine(target));
     assert!(engine.ensure_composed_block(&doc, target, &measure, &solver));
-    assert!(engine.debug_block_on_spine(target));
+    assert!(engine.block_is_on_spine(target));
     assert!(engine.debug_block_top(target).is_some());
 }
 

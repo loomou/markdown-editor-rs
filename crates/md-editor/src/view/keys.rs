@@ -1,7 +1,7 @@
 use super::unsaved::PendingNav;
 use super::{
-    CursorMotion, Direction, EditorView, LineEdge, PendingVertical, ReadingHold, ReadingStep,
-    ScrollUnit,
+    CursorMotion, Direction, EditorView, LineEdge, PendingPage, PendingVertical, ReadingHold,
+    ReadingStep, ScrollUnit,
 };
 use crate::keymap::{Cmd, Keymap};
 use gpui::{Context, KeyDownEvent, Window};
@@ -514,6 +514,20 @@ impl EditorView {
             }
             "home" => self.line_edge(LineEdge::Start, CursorMotion::from_shift(shift)),
             "end" => self.line_edge(LineEdge::End, CursorMotion::from_shift(shift)),
+            "pageup" => {
+                self.pending_page = Some(PendingPage {
+                    dir: Direction::Prev,
+                    motion: CursorMotion::from_shift(shift),
+                    anchor: None,
+                })
+            }
+            "pagedown" => {
+                self.pending_page = Some(PendingPage {
+                    dir: Direction::Next,
+                    motion: CursorMotion::from_shift(shift),
+                    anchor: None,
+                })
+            }
             "backspace" => self.key_backspace(cx),
             "delete" => self.key_delete(cx),
             "enter" => self.key_enter(shift, cx),
