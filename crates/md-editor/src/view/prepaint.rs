@@ -5,7 +5,8 @@ use super::scrollbar::{
 };
 use super::{
     CompatKey, CursorMotion, EditorElement, EditorView, ImagePopover, MathPopover, PaintFault,
-    PendingClick, PendingVertical, PrepaintState, ScrollUnit, StableFrame, Viewfinder, popover,
+    PendingClick, PendingVertical, PrepaintState, ReadingStep, ScrollUnit, StableFrame, Viewfinder,
+    popover,
 };
 use gpui::{App, Bounds, Context, Pixels, Window};
 use md_content::shaper::{GpuiShaper, ShapeMedia};
@@ -32,6 +33,7 @@ const READ_HOLD_DELAY: f64 = 0.25;
 const READ_RAMP: f64 = 1.5;
 const READ_BASE_LPS: f64 = 4.0;
 const READ_PEAK_LPS: f64 = 32.0;
+const READ_EDGE_TRIES: u8 = 5;
 
 struct FrameInputs {
     env: BoxLayoutEnvironment,
@@ -118,6 +120,9 @@ impl EditorElement {
             f32::from(bounds.size.height) as Px,
         );
 
+        let reading_scroll = self.apply_reading_scroll(scroll, viewport.1, cx);
+        let scroll = reading_scroll.unwrap_or(scroll);
+
         let (mut frame, timings) = self.build_frame(
             FrameBuild {
                 env,
@@ -158,7 +163,34 @@ impl EditorElement {
         self.reveal_search_match(&frame, gear, cx);
         self.tick_search_refresh(cx);
         self.apply_pending_input(&frame, gear, cx);
-        self.apply_reading_scroll(&frame, gear, cx);
+        if let Some(target) = reading_scroll {
+            let bottom = (frame.total_height - viewport.1).max(0.0);
+            let total = frame.total_height;
+            let reached = (frame.scroll - bottom).abs() < 0.51;
+            let target = target.clamp(0.0, bottom);
+            self.state.update(cx, |v, cx| {
+                v.state.scroll = target;
+                if let Some(step) = v.reading_step
+                    && step.unit == ScrollUnit::Document
+                {
+                    let tries = step.tries + 1;
+                    let settled = (total - step.seen).abs() < 0.51;
+                    if reached || settled {
+                        v.reading_step = None;
+                    } else if tries >= READ_EDGE_TRIES {
+                        v.reading_step = None;
+                        mark_stale(v, cx);
+                    } else {
+                        v.reading_step = Some(ReadingStep {
+                            tries,
+                            seen: total,
+                            ..step
+                        });
+                        mark_stale(v, cx);
+                    }
+                }
+            });
+        }
         self.record_frame_stats(&frame, t_prepaint_start, cx);
 
         let caret_on = self.state.update(cx, |v, _| {
@@ -749,10 +781,15 @@ impl EditorElement {
         });
     }
 
-    fn apply_reading_scroll(&mut self, frame: &Frame, gear: FrameGear<'_>, cx: &mut App) {
+    fn apply_reading_scroll(&mut self, scroll: Px, vh: Px, cx: &mut App) -> Option<Px> {
         let now = std::time::Instant::now();
-        let vh = gear.viewport.1;
-        let total = frame.total_height;
+        let max = {
+            let v = self.state.read(cx);
+            v.state
+                .incremental
+                .as_ref()
+                .map(|engine| (engine.total_height() - vh).max(0.0))
+        };
         let role = self
             .state
             .read(cx)
@@ -761,41 +798,60 @@ impl EditorElement {
             .type_role(BlockKind::Paragraph);
         let lh = role.size_px as Px * role.line_height_em as Px;
         self.state.update(cx, |v, cx| {
-            let step = v.reading_step.take();
-            let has_hold = v.reading_hold.is_some();
-            if step.is_none() && !has_hold {
-                return;
+            let step = v.reading_step;
+            let mut hold = v.reading_hold;
+            if step.is_none() && hold.is_none() {
+                return None;
             }
-            let max = (total - vh).max(0.0);
             let mut delta = 0.0;
             if let Some(step) = step {
-                let unit = match step.unit {
-                    ScrollUnit::Document => max,
-                    ScrollUnit::Line => lh,
-                    ScrollUnit::Page => (vh - lh).max(lh),
-                };
-                delta += unit * step.dir.sign() as Px;
+                match step.unit {
+                    ScrollUnit::Document => {
+                        v.reading_hold = None;
+                        let end = step.dir.sign() >= 0;
+                        if !end {
+                            v.reading_step = None;
+                        }
+                        return Some(if end { Px::MAX } else { 0.0 });
+                    }
+                    ScrollUnit::Line => {
+                        v.reading_step = None;
+                        delta += lh * step.dir.sign() as Px;
+                    }
+                    ScrollUnit::Page => {
+                        v.reading_step = None;
+                        delta += (vh - lh).max(lh) * step.dir.sign() as Px;
+                    }
+                }
             }
-            if let Some(hold) = v.reading_hold.as_mut() {
-                let held = now.duration_since(hold.since).as_secs_f64();
-                let dt = now.duration_since(hold.last_tick).as_secs_f64().min(0.05);
-                hold.last_tick = now;
+            if max.is_some()
+                && let Some(h) = hold.as_mut()
+            {
+                let held = now.duration_since(h.since).as_secs_f64();
+                let dt = now.duration_since(h.last_tick).as_secs_f64().min(0.05);
+                h.last_tick = now;
                 if held >= READ_HOLD_DELAY {
                     let p = ((held - READ_HOLD_DELAY) / READ_RAMP).min(1.0);
                     let lps = READ_BASE_LPS + (READ_PEAK_LPS - READ_BASE_LPS) * p * p;
-                    delta += lps * lh * dt * hold.dir.sign() as Px;
+                    delta += lps * lh * dt * h.dir.sign() as Px;
                 }
             }
-            let next = (v.state.scroll + delta).clamp(0.0, max);
-            let moved = next != v.state.scroll;
-            v.state.scroll = next;
-            if next <= 0.0 || next >= max {
-                v.reading_hold = None;
+            let next = match max {
+                Some(max) => (scroll + delta).clamp(0.0, max),
+                None => scroll + delta,
+            };
+            if let Some(max) = max
+                && (next <= 0.0 || next >= max)
+            {
+                hold = None;
             }
-            if moved || v.reading_hold.is_some() {
+            let live = hold.is_some();
+            v.reading_hold = hold;
+            if live {
                 mark_stale(v, cx);
             }
-        });
+            Some(next)
+        })
     }
 
     fn record_frame_stats(&mut self, frame: &Frame, started: std::time::Instant, cx: &mut App) {

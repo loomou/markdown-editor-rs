@@ -272,11 +272,15 @@ pub(crate) enum ScrollUnit {
     Document,
 }
 
+#[derive(Clone, Copy)]
 pub(crate) struct ReadingStep {
     pub(crate) dir: Direction,
     pub(crate) unit: ScrollUnit,
+    pub(crate) tries: u8,
+    pub(crate) seen: Px,
 }
 
+#[derive(Clone, Copy)]
 pub(crate) struct ReadingHold {
     pub(crate) dir: Direction,
     pub(crate) since: std::time::Instant,

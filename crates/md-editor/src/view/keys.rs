@@ -262,7 +262,12 @@ impl EditorView {
     }
 
     fn begin_reading_scroll(&mut self, dir: Direction, unit: ScrollUnit) {
-        self.reading_step = Some(ReadingStep { dir, unit });
+        self.reading_step = Some(ReadingStep {
+            dir,
+            unit,
+            tries: 0,
+            seen: 0.0,
+        });
         if unit == ScrollUnit::Document {
             self.reading_hold = None;
             return;
