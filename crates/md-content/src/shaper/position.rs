@@ -188,6 +188,60 @@ fn source_offset(art: &ShapeArtifact, shaped: usize) -> usize {
     }
 }
 
+fn wrap_row_starts_at(
+    line: &WrappedLine,
+    local: usize,
+    local_row: u32,
+    lh: gpui::Pixels,
+    advance: Px,
+) -> bool {
+    let probe = gpui::point(px(0.0), px(local_row as f32 * advance as f32 + 1.0));
+    let got = line
+        .closest_index_for_position(probe, lh)
+        .unwrap_or_else(|i| i);
+    got == local
+}
+
+fn position_without_bands(
+    art: &ShapeArtifact,
+    offset: usize,
+    align: InlineAlign,
+    inner: Px,
+    downstream_at_wrap: bool,
+) -> (Px, u32) {
+    let lh = px(art.row_advance as f32);
+    if art.lines.is_empty() {
+        return (row_align_dx(art, 0, align, inner), 0);
+    }
+    let offset = shaped_offset(art, offset);
+    let (li, local) = locate_hard_offset(&art.line_starts, &art.line_lens, offset);
+    let line = &art.lines[li];
+    let row_base: u32 = art
+        .lines
+        .iter()
+        .take(li)
+        .map(|l| l.wrap_boundaries.len() as u32 + 1)
+        .sum();
+    if let Some(p) = line.position_for_index(local, lh) {
+        let local_row = (f32::from(p.y) / art.row_advance as f32).round() as u32;
+        let rows = line.wrap_boundaries.len() as u32 + 1;
+        if downstream_at_wrap
+            && local_row + 1 < rows
+            && wrap_row_starts_at(line, local, local_row + 1, lh, art.row_advance)
+        {
+            let row = row_base + local_row + 1;
+            return (row_align_dx(art, row, align, inner), row);
+        }
+        let row = row_base + local_row;
+        return (
+            f32::from(p.x) as Px + row_align_dx(art, row, align, inner),
+            row,
+        );
+    }
+    let row = row_base;
+    (row_align_dx(art, row, align, inner), row)
+}
+
 fn slice_shaped_offset(
     art: &ShapeArtifact,
     byte_start: usize,
@@ -333,29 +387,20 @@ impl GpuiShaper {
             let last = art.bands.len().saturating_sub(1) as u32;
             return (0.0, last);
         }
-        let lh = px(art.row_advance as f32);
-        if art.lines.is_empty() {
-            return (row_align_dx(art, 0, align, inner), 0);
+        position_without_bands(art, offset, align, inner, false)
+    }
+
+    pub fn caret_position_for_offset(
+        &self,
+        art: &ShapeArtifact,
+        offset: usize,
+        align: InlineAlign,
+        inner: Px,
+    ) -> (Px, u32) {
+        if !art.bands.is_empty() {
+            return self.position_for_offset(art, offset, align, inner);
         }
-        let offset = shaped_offset(art, offset);
-        let (li, local) = locate_hard_offset(&art.line_starts, &art.line_lens, offset);
-        let line = &art.lines[li];
-        let row_base: u32 = art
-            .lines
-            .iter()
-            .take(li)
-            .map(|l| l.wrap_boundaries.len() as u32 + 1)
-            .sum();
-        if let Some(p) = line.position_for_index(local, lh) {
-            let row = (f32::from(p.y) / art.row_advance as f32).round() as u32;
-            let row = row_base + row;
-            return (
-                f32::from(p.x) as Px + row_align_dx(art, row, align, inner),
-                row,
-            );
-        }
-        let row = row_base;
-        (row_align_dx(art, row, align, inner), row)
+        position_without_bands(art, offset, align, inner, true)
     }
 
     pub fn offset_for_position(

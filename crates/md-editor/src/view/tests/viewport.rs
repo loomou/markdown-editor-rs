@@ -116,6 +116,48 @@ fn a_single_arrow_press_moves_the_caret_by_one_line(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn down_from_the_start_of_a_wrapped_paragraph_reaches_the_next_line(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc(&wrapped_paragraphs(6), cx);
+    focus_editor(&editor, cx);
+    place_caret(&editor, cx, 2, 0);
+    let (_, _, before) = draw_settled(cx, &editor);
+    let (bx, by, _, _) = before.expect("the caret is painted");
+    let (block, offset) = cursor_of(&editor, cx);
+
+    cx.simulate_keystrokes("down");
+
+    let (_, _, after) = draw_settled(cx, &editor);
+    let (ax, ay, _, _) = after.expect("the caret is painted");
+    let (block_after, offset_after) = cursor_of(&editor, cx);
+    assert_eq!(
+        block_after, block,
+        "down left the paragraph instead of stepping one line"
+    );
+    assert!(
+        offset_after > offset,
+        "down did not advance the offset: {offset} -> {offset_after}"
+    );
+    assert!(
+        ay > by + 1.0,
+        "down stayed on the same line: y {by} -> {ay} (offset {offset} -> {offset_after})"
+    );
+    assert!(
+        (ax - bx).abs() < 1.0,
+        "down slid to the end of the line: x {bx} -> {ax} (offset {offset} -> {offset_after})"
+    );
+}
+
+fn cursor_of(
+    editor: &gpui::Entity<EditorView>,
+    cx: &mut VisualTestContext,
+) -> (md_core::block::BlockId, usize) {
+    cx.update(|_, app| {
+        let v = editor.read(app);
+        (v.state.cursor.block, v.state.cursor.offset)
+    })
+}
+
+#[gpui::test]
 fn page_keys_scroll_a_page_and_keep_the_caret_in_view(cx: &mut TestAppContext) {
     let (editor, cx) = editor_with_doc(&tall_mixed_doc(), cx);
     focus_editor(&editor, cx);

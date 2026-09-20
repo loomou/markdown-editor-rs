@@ -123,6 +123,43 @@ fn band_wrapped_row_start_round_trips(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn plain_wrapped_row_start_puts_the_caret_on_the_next_row(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let theme = DocumentTheme::one_dark();
+        let shaper = GpuiShaper::new(window, app, &theme, 1.0, ShapeCache::new(), media());
+        let text = "one two three four five six x";
+        let art = shaper.artifact(
+            text,
+            &[],
+            75.0,
+            BlockKind::Paragraph,
+            ShapeIdentity::default(),
+        );
+        assert!(art.bands.is_empty(), "premise: this is the band-free path");
+        assert!(art.rows > 1, "premise: the paragraph really wrapped");
+        let seam = shaper.offset_for_position(&art, 0.0, 1, InlineAlign::Start, 75.0);
+        assert!(seam > 0, "premise: the second row starts past the first");
+
+        let selection = shaper.position_for_offset(&art, seam, InlineAlign::Start, 75.0);
+        assert_eq!(
+            selection.1, 0,
+            "a selection ending on the seam still ends the row above it"
+        );
+
+        let caret = shaper.caret_position_for_offset(&art, seam, InlineAlign::Start, 75.0);
+        assert_eq!(
+            caret.1, 1,
+            "the caret on the seam belongs to the row that starts there"
+        );
+        assert_eq!(
+            caret.0, 0.0,
+            "the caret on the seam sits at the left edge of that row"
+        );
+    });
+}
+
+#[gpui::test]
 fn mixed_paragraph_scaling_stays_near_linear(cx: &mut TestAppContext) {
     fn shape_mixed_paragraph(
         window: &gpui::Window,
