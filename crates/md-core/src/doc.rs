@@ -19,6 +19,7 @@ pub struct Doc {
     edit_gen: u64,
     history: History,
     keep_trailing_blank: bool,
+    read_only: bool,
 }
 
 pub type Cursor = Caret;
@@ -42,6 +43,7 @@ impl Doc {
             edit_gen: 0,
             history: History::new(),
             keep_trailing_blank: false,
+            read_only: false,
         }
     }
 
@@ -104,6 +106,28 @@ impl Doc {
         self.document.block_edit()
     }
 
+    pub fn read_only(&self) -> bool {
+        self.read_only
+    }
+
+    pub fn set_read_only(&mut self, on: bool) {
+        if self.read_only == on {
+            return;
+        }
+        if on {
+            let _ = self.abort_compose();
+            self.document.drop_edit_state();
+        }
+        self.read_only = on;
+    }
+
+    pub fn collapse_sel(&self, sel: Sel) -> Sel {
+        Sel {
+            anchor: self.document.visual_caret_to_collapsed(sel.anchor),
+            head: self.document.visual_caret_to_collapsed(sel.head),
+        }
+    }
+
     pub fn link_at(&self, at: Cursor) -> Option<&str> {
         let id = self.document.live_id(at.block)?;
         self.document.link_at(id, at.offset)
@@ -140,6 +164,9 @@ impl Doc {
     }
 
     pub fn apply(&mut self, sel: Sel, cmd: Command) -> Cursor {
+        if self.read_only {
+            return sel.head;
+        }
         let before = self.document.revision();
         let change_start = self.document.pending_changes().changes.len();
         let _ = self.history.commit_compose(&mut self.document);
@@ -152,6 +179,9 @@ impl Doc {
     }
 
     pub fn apply_marked(&mut self, sel: Sel, cmd: Command) -> Cursor {
+        if self.read_only {
+            return sel.head;
+        }
         let before = self.document.revision();
         let change_start = self.document.pending_changes().changes.len();
         self.history.begin_compose(&self.document, sel);
@@ -163,6 +193,9 @@ impl Doc {
     }
 
     pub fn apply_ime_commit(&mut self, sel: Sel, cmd: Command) -> Cursor {
+        if self.read_only {
+            return sel.head;
+        }
         let before = self.document.revision();
         if self.history.is_composing() {
             let change_start = self.document.pending_changes().changes.len();
@@ -192,6 +225,9 @@ impl Doc {
     }
 
     pub fn undo(&mut self) -> Option<Sel> {
+        if self.read_only {
+            return None;
+        }
         let before = self.document.revision();
         if let Some(sel) = self.history.abort_compose(&mut self.document) {
             self.touch_edit(before, None);
@@ -203,6 +239,9 @@ impl Doc {
     }
 
     pub fn redo(&mut self) -> Option<Sel> {
+        if self.read_only {
+            return None;
+        }
         let before = self.document.revision();
         if let Some(sel) = self.history.abort_compose(&mut self.document) {
             self.touch_edit(before, None);
@@ -229,6 +268,9 @@ impl Doc {
     }
 
     pub fn retarget_focus(&mut self, caret: Cursor) -> Cursor {
+        if self.read_only {
+            return caret;
+        }
         let before = self.document.revision();
         let start = self.document.pending_changes().changes.len();
         let c = self.document.retarget_inline_focus(caret);
@@ -237,6 +279,9 @@ impl Doc {
     }
 
     pub fn retarget_focus_biased(&mut self, caret: Cursor, bias: FocusBias) -> Cursor {
+        if self.read_only {
+            return caret;
+        }
         let before = self.document.revision();
         let start = self.document.pending_changes().changes.len();
         let c = self.document.retarget_inline_focus_biased(caret, bias);
@@ -245,6 +290,9 @@ impl Doc {
     }
 
     pub fn retarget_focus_without_block_edit(&mut self, caret: Cursor, bias: FocusBias) -> Cursor {
+        if self.read_only {
+            return caret;
+        }
         let before = self.document.revision();
         let start = self.document.pending_changes().changes.len();
         let c = self
@@ -260,6 +308,9 @@ impl Doc {
         head: Cursor,
         bias: FocusBias,
     ) -> (Cursor, Cursor) {
+        if self.read_only {
+            return (anchor, head);
+        }
         let before = self.document.revision();
         let start = self.document.pending_changes().changes.len();
         let out = self
