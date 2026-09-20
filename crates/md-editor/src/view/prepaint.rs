@@ -760,10 +760,10 @@ impl EditorElement {
             .theme
             .type_role(BlockKind::Paragraph);
         let lh = role.size_px as Px * role.line_height_em as Px;
-        self.state.update(cx, |v, _| {
+        self.state.update(cx, |v, cx| {
             let step = v.reading_step.take();
-            let hold = v.reading_hold.as_mut();
-            if step.is_none() && hold.is_none() {
+            let has_hold = v.reading_hold.is_some();
+            if step.is_none() && !has_hold {
                 return;
             }
             let max = (total - vh).max(0.0);
@@ -776,7 +776,7 @@ impl EditorElement {
                 };
                 delta += unit * step.dir.sign() as Px;
             }
-            if let Some(hold) = hold {
+            if let Some(hold) = v.reading_hold.as_mut() {
                 let held = now.duration_since(hold.since).as_secs_f64();
                 let dt = now.duration_since(hold.last_tick).as_secs_f64().min(0.05);
                 hold.last_tick = now;
@@ -787,9 +787,13 @@ impl EditorElement {
                 }
             }
             let next = (v.state.scroll + delta).clamp(0.0, max);
+            let moved = next != v.state.scroll;
             v.state.scroll = next;
             if next <= 0.0 || next >= max {
                 v.reading_hold = None;
+            }
+            if moved || v.reading_hold.is_some() {
+                mark_stale(v, cx);
             }
         });
     }

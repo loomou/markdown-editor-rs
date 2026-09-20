@@ -172,8 +172,6 @@ impl EditorElement {
                 || v.state.stress_redraw
                 || v.search.reveal.is_some()
                 || v.search.refresh > 0
-                || v.reading_step.is_some()
-                || v.reading_hold.is_some()
             {
                 true
             } else if v.dragging

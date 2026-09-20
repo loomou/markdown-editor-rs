@@ -222,7 +222,7 @@ impl EditorView {
                 return true;
             }
             let Some(cmd) = self.keymap.lookup(&ev.keystroke) else {
-                return true;
+                return false;
             };
             if cmd.is_editing() {
                 return true;
