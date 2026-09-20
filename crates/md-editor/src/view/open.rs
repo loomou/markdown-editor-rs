@@ -27,6 +27,7 @@ fn apply_open_result(
                     view.replace_document(opened.doc, cx);
                     view.save.source_disk_state = Some(opened.disk_state);
                     view.sync_os_title(window);
+                    window.focus(&view.focus, cx);
                     cx.notify();
                 }
                 Err(source) => view.set_notice(crate::Error::Read { path, source }, cx),
