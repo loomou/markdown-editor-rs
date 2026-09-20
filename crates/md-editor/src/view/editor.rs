@@ -3,8 +3,8 @@ use super::{
     CursorMotion, Diagnostics, DocShapeMaps, EditorElement, EditorState, EditorView, PaintFault,
 };
 use gpui::{
-    Context, ExternalPaths, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render,
-    Styled, Window, div,
+    Context, ExternalPaths, InteractiveElement, IntoElement, KeyDownEvent, KeyUpEvent,
+    ParentElement, Render, Styled, Window, div,
 };
 use md_content::gpui_theme::ThemeColorExt;
 use md_content::images::{self, ImageCache};
@@ -103,6 +103,9 @@ impl EditorView {
             pending_click: None,
             drag_pointer: None,
             pending_vertical: None,
+            reading: false,
+            reading_step: None,
+            reading_hold: None,
             select_anchor: None,
             dragging: false,
             enter_block_edit_on_click: false,
@@ -232,7 +235,7 @@ impl Render for EditorView {
         let overlay = self
             .table_ui
             .chrome
-            .filter(|_| self.media_zoom.is_none())
+            .filter(|_| self.media_zoom.is_none() && !self.reading)
             .map(|chrome| {
                 super::table_toolbar::overlay(
                     chrome,
@@ -263,6 +266,7 @@ impl Render for EditorView {
             .media_zoom
             .as_ref()
             .map(|_| super::media_zoom::close_overlay(self.state.theme, cx.entity()));
+        let reading = self.reading;
         div()
             .relative()
             .size_full()
@@ -273,11 +277,16 @@ impl Render for EditorView {
                     cx.stop_propagation();
                 }
             }))
-            .can_drop(|v, _, _| {
+            .on_key_up(cx.listener(|this, ev: &KeyUpEvent, _window, cx| {
+                if this.end_reading_scroll(ev.keystroke.key.as_str(), cx) {
+                    cx.stop_propagation();
+                }
+            }))
+            .can_drop(move |v, _, _| {
                 v.downcast_ref::<ExternalPaths>().is_some_and(|p| {
                     p.paths().iter().any(|path| {
-                        images::is_image_path(path)
-                            || crate::platform::open_markdown::is_markdown_path(path)
+                        crate::platform::open_markdown::is_markdown_path(path)
+                            || (!reading && images::is_image_path(path))
                     })
                 })
             })

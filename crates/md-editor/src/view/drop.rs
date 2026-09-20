@@ -25,6 +25,9 @@ impl EditorView {
             }
             return;
         }
+        if self.reading {
+            return;
+        }
         self.drop_images(paths, window, cx);
     }
 

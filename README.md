@@ -9,6 +9,7 @@ A native desktop Markdown editor built with Rust and GPUI: you edit the rendered
 
 - **Native app** — built with Rust and GPUI, no browser or Electron runtime
 - **WYSIWYG editing** — edit the rendered document directly; the Markdown source appears when you enter an editing state
+- **Reading mode** — a session-level toggle that makes the document read-only, hides the caret, and hands the arrow keys over to scrolling
 - **Designed for long documents** — incremental, viewport-driven layout: only the visible region is measured and composed precisely
 
 Standard Markdown content — tables, footnotes, task lists, GitHub-style alerts, YAML front matter, syntax-highlighted code (14 languages), Mermaid diagrams, LaTeX math, and images — is supported in the same document.

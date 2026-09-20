@@ -89,6 +89,26 @@ impl EditorView {
         }
     }
 
+    pub(crate) fn set_reading(&mut self, on: bool, cx: &mut Context<'_, Self>) {
+        if self.reading == on {
+            return;
+        }
+        if on {
+            self.abort_composing();
+            self.state.marked = None;
+            let sel = self.state.doc.collapse_sel(self.editing_sel());
+            self.state.doc.set_read_only(true);
+            self.restore_sel(sel);
+            self.follow_caret = false;
+        } else {
+            self.state.doc.set_read_only(false);
+        }
+        self.reading = on;
+        self.reading_step = None;
+        self.reading_hold = None;
+        cx.notify();
+    }
+
     pub(super) fn abort_composing(&mut self) {
         if self.state.marked.is_some() || self.state.doc.is_composing() {
             let _ = self.state.doc.abort_compose();

@@ -1,5 +1,8 @@
 use super::unsaved::PendingNav;
-use super::{CursorMotion, Direction, EditorView, LineEdge, PendingVertical};
+use super::{
+    CursorMotion, Direction, EditorView, LineEdge, PendingVertical, ReadingHold, ReadingStep,
+    ScrollUnit,
+};
 use crate::keymap::{Cmd, Keymap};
 use gpui::{Context, KeyDownEvent, Window};
 use md_core::doc::{Cursor, next_char_boundary, prev_char_boundary};
@@ -196,6 +199,91 @@ impl EditorView {
         self.note_edit(cx);
     }
 
+    fn on_reading_key(
+        &mut self,
+        ev: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> bool {
+        let m = &ev.keystroke.modifiers;
+        let key = ev.keystroke.key.as_str();
+        if crate::ui::chord::has_chord(m) {
+            #[cfg(target_os = "macos")]
+            if crate::ui::chord::primary_down(m) && matches!(key, "up" | "down") {
+                self.begin_reading_scroll(
+                    if key == "up" {
+                        Direction::Prev
+                    } else {
+                        Direction::Next
+                    },
+                    ScrollUnit::Document,
+                );
+                cx.notify();
+                return true;
+            }
+            let Some(cmd) = self.keymap.lookup(&ev.keystroke) else {
+                return true;
+            };
+            if cmd.is_editing() {
+                return true;
+            }
+            return self.run_command(cmd, window, cx);
+        }
+        if ev.is_held {
+            return true;
+        }
+        match key {
+            "up" => self.begin_reading_scroll(Direction::Prev, ScrollUnit::Line),
+            "down" => self.begin_reading_scroll(Direction::Next, ScrollUnit::Line),
+            "pageup" => self.begin_reading_scroll(Direction::Prev, ScrollUnit::Page),
+            "pagedown" => self.begin_reading_scroll(Direction::Next, ScrollUnit::Page),
+            "home" => self.begin_reading_scroll(Direction::Prev, ScrollUnit::Document),
+            "end" => self.begin_reading_scroll(Direction::Next, ScrollUnit::Document),
+            "escape" => {
+                if self.search_open {
+                    if let Some(find) = self.find_bar.as_ref().and_then(|w| w.upgrade()) {
+                        find.update(cx, |f, cx| {
+                            f.dismiss(cx);
+                        });
+                    }
+                    self.clear_search();
+                    window.focus(&self.focus, cx);
+                } else {
+                    self.state.selection = None;
+                    self.select_anchor = None;
+                }
+            }
+            "f5" => self.state.show_fps = !self.state.show_fps,
+            "f6" => self.state.stress_redraw = !self.state.stress_redraw,
+            _ => {}
+        }
+        cx.notify();
+        true
+    }
+
+    fn begin_reading_scroll(&mut self, dir: Direction, unit: ScrollUnit) {
+        self.reading_step = Some(ReadingStep { dir, unit });
+        if unit == ScrollUnit::Document {
+            self.reading_hold = None;
+            return;
+        }
+        let now = std::time::Instant::now();
+        self.reading_hold = Some(ReadingHold {
+            dir,
+            since: now,
+            last_tick: now,
+        });
+    }
+
+    pub(crate) fn end_reading_scroll(&mut self, key: &str, cx: &mut Context<'_, Self>) -> bool {
+        if self.reading_hold.is_none() || !matches!(key, "up" | "down" | "pageup" | "pagedown") {
+            return false;
+        }
+        self.reading_hold = None;
+        cx.notify();
+        true
+    }
+
     pub(crate) fn caret_in_table(&self) -> bool {
         self.state.doc.in_table(self.state.cursor.block)
     }
@@ -218,6 +306,9 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> bool {
+        if self.reading && cmd.is_editing() {
+            return false;
+        }
         match cmd {
             Cmd::New => self.request_nav(PendingNav::New, window, cx),
             Cmd::Open => self.request_nav(PendingNav::Open, window, cx),
@@ -354,6 +445,13 @@ impl EditorView {
         }
         if self.media_zoom.is_some() {
             let handled = self.on_media_zoom_key(ev, window, cx);
+            if handled {
+                cx.stop_propagation();
+            }
+            return handled;
+        }
+        if self.reading {
+            let handled = self.on_reading_key(ev, window, cx);
             if handled {
                 cx.stop_propagation();
             }
