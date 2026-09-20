@@ -3,8 +3,8 @@ use crate::ui::icons;
 use crate::ui::theme::{MONO_FONT, STATUS_BAR_H, ShellTheme};
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, ClickEvent, Context, Div, Entity, InteractiveElement, ParentElement, Stateful,
-    StatefulInteractiveElement, Styled, Window, div, px, svg,
+    App, ClickEvent, Context, Div, Entity, InteractiveElement, MouseDownEvent, ParentElement,
+    Stateful, StatefulInteractiveElement, Styled, Window, div, px, svg,
 };
 use md_core::doc::{Cursor, Doc, floor_char_boundary};
 
@@ -153,6 +153,9 @@ impl Shell {
             .border_color(t.border)
             .text_size(px(11.5))
             .text_color(t.text_muted)
+            .on_any_mouse_down(|_: &MouseDownEvent, window: &mut Window, _: &mut App| {
+                window.prevent_default();
+            })
             .child(match status {
                 None => div()
                     .flex()
@@ -200,6 +203,7 @@ impl Shell {
         };
         div()
             .id("btn-reading")
+            .debug_selector(|| "btn-reading".into())
             .px(px(8.))
             .py(px(2.))
             .rounded(px(4.))

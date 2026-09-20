@@ -9,6 +9,7 @@ mod find;
 mod keymap;
 mod menu;
 mod outline;
+mod reading;
 mod settings;
 mod shortcuts;
 mod tables;
