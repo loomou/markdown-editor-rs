@@ -60,7 +60,7 @@ fn outline_rows_match(doc: &Doc, rows: &[OutlineRow]) -> bool {
 }
 
 fn outline_row_metrics(row: &OutlineRow) -> (f32, f32, FontWeight) {
-    let indent = 12.0 * f32::from(row.level.clamp(1, 6));
+    let indent = OUTLINE_INDENT * f32::from(row.level.clamp(1, 6));
     match row.level {
         1 => (indent, 12.5, FontWeight(600.0)),
         2 => (indent, 12.5, FontWeight(400.0)),
@@ -113,6 +113,10 @@ pub(super) const OUTLINE_MAX_W: f32 = 480.0;
 pub(super) const OUTLINE_OVERDRAW: f32 = 120.0;
 
 const OUTLINE_RESIZE_HIT: f32 = 6.0;
+
+const OUTLINE_PAD_X: f32 = 16.0;
+
+const OUTLINE_INDENT: f32 = 12.0;
 
 const OUTLINE_SB_PAD: f32 = 4.0;
 
@@ -389,8 +393,8 @@ impl Shell {
             .flex_none()
             .flex()
             .items_center()
-            .pl(px(14.))
-            .pr(px(8.))
+            .pl(px(OUTLINE_PAD_X + OUTLINE_INDENT))
+            .pr(px(OUTLINE_PAD_X))
             .text_size(px(10.5))
             .font_weight(FontWeight(700.0))
             .text_color(t.text_disabled)
@@ -440,11 +444,6 @@ impl Shell {
             2 => t.text_muted,
             _ => t.text_disabled,
         };
-        let dot = match row.level {
-            1 => t.accent,
-            2 => t.syn_cyan,
-            _ => t.text_disabled,
-        };
         div()
             .id(("outline", block))
             .w_full()
@@ -470,12 +469,10 @@ impl Shell {
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(8.))
-                    .pl(px(indent))
-                    .pr(px(12.))
+                    .pl(px(OUTLINE_PAD_X + indent))
+                    .pr(px(OUTLINE_PAD_X))
                     .w_full()
                     .min_w_0()
-                    .child(div().size(px(6.)).rounded_full().bg(dot).flex_none())
                     .child(div().flex_1().min_w_0().child(row.label)),
             )
     }
