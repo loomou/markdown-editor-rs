@@ -100,6 +100,7 @@ impl EditorView {
             self.state.doc.set_read_only(true);
             self.restore_sel(sel);
             self.follow_caret = false;
+            self.pending_vertical = None;
         } else {
             self.state.doc.set_read_only(false);
         }

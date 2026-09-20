@@ -1,5 +1,5 @@
 use super::support::{editor_with_doc, focus_editor, place_caret};
-use crate::view::{EditorElement, EditorView, PrepaintState};
+use crate::view::{Direction, EditorElement, EditorView, PrepaintState, ReadingStep, ScrollUnit};
 use gpui::{Entity, TestAppContext, VisualTestContext, point, px, size};
 use md_core::block::BlockKind;
 use std::time::Duration;
@@ -27,6 +27,19 @@ fn draw(editor: &Entity<EditorView>, cx: &mut VisualTestContext) -> PrepaintStat
     .1
 }
 
+fn arm_reading_step(editor: &Entity<EditorView>, cx: &mut VisualTestContext, unit: ScrollUnit) {
+    cx.update(|_, app| {
+        editor.update(app, |view, _| {
+            view.reading_step = Some(ReadingStep {
+                dir: Direction::Next,
+                unit,
+                tries: 0,
+                seen: 0.0,
+            });
+        });
+    });
+}
+
 fn block_text(editor: &Entity<EditorView>, cx: &mut VisualTestContext) -> String {
     cx.update(|_, app| {
         let view = editor.read(app);
@@ -52,6 +65,44 @@ fn long_markdown() -> String {
         out.push_str(&format!("paragraph number {i}\n\n"));
     }
     out
+}
+
+fn wrapping_markdown() -> String {
+    let mut out = String::new();
+    for i in 0..200 {
+        out.push_str(&format!(
+            "paragraph number {i} lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat\n\n"
+        ));
+    }
+    out
+}
+
+#[gpui::test]
+fn one_end_press_settles_on_the_document_end(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc(&wrapping_markdown(), cx);
+    stop_blink(&editor, cx);
+    focus_editor(&editor, cx);
+    set_reading(&editor, cx, true);
+    draw(&editor, cx);
+
+    arm_reading_step(&editor, cx, ScrollUnit::Document);
+
+    let settled = (0..8)
+        .map(|_| draw(&editor, cx))
+        .find(|st| {
+            let bottom = (st.frame.total_height - 600.0).max(0.0);
+            (st.frame.scroll - bottom).abs() < 0.51
+        })
+        .expect("one press must settle on the document end");
+
+    let bottom = (settled.frame.total_height - 600.0).max(0.0);
+    assert!(bottom > 0.0, "the test document must overflow the viewport");
+    assert!(
+        (scroll(&editor, cx) - bottom).abs() < 0.51,
+        "the scroll offset must agree with the painted frame"
+    );
+    let armed = cx.update(|_, app| editor.read(app).reading_step.is_some());
+    assert!(!armed, "the scroll request must finish, not stay pending");
 }
 
 #[gpui::test]
@@ -291,4 +342,65 @@ fn reading_mode_page_down_advances_by_almost_a_viewport(cx: &mut TestAppContext)
         (after - expected).abs() < 0.51,
         "page down should keep one line of overlap: {after} vs {expected}"
     );
+}
+
+#[gpui::test]
+fn one_press_paints_the_jump_in_the_same_frame(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc(&long_markdown(), cx);
+    stop_blink(&editor, cx);
+    focus_editor(&editor, cx);
+    set_reading(&editor, cx, true);
+
+    let settled = draw(&editor, cx);
+    let bottom = (settled.frame.total_height - 600.0).max(0.0);
+    assert!(bottom > 0.0, "the test document must overflow the viewport");
+
+    arm_reading_step(&editor, cx, ScrollUnit::Document);
+    let after = draw(&editor, cx);
+
+    assert!(
+        (after.frame.scroll - bottom).abs() < 0.51,
+        "the frame painted for the press must already sit at the bottom: {} vs {bottom}",
+        after.frame.scroll
+    );
+}
+
+#[gpui::test]
+fn opening_a_document_then_reading_needs_one_press(cx: &mut TestAppContext) {
+    use super::support::temp_md;
+
+    let (editor, cx) = editor_with_doc("placeholder\n", cx);
+    stop_blink(&editor, cx);
+    let path = temp_md("open-then-read");
+    std::fs::write(&path, wrapping_markdown()).expect("seed");
+    cx.update(|window, app| {
+        editor.update(app, |view, cx| {
+            view.open_from_path(path.clone(), window, cx)
+        });
+    });
+    cx.run_until_parked();
+
+    set_reading(&editor, cx, true);
+    draw(&editor, cx);
+    arm_reading_step(&editor, cx, ScrollUnit::Document);
+
+    let settled = (0..8)
+        .map(|_| draw(&editor, cx))
+        .find(|st| {
+            let bottom = (st.frame.total_height - 600.0).max(0.0);
+            (st.frame.scroll - bottom).abs() < 0.51
+        })
+        .expect("end right after opening must settle on the last page");
+
+    let bottom = (settled.frame.total_height - 600.0).max(0.0);
+    assert!(
+        bottom > 0.0,
+        "the opened document must overflow the viewport"
+    );
+    assert!(
+        (scroll(&editor, cx) - bottom).abs() < 0.51,
+        "the scroll offset must agree with the painted frame"
+    );
+
+    let _ = std::fs::remove_file(&path);
 }
