@@ -48,6 +48,11 @@ impl Document {
         }
     }
 
+    pub(crate) fn drop_edit_state(&mut self) {
+        self.clear_inline_focus();
+        self.block_edit = None;
+    }
+
     pub(in crate::document) fn focus_text_change(&mut self, id: NodeId) -> DocChange {
         let old_revision = self.arena.get(id).map(|n| n.content_revision).unwrap_or(1);
         if let Some(leaf) = self.texts.get_mut(id.text_id()) {

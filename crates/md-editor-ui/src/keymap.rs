@@ -222,6 +222,18 @@ macro_rules! commands {
                 match self { $(Self::$variant => stringify!($variant),)* }
             }
 
+            pub fn is_editing(self) -> bool {
+                matches!(
+                    self,
+                    Cmd::Undo
+                        | Cmd::Redo
+                        | Cmd::Cut
+                        | Cmd::Paste
+                        | Cmd::InsertTable
+                        | Cmd::TableRowBelow
+                )
+            }
+
             fn index(self) -> usize {
                 self as usize
             }

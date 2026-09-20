@@ -27,6 +27,7 @@ fn apply_open_result(
                     view.replace_document(opened.doc, cx);
                     view.save.source_disk_state = Some(opened.disk_state);
                     view.sync_os_title(window);
+                    window.focus(&view.focus, cx);
                     cx.notify();
                 }
                 Err(source) => view.set_notice(crate::Error::Read { path, source }, cx),
@@ -44,6 +45,9 @@ impl EditorView {
         self.math.clear(cx);
         self.images.clear(cx);
         let first = doc.first_text_leaf().unwrap_or(0);
+        doc.set_read_only(self.reading);
+        self.reading_step = None;
+        self.reading_hold = None;
         self.state.doc = doc;
         self.state.cursor = Cursor {
             block: first,

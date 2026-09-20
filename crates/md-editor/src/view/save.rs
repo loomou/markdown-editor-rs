@@ -202,6 +202,9 @@ impl EditorView {
     }
 
     pub(crate) fn note_edit(&mut self, cx: &mut Context<'_, Self>) {
+        if self.reading {
+            return;
+        }
         self.schedule_recovery(cx);
         if !self.autosave || self.state.doc.source_path.is_none() || !self.state.doc.is_dirty() {
             return;

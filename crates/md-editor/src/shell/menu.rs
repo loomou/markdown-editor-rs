@@ -625,11 +625,18 @@ impl Shell {
         danger: bool,
         this: Entity<Self>,
     ) -> Stateful<Div> {
+        let disabled = self.reading && action.chord_cmd().is_some_and(Cmd::is_editing);
         let chord = action
             .chord_cmd()
             .and_then(|cmd| self.settings.keymap.chord_for(cmd))
             .map(Chord::display);
-        let color = if danger { t.syn_red } else { t.text_muted };
+        let color = if disabled {
+            t.text_disabled
+        } else if danger {
+            t.syn_red
+        } else {
+            t.text_muted
+        };
         let hover_fg = if danger { t.syn_red } else { t.text };
         div()
             .id(label.debug_name())
@@ -641,27 +648,32 @@ impl Shell {
             .rounded(px(5.))
             .text_size(px(12.5))
             .text_color(color)
-            .hover(move |s| s.bg(t.hover).text_color(hover_fg))
-            .on_hover({
-                let this = this.clone();
-                move |hovered, _, cx| {
-                    if !*hovered
-                        || matches!(action, MenuAction::Table(_) | MenuAction::OpenRecent(_))
-                    {
-                        return;
-                    }
-                    this.update(cx, |shell, cx| {
-                        shell.set_table_submenu_open(false, cx);
-                    });
-                }
-            })
-            .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                cx.stop_propagation();
-                this.update(cx, |shell, cx| {
-                    shell.close_menu(cx);
-                    shell.run_menu_action(action, window, cx);
-                    cx.notify();
-                });
+            .when(!disabled, |row| {
+                row.hover(move |s| s.bg(t.hover).text_color(hover_fg))
+                    .on_hover({
+                        let this = this.clone();
+                        move |hovered, _, cx| {
+                            if !*hovered
+                                || matches!(
+                                    action,
+                                    MenuAction::Table(_) | MenuAction::OpenRecent(_)
+                                )
+                            {
+                                return;
+                            }
+                            this.update(cx, |shell, cx| {
+                                shell.set_table_submenu_open(false, cx);
+                            });
+                        }
+                    })
+                    .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                        cx.stop_propagation();
+                        this.update(cx, |shell, cx| {
+                            shell.close_menu(cx);
+                            shell.run_menu_action(action, window, cx);
+                            cx.notify();
+                        });
+                    })
             })
             .child(t18(label))
             .children(chord.map(|chord| {

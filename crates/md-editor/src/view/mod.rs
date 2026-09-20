@@ -265,6 +265,24 @@ pub(crate) struct PendingVertical {
     motion: CursorMotion,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum ScrollUnit {
+    Line,
+    Page,
+    Document,
+}
+
+pub(crate) struct ReadingStep {
+    pub(crate) dir: Direction,
+    pub(crate) unit: ScrollUnit,
+}
+
+pub(crate) struct ReadingHold {
+    pub(crate) dir: Direction,
+    pub(crate) since: std::time::Instant,
+    pub(crate) last_tick: std::time::Instant,
+}
+
 pub(crate) struct EditorElement {
     state: gpui::Entity<EditorView>,
 }
@@ -355,6 +373,12 @@ pub struct EditorView {
     pub(crate) drag_pointer: Option<(Px, Px)>,
 
     pub(crate) pending_vertical: Option<PendingVertical>,
+
+    pub(crate) reading: bool,
+
+    pub(crate) reading_step: Option<ReadingStep>,
+
+    pub(crate) reading_hold: Option<ReadingHold>,
 
     pub(crate) select_anchor: Option<Cursor>,
 

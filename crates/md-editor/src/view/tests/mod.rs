@@ -13,6 +13,8 @@ mod input;
 mod insert_table;
 mod media;
 mod media_zoom;
+mod open;
+mod reading;
 mod recover;
 mod reveal;
 mod save;

@@ -205,7 +205,8 @@ pub(super) fn on_mouse_down(f: &InputFrame, window: &mut Window) {
                 cx.notify();
                 return;
             }
-            if !v.table_ui.picker_open
+            if !v.reading
+                && !v.table_ui.picker_open
                 && v.table_ui.col_resize.is_none()
                 && v.table_ui.reorder.is_none()
                 && let Some(hit) = super::table_reorder::hit_grip(
@@ -218,7 +219,8 @@ pub(super) fn on_mouse_down(f: &InputFrame, window: &mut Window) {
                 v.begin_table_reorder(hit, local, &cell_hits_down, cx);
                 return;
             }
-            if !v.table_ui.picker_open
+            if !v.reading
+                && !v.table_ui.picker_open
                 && v.table_ui.col_resize.is_none()
                 && let Some(hit) =
                     super::table_cols::hit_col_seam(&v.state.doc, &cell_hits_down, local)
@@ -226,7 +228,10 @@ pub(super) fn on_mouse_down(f: &InputFrame, window: &mut Window) {
                 v.begin_col_resize(hit, cx);
                 return;
             }
-            if !shift && let Some(block) = hit_list_item_slot(&slot_snap, slot_rev, local) {
+            if !v.reading
+                && !shift
+                && let Some(block) = hit_list_item_slot(&slot_snap, slot_rev, local)
+            {
                 let keep = v.state.cursor;
                 let _ = v.state.doc.apply(
                     Sel::collapsed(Cursor { block, offset: 0 }),

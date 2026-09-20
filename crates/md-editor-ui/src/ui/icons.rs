@@ -20,6 +20,8 @@ pub const ALIGN_CENTER: &str = "icons/align-center.svg";
 pub const ALIGN_END: &str = "icons/align-end.svg";
 pub const TABLE_MORE: &str = "icons/table-more.svg";
 pub const TABLE_DELETE: &str = "icons/table-delete.svg";
+pub const PENCIL: &str = "icons/pencil.svg";
+pub const READING: &str = "icons/reading.svg";
 
 pub struct ShellAssets;
 
@@ -49,6 +51,8 @@ fn embedded(path: &str) -> Option<&'static [u8]> {
         ALIGN_END => include_bytes!("../../assets/icons/align-end.svg"),
         TABLE_MORE => include_bytes!("../../assets/icons/table-more.svg"),
         TABLE_DELETE => include_bytes!("../../assets/icons/table-delete.svg"),
+        PENCIL => include_bytes!("../../assets/icons/pencil.svg"),
+        READING => include_bytes!("../../assets/icons/reading.svg"),
         _ => return None,
     })
 }
@@ -67,8 +71,8 @@ impl AssetSource for ShellAssets {
 mod tests {
     use super::{
         ALIGN_CENTER, ALIGN_END, ALIGN_START, CHEV_DOWN, CHEV_UP, FIND_CLOSE, MOON, OUTLINE,
-        OUTLINE_MINI, SEARCH, SLIDERS, ShellAssets, TABLE_DELETE, TABLE_GRID, TABLE_MORE,
-        WIN_CLOSE, WIN_MAX, WIN_MIN, WIN_RESTORE, embedded,
+        OUTLINE_MINI, PENCIL, READING, SEARCH, SLIDERS, ShellAssets, TABLE_DELETE, TABLE_GRID,
+        TABLE_MORE, WIN_CLOSE, WIN_MAX, WIN_MIN, WIN_RESTORE, embedded,
     };
     use gpui::AssetSource;
 
@@ -91,6 +95,8 @@ mod tests {
         ALIGN_END,
         TABLE_MORE,
         TABLE_DELETE,
+        PENCIL,
+        READING,
     ];
 
     #[test]

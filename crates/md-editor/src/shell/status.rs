@@ -1,7 +1,11 @@
 use super::Shell;
+use crate::ui::icons;
 use crate::ui::theme::{MONO_FONT, STATUS_BAR_H, ShellTheme};
 use gpui::prelude::FluentBuilder;
-use gpui::{Div, Entity, ParentElement, Styled, div, px};
+use gpui::{
+    App, ClickEvent, Context, Div, Entity, InteractiveElement, MouseDownEvent, ParentElement,
+    Stateful, StatefulInteractiveElement, Styled, Window, div, px, svg,
+};
 use md_core::doc::{Cursor, Doc, floor_char_boundary};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -149,6 +153,9 @@ impl Shell {
             .border_color(t.border)
             .text_size(px(11.5))
             .text_color(t.text_muted)
+            .on_any_mouse_down(|_: &MouseDownEvent, window: &mut Window, _: &mut App| {
+                window.prevent_default();
+            })
             .child(match status {
                 None => div()
                     .flex()
@@ -172,8 +179,42 @@ impl Shell {
             })
             .child(div().flex_1())
             .when(!self.show_settings, |bar| {
-                bar.child(self.outline_toggle(t, this))
+                bar.child(self.reading_toggle(t, this.clone()))
+                    .child(self.outline_toggle(t, this))
             })
+    }
+
+    pub(super) fn set_reading(&mut self, on: bool, cx: &mut Context<'_, Self>) {
+        if self.reading == on {
+            return;
+        }
+        self.reading = on;
+        self.editor
+            .update(cx, |editor, cx| editor.set_reading(on, cx));
+        cx.notify();
+    }
+
+    fn reading_toggle(&self, t: ShellTheme, this: Entity<Self>) -> Stateful<Div> {
+        let icon_color = if self.reading { t.text } else { t.text_muted };
+        let icon = if self.reading {
+            icons::READING
+        } else {
+            icons::PENCIL
+        };
+        div()
+            .id("btn-reading")
+            .debug_selector(|| "btn-reading".into())
+            .px(px(8.))
+            .py(px(2.))
+            .rounded(px(4.))
+            .hover(move |s| s.bg(t.hover))
+            .on_click(move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
+                this.update(cx, |shell, cx| {
+                    let on = !shell.reading;
+                    shell.set_reading(on, cx);
+                });
+            })
+            .child(svg().size(px(13.)).path(icon).text_color(icon_color))
     }
 
     fn status_item(&self, label: &str) -> Div {

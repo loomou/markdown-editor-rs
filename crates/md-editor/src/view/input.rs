@@ -73,7 +73,10 @@ impl EntityInputHandler for EditorView {
         cx: &mut Context<'_, Self>,
     ) {
         self.bind_window(window);
-        if self.unsaved_nav.is_some() || self.save_conflict.is_some() || self.insert_table.is_some()
+        if self.reading
+            || self.unsaved_nav.is_some()
+            || self.save_conflict.is_some()
+            || self.insert_table.is_some()
         {
             return;
         }
@@ -115,7 +118,10 @@ impl EntityInputHandler for EditorView {
         cx: &mut Context<'_, Self>,
     ) {
         self.bind_window(window);
-        if self.unsaved_nav.is_some() || self.save_conflict.is_some() || self.insert_table.is_some()
+        if self.reading
+            || self.unsaved_nav.is_some()
+            || self.save_conflict.is_some()
+            || self.insert_table.is_some()
         {
             return;
         }
