@@ -188,9 +188,8 @@ fn status_line_column_matches_full_snapshot() {
     }
 }
 
-#[gpui::test]
-fn outline_cache_skips_rebuild_while_revision_holds(cx: &mut TestAppContext) {
-    let (_shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
+#[test]
+fn outline_cache_skips_rebuild_while_revision_holds() {
     let mut cache = OutlineCache::default();
     let mut builds = 0;
     let row = OutlineRow {
@@ -198,30 +197,25 @@ fn outline_cache_skips_rebuild_while_revision_holds(cx: &mut TestAppContext) {
         level: 1,
         label: "A".into(),
     };
-    cx.update(|window, _| {
-        cache.refresh_with(window, 5, 1, || {
-            builds += 1;
-            vec![row.clone()]
-        });
-        cache.refresh_with(window, 5, 1, || {
-            builds += 1;
-            vec![row.clone()]
-        });
+    cache.refresh_with(5, 1, || {
+        builds += 1;
+        vec![row.clone()]
+    });
+    cache.refresh_with(5, 1, || {
+        builds += 1;
+        vec![row.clone()]
     });
     assert_eq!(builds, 1);
-    assert_eq!(cache.measure_ix, Some(0));
-    cx.update(|window, _| {
-        cache.refresh_with(window, 5, 2, || {
-            builds += 1;
-            vec![row]
-        });
+    assert_eq!(cache.rows.len(), 1);
+    cache.refresh_with(5, 2, || {
+        builds += 1;
+        vec![row]
     });
     assert_eq!(builds, 2);
 }
 
-#[gpui::test]
-fn outline_cache_rebuilds_when_the_document_changes_despite_the_revision(cx: &mut TestAppContext) {
-    let (_shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
+#[test]
+fn outline_cache_rebuilds_when_the_document_changes_despite_the_revision() {
     let mut cache = OutlineCache::default();
     let mut builds = 0;
     let row = |label: &str| OutlineRow {
@@ -229,43 +223,19 @@ fn outline_cache_rebuilds_when_the_document_changes_despite_the_revision(cx: &mu
         level: 1,
         label: label.into(),
     };
-    cx.update(|window, _| {
-        cache.refresh_with(window, 1, 1, || {
-            builds += 1;
-            vec![row("Previous")]
-        });
-        cache.refresh_with(window, 2, 1, || {
-            builds += 1;
-            vec![row("Next")]
-        });
+    cache.refresh_with(1, 1, || {
+        builds += 1;
+        vec![row("Previous")]
+    });
+    cache.refresh_with(2, 1, || {
+        builds += 1;
+        vec![row("Next")]
     });
     assert_eq!(
         builds, 2,
         "with the identity changed it must rebuild even at the same revision"
     );
     assert_eq!(cache.rows[0].label, "Next");
-}
-
-#[gpui::test]
-fn outline_measure_index_picks_the_widest_row(cx: &mut TestAppContext) {
-    let (_shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
-    let mut cache = OutlineCache::default();
-    let narrow = OutlineRow {
-        block: 1,
-        level: 1,
-        label: "A".into(),
-    };
-    let wide = OutlineRow {
-        block: 2,
-        level: 2,
-        label: "BBBB".into(),
-    };
-    cx.update(|window, _| {
-        cache.refresh_with(window, 5, 1, || vec![narrow, wide]);
-        assert_eq!(cache.measure_ix, Some(1));
-        cache.refresh_with(window, 5, 2, Vec::new);
-        assert_eq!(cache.measure_ix, None);
-    });
 }
 
 #[gpui::test]
@@ -312,61 +282,52 @@ fn status_cache_follows_insert(cx: &mut TestAppContext) {
     assert_eq!(after, fresh);
 }
 
-#[gpui::test]
-fn outline_cache_ignores_a_focus_only_revision_bump(cx: &mut TestAppContext) {
-    let (_shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
+#[test]
+fn outline_cache_ignores_a_focus_only_revision_bump() {
     let mut doc = Doc::new(load_markdown(
         "## A `x`\n\nbody\n\n## B `y`\n\nbody\n",
         editor_options(),
     ));
     let mut cache = OutlineCache::default();
 
-    cx.update(|window, _| {
-        assert!(
-            cache.get(window, &doc),
-            "the first pass adopts the document"
-        );
-        assert_eq!(cache.rows.len(), 2);
-        let rows = cache.rows.as_ptr();
+    assert!(cache.get(&doc), "the first pass adopts the document");
+    assert_eq!(cache.rows.len(), 2);
+    let rows = cache.rows.as_ptr();
 
-        let block = doc.text_leaves()[0];
-        let before = doc.document.revision();
-        doc.retarget_focus(Cursor { block, offset: 2 });
-        assert_ne!(
-            doc.document.revision(),
-            before,
-            "the caret move must bump the revision for this test to discriminate"
-        );
+    let block = doc.text_leaves()[0];
+    let before = doc.document.revision();
+    doc.retarget_focus(Cursor { block, offset: 2 });
+    assert_ne!(
+        doc.document.revision(),
+        before,
+        "the caret move must bump the revision for this test to discriminate"
+    );
 
-        assert!(
-            !cache.get(window, &doc),
-            "moving the caret does not switch documents"
-        );
-        assert_eq!(
-            cache.rows.as_ptr(),
-            rows,
-            "a focus-only revision bump must not rebuild the rows"
-        );
-    });
+    assert!(
+        !cache.get(&doc),
+        "moving the caret does not switch documents"
+    );
+    assert_eq!(
+        cache.rows.as_ptr(),
+        rows,
+        "a focus-only revision bump must not rebuild the rows"
+    );
 }
 
-#[gpui::test]
-fn outline_cache_rebuilds_when_a_heading_text_changes(cx: &mut TestAppContext) {
+#[test]
+fn outline_cache_rebuilds_when_a_heading_text_changes() {
     use md_core::document::{Command, Sel};
 
-    let (_shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
     let mut doc = Doc::new(load_markdown("## A\n\nbody\n", editor_options()));
     let mut cache = OutlineCache::default();
 
-    cx.update(|window, _| {
-        assert!(cache.get(window, &doc));
-        assert_eq!(cache.rows[0].label, "A");
+    assert!(cache.get(&doc));
+    assert_eq!(cache.rows[0].label, "A");
 
-        let block = doc.text_leaves()[0];
-        let caret = doc.retarget_focus(Cursor { block, offset: 1 });
-        let _ = doc.apply(Sel::collapsed(caret), Command::Insert { text: "B".into() });
+    let block = doc.text_leaves()[0];
+    let caret = doc.retarget_focus(Cursor { block, offset: 1 });
+    let _ = doc.apply(Sel::collapsed(caret), Command::Insert { text: "B".into() });
 
-        assert!(!cache.get(window, &doc));
-        assert_eq!(cache.rows[0].label, "AB");
-    });
+    assert!(!cache.get(&doc));
+    assert_eq!(cache.rows[0].label, "AB");
 }

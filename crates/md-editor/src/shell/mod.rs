@@ -14,15 +14,15 @@ mod titlebar;
 use self::color_picker::ColorPicker;
 use self::font_menu::FontMenu;
 use self::menu::{MenuId, clamp_menu_pos};
-use self::outline::{OUTLINE_MIN_VIEWPORT, OutlineCache};
+use self::outline::{OUTLINE_MIN_VIEWPORT, OUTLINE_OVERDRAW, OutlineCache};
 use self::status::StatusCache;
 
-use crate::ui::theme::{OUTLINE_W, ShellTheme, UI_FONT};
+use crate::ui::theme::{OUTLINE_ROW_H, OUTLINE_W, ShellTheme, UI_FONT};
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, AppContext, Context, Div, Entity, EntityInputHandler, FocusHandle, InteractiveElement,
-    IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, ParentElement, Pixels, Point, Render,
-    ScrollHandle, Styled, UniformListScrollHandle, Window, actions, div, point, px,
+    IntoElement, KeyDownEvent, ListAlignment, ListState, MouseButton, MouseDownEvent,
+    ParentElement, Pixels, Point, Render, ScrollHandle, Styled, Window, actions, div, px,
 };
 
 use md_core::Px;
@@ -53,8 +53,9 @@ pub struct Shell {
     reading: bool,
     outline_width: f32,
     outline_resize: Option<(Pixels, f32)>,
-    outline_scroll: UniformListScrollHandle,
-    outline_sb_drag: Option<(bool, Pixels)>,
+    outline_scroll: ListState,
+    outline_follow: Option<(usize, bool)>,
+    outline_sb_drag: Option<Pixels>,
     open_menu: Option<(MenuId, Point<Pixels>)>,
     table_submenu_open: bool,
     menu_closed_at: Option<std::time::Instant>,
@@ -147,7 +148,9 @@ impl Shell {
             reading: false,
             outline_width: OUTLINE_W,
             outline_resize: None,
-            outline_scroll: UniformListScrollHandle::new(),
+            outline_scroll: ListState::new(0, ListAlignment::Top, px(OUTLINE_OVERDRAW))
+                .measure_all(),
+            outline_follow: None,
             outline_sb_drag: None,
             open_menu: None,
             table_submenu_open: false,
@@ -335,11 +338,16 @@ impl Render for Shell {
                     .get(&editor.state.doc, editor.state.cursor),
             )
         };
-        if show_outline && self.outline_cache.get(window, &editor.state.doc) {
-            self.outline_current = None;
-            let handle = self.outline_scroll.0.borrow().base_handle.clone();
-            let cur = handle.offset();
-            handle.set_offset(point(cur.x, px(0.)));
+        if show_outline {
+            let switched = self.outline_cache.get(&editor.state.doc);
+            let count = self.outline_cache.rows.len();
+            if switched {
+                self.outline_current = None;
+            }
+            if switched || self.outline_scroll.item_count() != count {
+                self.outline_scroll
+                    .reset_with_uniform_height(count, px(OUTLINE_ROW_H));
+            }
         }
         let picker_hidden = self.color_picker.as_ref().is_some_and(|p| !p.showing());
         if picker_hidden

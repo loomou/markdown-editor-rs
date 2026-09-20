@@ -1,15 +1,13 @@
 use super::Shell;
 use crate::ui::icons;
 use crate::ui::scrollbar::{Slider, scroll_at};
-use crate::ui::theme::{
-    OUTLINE_HEAD_H, OUTLINE_ROW_H, OUTLINE_SB, OUTLINE_SB_THUMB, ShellTheme, UI_FONT,
-};
+use crate::ui::theme::{OUTLINE_HEAD_H, OUTLINE_ROW_H, OUTLINE_SB, OUTLINE_SB_THUMB, ShellTheme};
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, ClickEvent, Context, CursorStyle, Div, Entity, Font, FontStyle, FontWeight,
-    InteractiveElement, ListHorizontalSizingBehavior, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, ParentElement, Pixels, ScrollHandle, Size, Stateful, StatefulInteractiveElement,
-    Styled, TextRun, Window, canvas, div, point, px, rgba, svg, uniform_list,
+    App, ClickEvent, Context, CursorStyle, Div, Entity, FontWeight, InteractiveElement,
+    IntoElement, ListOffset, ListState, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
+    ParentElement, Pixels, Stateful, StatefulInteractiveElement, Styled, Window, canvas, div, list,
+    point, px, svg,
 };
 use md_core::block::BlockKind;
 use md_core::doc::Doc;
@@ -70,52 +68,6 @@ fn outline_row_metrics(row: &OutlineRow) -> (f32, f32, FontWeight) {
     }
 }
 
-fn outline_text_px(window: &Window, label: &str, size: f32, weight: FontWeight) -> f32 {
-    if label.is_empty() {
-        return 0.0;
-    }
-    let font = Font {
-        family: UI_FONT.into(),
-        features: Default::default(),
-        fallbacks: None,
-        weight,
-        style: FontStyle::Normal,
-    };
-    let run = TextRun {
-        len: label.len(),
-        font,
-        color: rgba(0xffffffff).into(),
-        background_color: None,
-        underline: None,
-        strikethrough: None,
-    };
-    window
-        .text_system()
-        .shape_text(label.to_string().into(), px(size), &[run], None, None)
-        .ok()
-        .and_then(|lines| lines.into_iter().next())
-        .map(|line| f32::from(line.width()))
-        .unwrap_or(0.0)
-}
-
-fn outline_row_pixel_width(window: &Window, row: &OutlineRow) -> f32 {
-    let (indent, size, weight) = outline_row_metrics(row);
-    indent + 8.0 + 6.0 + outline_text_px(window, &row.label, size, weight) + 12.0
-}
-
-fn outline_measure_index(window: &Window, rows: &[OutlineRow]) -> Option<usize> {
-    let mut ix = None;
-    let mut best = 0.0_f32;
-    for (i, row) in rows.iter().enumerate() {
-        let w = outline_row_pixel_width(window, row);
-        if ix.is_none() || w > best {
-            best = w;
-            ix = Some(i);
-        }
-    }
-    ix
-}
-
 fn outline_slider(view: f32, content: f32, offset: f32) -> Option<Slider> {
     if content <= view + 0.5 {
         return None;
@@ -158,6 +110,8 @@ pub(super) const OUTLINE_MIN_W: f32 = 140.0;
 
 pub(super) const OUTLINE_MAX_W: f32 = 480.0;
 
+pub(super) const OUTLINE_OVERDRAW: f32 = 120.0;
+
 const OUTLINE_RESIZE_HIT: f32 = 6.0;
 
 const OUTLINE_SB_PAD: f32 = 4.0;
@@ -175,7 +129,6 @@ pub(super) struct OutlineCache {
     identity: u64,
     revision: u64,
     pub(super) rows: Vec<OutlineRow>,
-    pub(super) measure_ix: Option<usize>,
 }
 
 impl Default for OutlineCache {
@@ -184,7 +137,6 @@ impl Default for OutlineCache {
             identity: u64::MAX,
             revision: u64::MAX,
             rows: Vec::new(),
-            measure_ix: None,
         }
     }
 }
@@ -192,7 +144,6 @@ impl Default for OutlineCache {
 impl OutlineCache {
     pub(super) fn refresh_with(
         &mut self,
-        window: &Window,
         identity: u64,
         revision: u64,
         build: impl FnOnce() -> Vec<OutlineRow>,
@@ -203,17 +154,16 @@ impl OutlineCache {
         self.identity = identity;
         self.revision = revision;
         self.rows = build();
-        self.measure_ix = outline_measure_index(window, &self.rows);
     }
 
-    pub(super) fn get(&mut self, window: &Window, doc: &Doc) -> bool {
+    pub(super) fn get(&mut self, doc: &Doc) -> bool {
         let identity = doc.identity();
         let switched = self.identity != identity;
         let revision = doc.document.revision();
 
         if switched || self.revision != revision {
             if switched || !outline_rows_match(doc, &self.rows) {
-                self.refresh_with(window, identity, revision, || outline_rows(doc));
+                self.refresh_with(identity, revision, || outline_rows(doc));
             } else {
                 self.revision = revision;
             }
@@ -224,49 +174,57 @@ impl OutlineCache {
 }
 
 impl Shell {
-    pub(super) fn follow_outline_row(&mut self, prev: Option<u32>) {
-        let Some(current) = self.outline_current else {
-            return;
-        };
-        let Some(ix) = self
-            .outline_cache
+    pub(super) fn row_ix(&self, block: u32) -> Option<usize> {
+        self.outline_cache
             .rows
             .iter()
-            .position(|r| r.block == current)
-        else {
+            .position(|r| r.block == block)
+    }
+
+    pub(super) fn note_outline_row(&mut self, current: Option<u32>) {
+        if current == self.outline_current {
+            return;
+        }
+        let prev = self.outline_current;
+        self.outline_current = current;
+        let Some(ix) = current.and_then(|block| self.row_ix(block)) else {
             return;
         };
         let going_down = prev
-            .and_then(|p| self.outline_cache.rows.iter().position(|r| r.block == p))
+            .and_then(|block| self.row_ix(block))
             .is_some_and(|prev_ix| prev_ix < ix);
+        self.outline_follow = Some((ix, going_down));
+    }
 
-        let st = self.outline_scroll.0.borrow();
-        let Some(sz) = st.last_item_size else {
-            return;
+    pub(super) fn follow_outline_row(&self, ix: usize, going_down: bool) -> bool {
+        if ix >= self.outline_cache.rows.len() {
+            return false;
+        }
+        let state = &self.outline_scroll;
+        let viewport = state.viewport_bounds();
+        if viewport.size.height <= px(0.0) {
+            return false;
+        }
+        let pad = px(OUTLINE_FOLLOW_ROWS as f32 * OUTLINE_ROW_H);
+        let Some(bounds) = state.bounds_for_item(ix) else {
+            state.scroll_to(ListOffset {
+                item_ix: ix,
+                offset_in_item: px(0.0),
+            });
+            state.scroll_by(-pad);
+            return true;
         };
-        let view_h = f32::from(sz.item.height);
-        let content_h = f32::from(sz.contents.height);
-        let top = (-f32::from(st.base_handle.offset().y)).max(0.0);
-        let handle = st.base_handle.clone();
-        drop(st);
-
-        let pad = OUTLINE_FOLLOW_ROWS as f32 * OUTLINE_ROW_H;
-        let next = if going_down {
-            let item_bottom = (ix as f32 + 1.0) * OUTLINE_ROW_H;
-            if top + view_h - item_bottom >= pad {
-                return;
-            }
-            item_bottom + pad - view_h
+        let slack = if going_down {
+            viewport.bottom() - bounds.bottom()
         } else {
-            let item_top = ix as f32 * OUTLINE_ROW_H;
-            if item_top - top >= pad {
-                return;
-            }
-            item_top - pad
+            bounds.top() - viewport.top()
         };
-        let next = next.clamp(0.0, (content_h - view_h).max(0.0));
-        let cur = handle.offset();
-        handle.set_offset(point(cur.x, px(-next)));
+        if slack >= pad {
+            return false;
+        }
+        let delta = pad - slack;
+        state.scroll_by(if going_down { delta } else { -delta });
+        true
     }
 
     pub(super) fn outline_panel(
@@ -276,8 +234,6 @@ impl Shell {
         viewport_w: Pixels,
         cx: &Context<'_, Self>,
     ) -> Div {
-        let count = self.outline_cache.rows.len();
-        let measure_ix = self.outline_cache.measure_ix;
         let width = clamp_outline_width(self.outline_width, f32::from(viewport_w));
         div()
             .relative()
@@ -298,39 +254,48 @@ impl Shell {
                     .child(self.outline_head(t, this.clone()))
                     .child(
                         div()
-                            .id("outline-list")
                             .relative()
                             .flex_1()
                             .min_h_0()
                             .overflow_hidden()
+                            .on_children_prepainted({
+                                let this = this.clone();
+                                move |_, window, cx| {
+                                    let scrolled = this.update(cx, |shell, cx| {
+                                        let Some((ix, going_down)) = shell.outline_follow.take()
+                                        else {
+                                            return false;
+                                        };
+                                        if !shell.follow_outline_row(ix, going_down) {
+                                            return false;
+                                        }
+                                        cx.notify();
+                                        true
+                                    });
+                                    if scrolled {
+                                        window.on_next_frame(|window, _| window.refresh());
+                                    }
+                                }
+                            })
+                            .id("outline-list")
                             .child(
-                                uniform_list("outline-rows", count, {
-                                    cx.processor(
-                                        |this, range: std::ops::Range<usize>, window, cx| {
-                                            let t = this.theme();
-                                            let current = this.outline_follow_current(cx);
-                                            if current != this.outline_current {
-                                                let prev = this.outline_current;
-                                                this.outline_current = current;
-                                                this.follow_outline_row(prev);
-                                                window.on_next_frame(|window, _| window.refresh());
-                                            }
-                                            let rows = this.outline_cache.rows[range].to_vec();
-                                            rows.into_iter()
-                                                .map(|row| {
-                                                    let hit = current == Some(row.block);
-                                                    this.outline_row(t, row, hit, window)
-                                                })
-                                                .collect::<Vec<_>>()
-                                        },
-                                    )
-                                })
-                                .size_full()
-                                .with_horizontal_sizing_behavior(
-                                    ListHorizontalSizingBehavior::Unconstrained,
+                                list(
+                                    self.outline_scroll.clone(),
+                                    cx.processor(|this, ix: usize, _window, cx| {
+                                        let t = this.theme();
+                                        let current = this.outline_follow_current(cx);
+                                        if current != this.outline_current {
+                                            this.note_outline_row(current);
+                                        }
+                                        let Some(row) = this.outline_cache.rows.get(ix).cloned()
+                                        else {
+                                            return div().into_any_element();
+                                        };
+                                        let hit = this.outline_current == Some(row.block);
+                                        this.outline_row(t, row, hit).into_any_element()
+                                    }),
                                 )
-                                .with_width_from_item(measure_ix)
-                                .track_scroll(&self.outline_scroll),
+                                .size_full(),
                             )
                             .children(self.outline_scrollbars(t, this.clone())),
                     ),
@@ -455,7 +420,7 @@ impl Shell {
             )
     }
 
-    fn outline_follow_current(&self, cx: &Context<'_, Self>) -> Option<u32> {
+    pub(super) fn outline_follow_current(&self, cx: &Context<'_, Self>) -> Option<u32> {
         let editor = self.editor.read(cx);
         let engine = editor.state.incremental.as_ref()?;
         let slack = editor.follow_line_slack();
@@ -466,17 +431,10 @@ impl Shell {
             .or_else(|| self.outline_cache.rows.first().map(|r| r.block))
     }
 
-    fn outline_row(
-        &self,
-        t: ShellTheme,
-        row: OutlineRow,
-        current: bool,
-        window: &Window,
-    ) -> Stateful<Div> {
+    fn outline_row(&self, t: ShellTheme, row: OutlineRow, current: bool) -> Stateful<Div> {
         let editor = self.editor.clone();
         let block = row.block;
         let (indent, size, weight) = outline_row_metrics(&row);
-        let row_w = outline_row_pixel_width(window, &row);
         let color = match row.level {
             1 => t.text,
             2 => t.text_muted,
@@ -490,12 +448,10 @@ impl Shell {
         div()
             .id(("outline", block))
             .w_full()
-            .min_w(px(row_w.max(1.0)))
-            .h(px(OUTLINE_ROW_H))
-            .flex_none()
+            .min_h(px(OUTLINE_ROW_H))
             .flex()
             .items_center()
-            .whitespace_nowrap()
+            .py(px(2.))
             .text_size(px(size))
             .font_weight(weight)
             .when(current, |d| d.bg(t.selected_bg).text_color(t.text))
@@ -517,91 +473,45 @@ impl Shell {
                     .gap(px(8.))
                     .pl(px(indent))
                     .pr(px(12.))
-                    .flex_none()
+                    .w_full()
+                    .min_w_0()
                     .child(div().size(px(6.)).rounded_full().bg(dot).flex_none())
-                    .child(div().flex_none().child(row.label)),
+                    .child(div().flex_1().min_w_0().child(row.label)),
             )
     }
 
     fn outline_scrollbars(&self, t: ShellTheme, this: Entity<Self>) -> Vec<Stateful<Div>> {
-        let st = self.outline_scroll.0.borrow();
-        let Some(sz) = st.last_item_size else {
+        let state = &self.outline_scroll;
+        let view = f32::from(state.viewport_bounds().size.height);
+        let max = f32::from(state.max_offset_for_scrollbar().y);
+        if view <= 0.0 || max <= 0.5 {
+            return Vec::new();
+        }
+        let offset = f32::from(state.scroll_px_offset_for_scrollbar().y);
+        let Some((pos, len)) = outline_thumb(view, view + max, offset) else {
             return Vec::new();
         };
-        let offset = st.base_handle.offset();
-        let handle = st.base_handle.clone();
-        drop(st);
-
-        let mut bars = Vec::new();
-        if let Some((pos, len)) = outline_thumb(
-            f32::from(sz.item.height),
-            f32::from(sz.contents.height),
-            f32::from(offset.y),
-        ) {
-            bars.push(self.outline_scrollbar_thumb(
-                "outline-sb-y",
-                true,
-                pos,
-                len,
-                t,
-                this.clone(),
-                handle.clone(),
-                sz.item,
-                sz.contents,
-            ));
-        }
-        if let Some((pos, len)) = outline_thumb(
-            f32::from(sz.item.width),
-            f32::from(sz.contents.width),
-            f32::from(offset.x),
-        ) {
-            bars.push(self.outline_scrollbar_thumb(
-                "outline-sb-x",
-                false,
-                pos,
-                len,
-                t,
-                this,
-                handle,
-                sz.item,
-                sz.contents,
-            ));
-        }
-        bars
+        vec![self.outline_scrollbar_thumb("outline-sb-y", pos, len, t, this, state.clone())]
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn outline_scrollbar_thumb(
         &self,
         id: &'static str,
-        vertical: bool,
         pos: f32,
         len: f32,
         t: ShellTheme,
         this: Entity<Self>,
-        handle: ScrollHandle,
-        view: Size<Pixels>,
-        content: Size<Pixels>,
+        state: ListState,
     ) -> Stateful<Div> {
         let gap = (OUTLINE_SB - OUTLINE_SB_THUMB) * 0.5;
-        let bar = if vertical {
-            div()
-                .id(id)
-                .absolute()
-                .top(px(pos))
-                .right(px(gap))
-                .w(px(OUTLINE_SB_THUMB))
-                .h(px(len))
-        } else {
-            div()
-                .id(id)
-                .absolute()
-                .left(px(pos))
-                .bottom(px(gap))
-                .h(px(OUTLINE_SB_THUMB))
-                .w(px(len))
-        };
-        bar.rounded_full()
+        div()
+            .id(id)
+            .absolute()
+            .top(px(pos))
+            .right(px(gap))
+            .w(px(OUTLINE_SB_THUMB))
+            .h(px(len))
+            .rounded_full()
             .bg(t.border.opacity(0.75))
             .hover(move |s| s.bg(t.text_disabled))
             .child(
@@ -610,25 +520,25 @@ impl Shell {
                     move |thumb_bounds, _, window, _| {
                         window.on_mouse_event({
                             let this = this.clone();
+                            let state = state.clone();
                             move |ev: &MouseDownEvent, _, _, cx| {
                                 if ev.button != MouseButton::Left
                                     || !thumb_bounds.contains(&ev.position)
                                 {
                                     return;
                                 }
-                                let grab = if vertical {
-                                    ev.position.y - thumb_bounds.origin.y
-                                } else {
-                                    ev.position.x - thumb_bounds.origin.x
-                                };
+                                let grab = ev.position.y - thumb_bounds.origin.y;
+                                state.scrollbar_drag_started();
                                 this.update(cx, |shell, _| {
-                                    shell.outline_sb_drag = Some((vertical, grab));
+                                    shell.outline_sb_drag = Some(grab);
                                 });
                             }
                         });
                         window.on_mouse_event({
                             let this = this.clone();
+                            let state = state.clone();
                             move |_: &MouseUpEvent, _, _, cx| {
+                                state.scrollbar_drag_ended();
                                 this.update(cx, |shell, cx| {
                                     if shell.outline_sb_drag.take().is_some() {
                                         cx.notify();
@@ -638,43 +548,26 @@ impl Shell {
                         });
                         window.on_mouse_event({
                             let this = this.clone();
-                            let handle = handle.clone();
+                            let state = state.clone();
                             move |ev: &MouseMoveEvent, _, _, cx| {
                                 if !ev.dragging() {
                                     return;
                                 }
-                                let Some((axis, grab)) = this.read(cx).outline_sb_drag else {
+                                let Some(grab) = this.read(cx).outline_sb_drag else {
                                     return;
                                 };
-                                if axis != vertical {
-                                    return;
-                                }
-                                let bounds = handle.bounds();
-                                let next = if vertical {
-                                    outline_scroll_from_pointer(
-                                        f32::from(ev.position.y),
-                                        f32::from(grab),
-                                        f32::from(bounds.origin.y),
-                                        f32::from(view.height),
-                                        f32::from(content.height),
-                                        len,
-                                    )
-                                } else {
-                                    outline_scroll_from_pointer(
-                                        f32::from(ev.position.x),
-                                        f32::from(grab),
-                                        f32::from(bounds.origin.x),
-                                        f32::from(view.width),
-                                        f32::from(content.width),
-                                        len,
-                                    )
-                                };
-                                let cur = handle.offset();
-                                if vertical {
-                                    handle.set_offset(point(cur.x, px(-next)));
-                                } else {
-                                    handle.set_offset(point(px(-next), cur.y));
-                                }
+                                let viewport = state.viewport_bounds();
+                                let view = f32::from(viewport.size.height);
+                                let max = f32::from(state.max_offset_for_scrollbar().y);
+                                let next = outline_scroll_from_pointer(
+                                    f32::from(ev.position.y),
+                                    f32::from(grab),
+                                    f32::from(viewport.top()),
+                                    view,
+                                    view + max,
+                                    len,
+                                );
+                                state.set_offset_from_scrollbar(point(px(0.), px(-next)));
                                 this.update(cx, |_, cx| cx.notify());
                             }
                         });
@@ -700,7 +593,7 @@ impl Shell {
                 this.update(cx, |shell, cx| {
                     shell.outline_open = !shell.outline_open;
                     cx.notify();
-                });
+                })
             })
             .child(
                 svg()
