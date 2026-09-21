@@ -601,7 +601,8 @@ impl EditorView {
         pos: (Px, Px),
         cx: &mut Context<'_, Self>,
     ) {
-        if self.table_panel_open()
+        if self.reading
+            || self.table_panel_open()
             || self.table_ui.col_resize.is_some()
             || self.table_ui.reorder.is_some()
         {

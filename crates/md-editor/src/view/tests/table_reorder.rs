@@ -466,3 +466,40 @@ fn table_reorder_escape_cancels_without_edit(cx: &mut TestAppContext) {
         );
     });
 }
+
+#[gpui::test]
+fn reading_mode_shows_no_table_grips(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc(TABLE_3ROW, cx);
+    focus_editor(&editor, cx);
+    place_table_caret(&editor, cx, "a", 0);
+    draw_editor(&editor, cx);
+    cx.update(|_, app| {
+        editor.update(app, |view, cx| {
+            let hits = synthetic_table_hits(&view.state.doc);
+            view.update_table_grip_hover(&hits, (50.0, 15.0), cx);
+            assert!(
+                view.table_ui.grip_hover.is_some(),
+                "the corner cell hovers a grip while editing"
+            );
+
+            view.set_reading(true, cx);
+            assert!(
+                view.table_ui.grip_hover.is_none(),
+                "entering reading mode drops the grip"
+            );
+
+            view.update_table_grip_hover(&hits, (50.0, 15.0), cx);
+            assert!(
+                view.table_ui.grip_hover.is_none(),
+                "reading mode must not hover a grip"
+            );
+
+            view.set_reading(false, cx);
+            view.update_table_grip_hover(&hits, (50.0, 15.0), cx);
+            assert!(
+                view.table_ui.grip_hover.is_some(),
+                "leaving reading mode hovers the grip again"
+            );
+        });
+    });
+}
