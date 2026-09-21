@@ -1200,12 +1200,20 @@ impl EditorView {
 
 fn caret_row_in(frame: &Frame, block: BlockId) -> Option<i64> {
     let (_, cy, _, _) = frame.caret_device?;
-    let t = frame.texts.iter().find(|t| t.block == block)?;
-    if t.art.row_advance <= 0.0 || is_scroll_well(t.kind, t.edit_source) {
+    let (coy, art) = if let Some(t) = frame.texts.iter().find(|t| t.block == block) {
+        if is_scroll_well(t.kind, t.edit_source) {
+            return None;
+        }
+        (t.content_origin_device.1, &t.art)
+    } else {
+        let c = frame.cells.iter().find(|c| c.block == block)?;
+        (c.content_origin_device.1, &c.art)
+    };
+    if art.row_advance <= 0.0 {
         return None;
     }
-    let rows = t.art.rows.max(1) as i64;
-    let row = md_render::query::row_at_y(&t.art, cy - t.content_origin_device.1) as i64;
+    let rows = art.rows.max(1) as i64;
+    let row = md_render::query::row_at_y(art, cy - coy) as i64;
     Some(row.min(rows - 1))
 }
 
