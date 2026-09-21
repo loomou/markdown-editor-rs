@@ -6,7 +6,7 @@ use super::scrollbar::{
 use super::{
     CompatKey, CursorMotion, EditorElement, EditorView, ImagePopover, MathPopover, PaintFault,
     PendingClick, PendingPage, PendingVertical, PrepaintState, ReadingStep, ScrollUnit,
-    StableFrame, VerticalVerify, Viewfinder, popover,
+    StableFrame, VerticalColumn, VerticalVerify, Viewfinder, popover,
 };
 use gpui::{App, Bounds, Context, Pixels, Window};
 use md_content::shaper::{GpuiShaper, ShapeMedia};
@@ -1065,8 +1065,14 @@ impl EditorView {
         let cur = self.state.cursor;
         let row_before = caret_row_in(frame, cur.block);
         let in_table = self.state.doc.in_table(cur.block);
+        let remembered = self
+            .vertical_column
+            .filter(|v| v.caret == cur)
+            .map(|v| v.column);
+        let mut column = None;
         if let Some((cx_raw, mut cy0, _cw, ch)) = frame.caret_device {
-            let mut cx0 = vert.column.unwrap_or(cx_raw);
+            let mut cx0 = vert.column.or(remembered).unwrap_or(cx_raw);
+            column = Some(cx0);
             if let Some(t) = frame
                 .texts
                 .iter()
@@ -1133,7 +1139,7 @@ impl EditorView {
             } else {
                 self.state.doc.sibling_leaf(cur.block, dir).map(|nb| {
                     let off = if dir < 0 {
-                        self.state.doc.text(nb).map_or(0, |t| t.len())
+                        self.state.doc.caret_text(nb).map_or(0, |t| t.len())
                     } else {
                         0
                     };
@@ -1147,6 +1153,12 @@ impl EditorView {
                 self.place_cursor(c, vert.motion);
                 moved = true;
             }
+        }
+        if moved && let Some(column) = column {
+            self.vertical_column = Some(VerticalColumn {
+                column,
+                caret: self.state.cursor,
+            });
         }
         moved
     }

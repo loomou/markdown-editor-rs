@@ -5,7 +5,7 @@ use super::{
 };
 use crate::keymap::{Cmd, Keymap};
 use gpui::{Context, KeyDownEvent, Window};
-use md_core::doc::{Cursor, next_char_boundary, prev_char_boundary};
+use md_core::doc::{Cursor, next_grapheme_boundary, prev_grapheme_boundary};
 use md_core::document::{Command, TableOp, TableStep};
 
 fn word_bound(text: &str, offset: usize, dir: Direction) -> usize {
@@ -18,7 +18,7 @@ fn word_bound(text: &str, offset: usize, dir: Direction) -> usize {
 impl EditorView {
     pub(super) fn horizontal(&mut self, dir: Direction, motion: CursorMotion) {
         let cur = self.state.cursor;
-        let Some(text) = self.state.doc.text(cur.block) else {
+        let Some(text) = self.state.doc.caret_text(cur.block) else {
             return;
         };
         let at_edge = match dir {
@@ -42,7 +42,7 @@ impl EditorView {
             }
             if let Some(next) = self.state.doc.sibling_leaf(cur.block, dir.sign()) {
                 let off = match dir {
-                    Direction::Prev => self.state.doc.text(next).map_or(0, |t| t.len()),
+                    Direction::Prev => self.state.doc.caret_text(next).map_or(0, |t| t.len()),
                     Direction::Next => 0,
                 };
                 self.place_cursor_biased(
@@ -57,8 +57,8 @@ impl EditorView {
             return;
         }
         let off = match dir {
-            Direction::Prev => prev_char_boundary(text, cur.offset),
-            Direction::Next => next_char_boundary(text, cur.offset),
+            Direction::Prev => prev_grapheme_boundary(text, cur.offset),
+            Direction::Next => next_grapheme_boundary(text, cur.offset),
         };
         self.place_cursor_biased(
             Cursor {
@@ -72,7 +72,7 @@ impl EditorView {
 
     pub(super) fn word(&mut self, dir: Direction, motion: CursorMotion) {
         let cur = self.state.cursor;
-        let Some(text) = self.state.doc.text(cur.block) else {
+        let Some(text) = self.state.doc.caret_text(cur.block) else {
             return;
         };
         let off = word_bound(text, cur.offset, dir);
@@ -96,7 +96,7 @@ impl EditorView {
 
     pub(super) fn line_edge(&mut self, edge: LineEdge, motion: CursorMotion) {
         let cur = self.state.cursor;
-        let Some(text) = self.state.doc.text(cur.block) else {
+        let Some(text) = self.state.doc.caret_text(cur.block) else {
             return;
         };
         let off = match edge {
@@ -123,7 +123,7 @@ impl EditorView {
         };
         let offset = match dir {
             Direction::Prev => 0,
-            Direction::Next => self.state.doc.text(block).map_or(0, |t| t.len()),
+            Direction::Next => self.state.doc.caret_text(block).map_or(0, |t| t.len()),
         };
         self.place_cursor(Cursor { block, offset }, motion);
     }

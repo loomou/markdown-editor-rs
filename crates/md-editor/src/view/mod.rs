@@ -277,6 +277,12 @@ pub(crate) struct VerticalVerify {
 }
 
 #[derive(Clone, Copy)]
+pub(crate) struct VerticalColumn {
+    column: Px,
+    caret: Cursor,
+}
+
+#[derive(Clone, Copy)]
 pub(crate) struct PendingPage {
     dir: Direction,
     motion: CursorMotion,
@@ -397,6 +403,8 @@ pub struct EditorView {
     pub(crate) pending_vertical: Option<PendingVertical>,
 
     pub(crate) vertical_verify: Option<VerticalVerify>,
+
+    pub(crate) vertical_column: Option<VerticalColumn>,
 
     pub(crate) pending_page: Option<PendingPage>,
 
