@@ -370,3 +370,95 @@ fn down_arrow_never_stalls_inside_a_table_cell(cx: &mut TestAppContext) {
         "down landed back on the row it started from inside a cell: {stalled:?}"
     );
 }
+
+fn uneven_table_doc(rows: usize) -> String {
+    let unit = "lorem ipsum dolor sit amet consectetur adipiscing ".repeat(2);
+    let mut md = String::from("| left | right |\n| --- | --- |\n");
+    md.push_str(&format!("| {unit} | x |\n"));
+    for _ in 1..rows {
+        md.push_str("| aa | bb |\n");
+    }
+    md
+}
+
+#[gpui::test]
+fn down_arrow_inside_a_table_never_lands_on_a_sibling_cell(cx: &mut TestAppContext) {
+    let mut sideways = Vec::new();
+    let mut crossed = 0;
+    for rows in [1usize, 2, 3] {
+        let (editor, cx) = editor_with_doc(&uneven_table_doc(rows), cx);
+        focus_editor(&editor, cx);
+        let leaves: Vec<u32> =
+            cx.update(|_, app| editor.read(app).state.doc.text_leaves().to_vec());
+        for (i, &leaf) in leaves.iter().enumerate() {
+            place_caret(&editor, cx, i, 0);
+            let before = cx.update(|_, app| {
+                let v = editor.read(app);
+                let b = v.state.cursor.block;
+                (b, v.state.doc.table_loc(b).map(|l| (l.row, l.col)))
+            });
+            cx.simulate_keystrokes("down");
+            let after = cx.update(|_, app| {
+                let v = editor.read(app);
+                let b = v.state.cursor.block;
+                (b, v.state.doc.table_loc(b).map(|l| (l.row, l.col)))
+            });
+            if after.0 == before.0 {
+                continue;
+            }
+            match (before.1, after.1) {
+                (Some((r, c)), Some((r2, c2))) => {
+                    if r2 == r + 1 && c2 == c {
+                        crossed += 1;
+                    } else {
+                        sideways.push((rows, i, leaf, (r, c), (r2, c2)));
+                    }
+                }
+                (Some(_), None) => crossed += 1,
+                _ => {}
+            }
+        }
+    }
+    assert!(
+        crossed > 3,
+        "the sweep never stepped across cells ({crossed})"
+    );
+    assert!(
+        sideways.is_empty(),
+        "down landed on a sibling cell instead of the one below: {sideways:?}"
+    );
+}
+
+#[gpui::test]
+fn down_arrow_walks_the_lines_inside_a_wrapping_table_cell(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc(&uneven_table_doc(2), cx);
+    focus_editor(&editor, cx);
+    let tall = cx.update(|_, app| {
+        let v = editor.read(app);
+        v.state
+            .doc
+            .text_leaves()
+            .iter()
+            .enumerate()
+            .find(|&(_, b)| v.state.doc.text(*b).is_some_and(|t| t.len() > 80))
+            .map(|(i, _)| i)
+    });
+    let tall = tall.expect("the fixture lost its tall cell");
+    place_caret(&editor, cx, tall, 0);
+    let before = settle(&editor, cx);
+    cx.simulate_keystrokes("down");
+    let after = settle(&editor, cx);
+    assert_eq!(
+        after.block, before.block,
+        "down left a cell that still has a lower line: blk {} row {:?} -> blk {} row {:?}",
+        before.block, before.row, after.block, after.row
+    );
+    assert!(
+        after.row > before.row,
+        "down did not advance a line inside the cell: blk {} row {:?} -> blk {} row {:?}",
+        before.block,
+        before.row,
+        after.block,
+        after.row
+    );
+}

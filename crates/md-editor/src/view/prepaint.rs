@@ -1064,6 +1064,7 @@ impl EditorView {
         let dir = vert.dir.sign();
         let cur = self.state.cursor;
         let row_before = caret_row_in(frame, cur.block);
+        let in_table = self.state.doc.in_table(cur.block);
         if let Some((cx_raw, mut cy0, _cw, ch)) = frame.caret_device {
             let mut cx0 = vert.column.unwrap_or(cx_raw);
             if let Some(t) = frame
@@ -1089,6 +1090,7 @@ impl EditorView {
                     gear.shaper,
                     |id| well_scroll_xy(&self.well_scroll, id),
                 ) && c != cur
+                    && (!in_table || c.block == cur.block)
                 {
                     self.place_cursor(c, vert.motion);
                     moved = true;
