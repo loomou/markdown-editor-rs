@@ -265,6 +265,13 @@ pub(crate) struct PendingVertical {
     motion: CursorMotion,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct PendingPage {
+    dir: Direction,
+    motion: CursorMotion,
+    anchor: Option<(Px, Px)>,
+}
+
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum ScrollUnit {
     Line,
@@ -377,6 +384,8 @@ pub struct EditorView {
     pub(crate) drag_pointer: Option<(Px, Px)>,
 
     pub(crate) pending_vertical: Option<PendingVertical>,
+
+    pub(crate) pending_page: Option<PendingPage>,
 
     pub(crate) reading: bool,
 

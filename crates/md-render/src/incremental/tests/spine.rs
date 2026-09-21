@@ -36,9 +36,9 @@ fn ensure_block_on_spine_expands_collapsed_list() {
     let solver = FallbackSolver;
     engine.assemble_incremental(ScrollAnchor::top(), 600.0, &measure, &solver);
     let target = leaf_containing(&doc, "findme");
-    assert!(!engine.debug_block_on_spine(target));
+    assert!(!engine.block_is_on_spine(target));
     assert!(engine.ensure_block_on_spine(target, &measure, &solver));
-    assert!(engine.debug_block_on_spine(target));
+    assert!(engine.block_is_on_spine(target));
     assert!(engine.debug_block_top(target).is_some());
 }
 
@@ -58,9 +58,9 @@ fn ensure_block_on_spine_expands_collapsed_quote() {
     let solver = FallbackSolver;
     engine.assemble_incremental(ScrollAnchor::top(), 600.0, &measure, &solver);
     let target = leaf_containing(&doc, "findme");
-    assert!(!engine.debug_block_on_spine(target));
+    assert!(!engine.block_is_on_spine(target));
     assert!(engine.ensure_block_on_spine(target, &measure, &solver));
-    assert!(engine.debug_block_on_spine(target));
+    assert!(engine.block_is_on_spine(target));
     assert!(engine.debug_block_top(target).is_some());
 }
 
@@ -83,12 +83,12 @@ fn ensure_block_on_spine_pin_lasts_one_publish_then_recollapses() {
     assert!(engine.ensure_block_on_spine(target, &measure, &solver));
     engine.assemble_incremental(ScrollAnchor::top(), 600.0, &measure, &solver);
     assert!(
-        engine.debug_block_on_spine(target),
+        engine.block_is_on_spine(target),
         "pin must keep the revealed quote on the spine for the publish frame"
     );
     engine.assemble_incremental(ScrollAnchor::top(), 600.0, &measure, &solver);
     assert!(
-        !engine.debug_block_on_spine(target),
+        !engine.block_is_on_spine(target),
         "cleared pin must let the offscreen quote recollapse"
     );
 }

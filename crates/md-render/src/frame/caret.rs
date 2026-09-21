@@ -99,7 +99,7 @@ pub(crate) fn caret_in_box(
         node.kind(),
         node.shape_ident(),
     );
-    let (x, row) = shaper.position_for_offset(&art, offset, node.inline_align(), inner);
+    let (x, row) = shaper.caret_position_for_offset(&art, offset, node.inline_align(), inner);
     let (dy, h) = shaper.caret_ink(node.shape_kind(), node.type_slot(), &art, row);
     let y = top + tree.style_of(node).top_border_padding() + art.row_top(row) + dy;
     (x, y, h)

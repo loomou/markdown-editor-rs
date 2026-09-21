@@ -3,7 +3,203 @@ use crate::view::{EditorElement, EditorView};
 use gpui::TestAppContext;
 use gpui::VisualTestContext;
 use gpui::{point, px, size};
+use md_core::Px;
 use md_core::block::BlockKind;
+
+const VIEW_W: f32 = 800.0;
+const VIEW_H: f32 = 600.0;
+
+type DeviceRect = (Px, Px, Px, Px);
+type SettledFrame = (Px, Px, Option<DeviceRect>);
+
+fn tall_mixed_doc() -> String {
+    let mut md = String::new();
+    for i in 0..60 {
+        md.push_str(&format!(
+            "## heading {i}\n\npara {i}: {}\n\n",
+            "word ".repeat(14)
+        ));
+        md.push_str(&format!(
+            "```rust\nfn f{i}() {{\n    let x = {i};\n    x\n}}\n```\n\n"
+        ));
+        if i % 6 == 5 {
+            md.push_str("| a | b |\n| --- | --- |\n| c | d |\n| e | f |\n\n");
+        }
+    }
+    md
+}
+
+fn wrapped_paragraphs(count: usize) -> String {
+    let mut md = String::new();
+    for i in 0..count {
+        md.push_str(&format!("para {i}: {}\n\n", "word ".repeat(120)));
+    }
+    md
+}
+
+fn draw_settled(cx: &mut VisualTestContext, editor: &gpui::Entity<EditorView>) -> SettledFrame {
+    let mut last = None;
+    for _ in 0..8 {
+        let drawn = cx.draw(
+            point(px(0.0), px(0.0)),
+            size(px(VIEW_W), px(VIEW_H)),
+            |_, _| EditorElement {
+                state: editor.clone(),
+            },
+        );
+        let snap = &drawn.1.frame.snapshot;
+        let done = !drawn.1.refresh;
+        last = Some((snap.scroll, drawn.1.frame.total_height, snap.caret_device));
+        if done {
+            break;
+        }
+    }
+    last.expect("a draw happened")
+}
+
+fn caret_is_visible(caret: Option<DeviceRect>) -> bool {
+    caret.is_some_and(|(_, y, _, h)| y >= -0.5 && y + h <= f64::from(VIEW_H) + 0.5)
+}
+
+#[gpui::test]
+fn arrow_keys_keep_the_caret_inside_the_viewport(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc(&tall_mixed_doc(), cx);
+    focus_editor(&editor, cx);
+    place_caret(&editor, cx, 0, 0);
+    let _ = draw_settled(cx, &editor);
+    let mut lost = Vec::new();
+    for i in 0..80 {
+        cx.simulate_keystrokes("down");
+        let (_, _, caret) = draw_settled(cx, &editor);
+        if !caret_is_visible(caret) {
+            lost.push((i, caret));
+        }
+    }
+    assert!(
+        lost.is_empty(),
+        "the caret left the viewport on {} of 80 presses: {lost:?}",
+        lost.len()
+    );
+}
+
+#[gpui::test]
+fn a_single_arrow_press_moves_the_caret_by_one_line(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc(&wrapped_paragraphs(20), cx);
+    focus_editor(&editor, cx);
+    place_caret(&editor, cx, 10, 0);
+    let (scroll, _, caret) = draw_settled(cx, &editor);
+    let (_, y, _, h) = caret.expect("the caret is in view");
+    cx.update(|_, app| {
+        editor.update(app, |v, _| {
+            v.state.scroll = scroll + y - (f64::from(VIEW_H) - h) - 1.0;
+            v.follow_caret = false;
+        })
+    });
+    let cursor = |cx: &mut VisualTestContext| {
+        cx.update(|_, app| {
+            let v = editor.read(app);
+            (v.state.cursor.block, v.state.cursor.offset)
+        })
+    };
+    let (block, before) = cursor(cx);
+    cx.simulate_keystrokes("down");
+    let _ = draw_settled(cx, &editor);
+    let (at, after) = cursor(cx);
+    assert_eq!(
+        at, block,
+        "a caret on the last visible line jumped out of the paragraph to offset {after}"
+    );
+    assert!(
+        after > before,
+        "a caret on the last visible line did not step a line: {before} -> {after}"
+    );
+}
+
+#[gpui::test]
+fn down_from_the_start_of_a_wrapped_paragraph_reaches_the_next_line(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc(&wrapped_paragraphs(6), cx);
+    focus_editor(&editor, cx);
+    place_caret(&editor, cx, 2, 0);
+    let (_, _, before) = draw_settled(cx, &editor);
+    let (bx, by, _, _) = before.expect("the caret is painted");
+    let (block, offset) = cursor_of(&editor, cx);
+
+    cx.simulate_keystrokes("down");
+
+    let (_, _, after) = draw_settled(cx, &editor);
+    let (ax, ay, _, _) = after.expect("the caret is painted");
+    let (block_after, offset_after) = cursor_of(&editor, cx);
+    assert_eq!(
+        block_after, block,
+        "down left the paragraph instead of stepping one line"
+    );
+    assert!(
+        offset_after > offset,
+        "down did not advance the offset: {offset} -> {offset_after}"
+    );
+    assert!(
+        ay > by + 1.0,
+        "down stayed on the same line: y {by} -> {ay} (offset {offset} -> {offset_after})"
+    );
+    assert!(
+        (ax - bx).abs() < 1.0,
+        "down slid to the end of the line: x {bx} -> {ax} (offset {offset} -> {offset_after})"
+    );
+}
+
+fn cursor_of(
+    editor: &gpui::Entity<EditorView>,
+    cx: &mut VisualTestContext,
+) -> (md_core::block::BlockId, usize) {
+    cx.update(|_, app| {
+        let v = editor.read(app);
+        (v.state.cursor.block, v.state.cursor.offset)
+    })
+}
+
+#[gpui::test]
+fn page_keys_scroll_a_page_and_keep_the_caret_in_view(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc(&tall_mixed_doc(), cx);
+    focus_editor(&editor, cx);
+    place_caret(&editor, cx, 0, 0);
+    let (top, total, _) = draw_settled(cx, &editor);
+    assert_eq!(top, 0.0);
+    let mut scroll = top;
+    for i in 0..8 {
+        cx.simulate_keystrokes("pagedown");
+        let (next, _, caret) = draw_settled(cx, &editor);
+        assert!(
+            next > scroll,
+            "pagedown {i} did not move the viewport: {scroll} -> {next}"
+        );
+        assert!(
+            caret_is_visible(caret),
+            "pagedown {i} left the caret outside the viewport: {caret:?}"
+        );
+        scroll = next;
+    }
+    assert!(
+        scroll < total - f64::from(VIEW_H),
+        "the pages ran off the end of the document"
+    );
+    for i in 0..8 {
+        cx.simulate_keystrokes("pageup");
+        let (next, _, caret) = draw_settled(cx, &editor);
+        assert!(
+            next < scroll,
+            "pageup {i} did not move the viewport: {scroll} -> {next}"
+        );
+        assert!(
+            caret_is_visible(caret),
+            "pageup {i} left the caret outside the viewport: {caret:?}"
+        );
+        scroll = next;
+    }
+    assert_eq!(
+        scroll, top,
+        "pageup did not return to the start of the document"
+    );
+}
 
 #[gpui::test]
 fn scrolling_estimated_blocks_paints_at_the_requested_offset(cx: &mut TestAppContext) {

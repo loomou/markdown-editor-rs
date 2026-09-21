@@ -382,8 +382,8 @@ impl IncrementalEngine {
         shaper: &GpuiShaper,
         env: BoxLayoutEnvironment,
     ) -> Option<Px> {
-        let top = self.content_top(cursor.block)?;
         let leaf = LayoutBoxId::frame(cursor.block);
+        let top = self.spine_top(leaf)?;
         let node = self.tree.nodes().get(&leaf)?;
         let avail = self.tree.avail_width(leaf, env.viewport_width);
         let inner = (avail - self.tree.style_of(node).inline_border_padding()).max(0.0);
@@ -391,8 +391,7 @@ impl IncrementalEngine {
         Some(y)
     }
 
-    #[cfg(test)]
-    pub(super) fn debug_block_on_spine(&self, block: md_core::block::BlockId) -> bool {
+    pub fn block_is_on_spine(&self, block: md_core::block::BlockId) -> bool {
         self.island_box_of_block(block)
             .is_some_and(|id| self.spine.content_id(id).is_some())
     }

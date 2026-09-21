@@ -483,7 +483,7 @@ fn deleting_every_block_keeps_the_survivor_renderable() {
     );
     engine.apply_changes(&doc, &changes);
     assert_eq!(doc.text_leaves(), vec![cur.block]);
-    assert!(engine.debug_block_on_spine(cur.block));
+    assert!(engine.block_is_on_spine(cur.block));
     assert!(engine.debug_block_top(cur.block).is_some());
     let (after, published) =
         engine.assemble_incremental(ScrollAnchor::top(), 600.0, &measure, &solver);

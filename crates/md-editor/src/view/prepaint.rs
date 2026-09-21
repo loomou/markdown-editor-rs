@@ -5,8 +5,8 @@ use super::scrollbar::{
 };
 use super::{
     CompatKey, CursorMotion, EditorElement, EditorView, ImagePopover, MathPopover, PaintFault,
-    PendingClick, PendingVertical, PrepaintState, ReadingStep, ScrollUnit, StableFrame, Viewfinder,
-    popover,
+    PendingClick, PendingPage, PendingVertical, PrepaintState, ReadingStep, ScrollUnit,
+    StableFrame, Viewfinder, popover,
 };
 use gpui::{App, Bounds, Context, Pixels, Window};
 use md_content::shaper::{GpuiShaper, ShapeMedia};
@@ -394,6 +394,14 @@ impl EditorElement {
                 );
             } else {
                 engine.materialize_pin_block(cursor.block, shaper, solver);
+                if !engine.block_is_on_spine(cursor.block) {
+                    let _ = engine.ensure_composed_block(
+                        &v.state.doc.document,
+                        cursor.block,
+                        shaper,
+                        solver,
+                    );
+                }
             }
             if v.park_caret_top.is_some()
                 && let Some(ly) = engine.spine_caret_y(cursor, shaper, env)
@@ -609,7 +617,14 @@ impl EditorElement {
         {
             return;
         }
-        let Some(ly) = gear.caret_ly else {
+        let ly = gear.caret_ly.or_else(|| {
+            let v = self.state.read(cx);
+            v.state
+                .incremental
+                .as_ref()?
+                .spine_caret_y(gear.cursor, gear.shaper, gear.env)
+        });
+        let Some(ly) = ly else {
             return;
         };
         let cursor = gear.cursor;
@@ -763,6 +778,7 @@ impl EditorElement {
         self.state.update(cx, |v, cx| {
             let click = v.pending_click.take();
             let vert = v.pending_vertical.take();
+            let page = v.pending_page.take();
             let mut moved = false;
 
             if let Some(click) = click {
@@ -770,6 +786,9 @@ impl EditorElement {
             }
             if v.dragging && v.scrollbar_drag.is_none() && v.well_bar_drag.is_none() {
                 moved |= v.drag_selection(frame, gear);
+            }
+            if let Some(page) = page {
+                moved |= v.step_caret_by_page(frame, gear, page, lh);
             }
             if let Some(vert) = vert {
                 moved = v.step_caret_vertically(frame, gear, vert, lh, moved);
@@ -969,6 +988,52 @@ impl EditorView {
         moved
     }
 
+    fn step_caret_by_page(
+        &mut self,
+        frame: &Frame,
+        gear: FrameGear<'_>,
+        page: PendingPage,
+        lh: Px,
+    ) -> bool {
+        let dir = page.dir.sign();
+        let vh = gear.viewport.1;
+        let bottom = (frame.total_height - vh).max(0.0);
+        let Some((x, y)) = page.anchor else {
+            let Some((x, y, _, _)) = frame.caret_device else {
+                return false;
+            };
+            let next = (self.state.scroll + (vh - lh).max(lh) * dir as Px).clamp(0.0, bottom);
+            if next == self.state.scroll {
+                let edge = if dir < 0 { lh * 0.5 } else { vh - lh * 0.5 };
+                let Some(c) = hit_test(
+                    &frame.snapshot,
+                    gear.paint_rev,
+                    (x, edge),
+                    gear.shaper,
+                    |id| well_scroll_xy(&self.well_scroll, id),
+                ) else {
+                    return false;
+                };
+                self.place_cursor(c, page.motion);
+                return true;
+            }
+            self.state.scroll = next;
+            self.follow_caret = false;
+            self.pending_page = Some(PendingPage {
+                anchor: Some((x, y)),
+                ..page
+            });
+            return true;
+        };
+        let Some(c) = hit_test(&frame.snapshot, gear.paint_rev, (x, y), gear.shaper, |id| {
+            well_scroll_xy(&self.well_scroll, id)
+        }) else {
+            return false;
+        };
+        self.place_cursor(c, page.motion);
+        true
+    }
+
     fn step_caret_vertically(
         &mut self,
         frame: &Frame,
@@ -979,7 +1044,6 @@ impl EditorView {
     ) -> bool {
         self.abort_composing();
         let mut moved = moved;
-        let vh = gear.viewport.1;
         let dir = vert.dir.sign();
         if let Some((mut cx0, mut cy0, _cw, ch)) = frame.caret_device {
             if let Some(t) = frame.texts.iter().find(|t| {
@@ -996,9 +1060,6 @@ impl EditorView {
                 cy0 + ch + lh * 0.5
             };
             for _ in 0..32 {
-                if y < 0.0 || y > vh {
-                    break;
-                }
                 if let Some(c) = hit_test(
                     &frame.snapshot,
                     gear.paint_rev,
