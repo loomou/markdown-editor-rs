@@ -1065,6 +1065,16 @@ impl EditorView {
         let cur = self.state.cursor;
         let row_before = caret_row_in(frame, cur.block);
         let in_table = self.state.doc.in_table(cur.block);
+        let table_target = if in_table {
+            let step = if dir < 0 {
+                TableStep::Above
+            } else {
+                TableStep::Below
+            };
+            self.state.doc.table_step(cur, step).map(|c| c.block)
+        } else {
+            None
+        };
         let remembered = self
             .vertical_column
             .filter(|v| v.caret == cur)
@@ -1105,7 +1115,7 @@ impl EditorView {
                     gear.shaper,
                     |id| well_scroll_xy(&self.well_scroll, id),
                 ) && c != cur
-                    && (!in_table || c.block == cur.block)
+                    && (!in_table || c.block == cur.block || Some(c.block) == table_target)
                     && advances(c, y)
                 {
                     self.place_cursor(c, vert.motion);

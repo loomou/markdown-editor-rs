@@ -464,6 +464,53 @@ fn down_arrow_walks_the_lines_inside_a_wrapping_table_cell(cx: &mut TestAppConte
 }
 
 #[gpui::test]
+fn up_arrow_lands_on_the_last_line_of_a_taller_cell_above(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc(&uneven_table_doc(2), cx);
+    focus_editor(&editor, cx);
+    let (tall, below) = cx.update(|_, app| {
+        let v = editor.read(app);
+        let leaves = v.state.doc.text_leaves().to_vec();
+        let tall = leaves
+            .iter()
+            .position(|&b| v.state.doc.text(b).is_some_and(|t| t.len() > 80))
+            .expect("the fixture lost its tall cell");
+        let loc = v
+            .state
+            .doc
+            .table_loc(leaves[tall])
+            .expect("the tall cell is not in a table");
+        let below = leaves
+            .iter()
+            .position(|&b| {
+                v.state
+                    .doc
+                    .table_loc(b)
+                    .is_some_and(|l| l.row == loc.row + 1 && l.col == loc.col)
+            })
+            .expect("the fixture lost the cell below the tall one");
+        (leaves[tall], below)
+    });
+    place_caret(&editor, cx, below, 0);
+    let before = settle(&editor, cx);
+    cx.simulate_keystrokes("up");
+    let after = settle(&editor, cx);
+    assert_eq!(
+        after.block, tall,
+        "up left the column: blk {} row {:?} -> blk {} row {:?}",
+        before.block, before.row, after.block, after.row
+    );
+    assert!(
+        after.row > Some(0),
+        "up landed on the tall cell's first line instead of the one visually above it: \
+         blk {} row {:?} -> blk {} row {:?}",
+        before.block,
+        before.row,
+        after.block,
+        after.row
+    );
+}
+
+#[gpui::test]
 fn down_arrow_advances_one_row_inside_a_wrapping_heading(cx: &mut TestAppContext) {
     let md = "# 一个比较长的标题文字内容用来换行测试 aaaa bbbb cccc dddd eeee ffff gggg hhhh\n\n下面的段落文字内容 aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj kkkk\n";
     let (editor, cx) = editor_with_doc(md, cx);
