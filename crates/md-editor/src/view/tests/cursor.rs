@@ -258,7 +258,7 @@ fn probe(editor: &gpui::Entity<EditorView>, cx: &mut VisualTestContext) -> Caret
         });
     let row = origin.and_then(|(coy, art)| {
         f.caret_device
-            .map(|c| md_render::query::row_at_y(art, c.1 - coy) as i64)
+            .map(|c| md_render::query::row_at_y(art, c.1 + c.3 * 0.5 - coy) as i64)
     });
     CaretProbe {
         block: cur.0,
@@ -460,6 +460,37 @@ fn down_arrow_walks_the_lines_inside_a_wrapping_table_cell(cx: &mut TestAppConte
         before.row,
         after.block,
         after.row
+    );
+}
+
+#[gpui::test]
+fn down_arrow_advances_one_row_inside_a_wrapping_heading(cx: &mut TestAppContext) {
+    let md = "# 一个比较长的标题文字内容用来换行测试 aaaa bbbb cccc dddd eeee ffff gggg hhhh\n\n下面的段落文字内容 aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj kkkk\n";
+    let (editor, cx) = editor_with_doc(md, cx);
+    focus_editor(&editor, cx);
+    place_caret(&editor, cx, 0, 0);
+    let before = settle(&editor, cx);
+    cx.simulate_keystrokes("down");
+    let after = settle(&editor, cx);
+    assert_eq!(
+        after.block, before.block,
+        "down skipped the heading's own lower line: blk {} row {:?} -> blk {} row {:?}",
+        before.block, before.row, after.block, after.row
+    );
+    assert!(
+        after.row > before.row,
+        "down did not advance a line inside the heading: blk {} row {:?} -> blk {} row {:?}",
+        before.block,
+        before.row,
+        after.block,
+        after.row
+    );
+    cx.simulate_keystrokes("up");
+    let back = settle(&editor, cx);
+    assert_eq!(
+        (back.block, back.offset),
+        (before.block, before.offset),
+        "up did not return to the line down started from"
     );
 }
 

@@ -1082,6 +1082,15 @@ impl EditorView {
                 cx0 -= s.x;
                 cy0 -= s.y;
             }
+            let advances = |c: Cursor, y: Px| {
+                if c.block != cur.block {
+                    return true;
+                }
+                match (row_before, row_at_offset_y(frame, c.block, y)) {
+                    (Some(before), Some(now)) => (now - before) * dir as i64 > 0,
+                    _ => true,
+                }
+            };
             let step = lh * 0.25 * dir as Px;
             let mut y = if dir < 0 {
                 cy0 - lh * 0.5
@@ -1097,6 +1106,7 @@ impl EditorView {
                     |id| well_scroll_xy(&self.well_scroll, id),
                 ) && c != cur
                     && (!in_table || c.block == cur.block)
+                    && advances(c, y)
                 {
                     self.place_cursor(c, vert.motion);
                     moved = true;
@@ -1212,8 +1222,7 @@ impl EditorView {
     }
 }
 
-fn caret_row_in(frame: &Frame, block: BlockId) -> Option<i64> {
-    let (_, cy, _, _) = frame.caret_device?;
+fn row_at_offset_y(frame: &Frame, block: BlockId, y: Px) -> Option<i64> {
     let (coy, art) = if let Some(t) = frame.texts.iter().find(|t| t.block == block) {
         if is_scroll_well(t.kind, t.edit_source) {
             return None;
@@ -1227,8 +1236,12 @@ fn caret_row_in(frame: &Frame, block: BlockId) -> Option<i64> {
         return None;
     }
     let rows = art.rows.max(1) as i64;
-    let row = md_render::query::row_at_y(art, cy - coy) as i64;
-    Some(row.min(rows - 1))
+    Some((md_render::query::row_at_y(art, y - coy) as i64).min(rows - 1))
+}
+
+fn caret_row_in(frame: &Frame, block: BlockId) -> Option<i64> {
+    let (_, cy, _, ch) = frame.caret_device?;
+    row_at_offset_y(frame, block, cy + ch * 0.5)
 }
 
 fn mark_stale(v: &mut EditorView, cx: &mut Context<'_, EditorView>) {
