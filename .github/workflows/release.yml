@@ -145,14 +145,36 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v5
         with:
           pattern: markdown-editor-rs-*
           path: dist
           merge-multiple: true
 
+      - name: Build the release notes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          previous=$(git tag --list 'v*' | sort -V | awk -v t="$GITHUB_REF_NAME" 'NR > 1 && $0 == t { print p; exit } { p = $0 }')
+          args=(--method POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$GITHUB_REF_NAME")
+          if [ -n "$previous" ]; then
+            args+=(-f previous_tag_name="$previous")
+          fi
+          gh api "${args[@]}" --jq .body \
+            | sed -E \
+                -e 's| by @[^ ]+ in | in |' \
+                -e 's|^(\* )@|\1|' \
+                -e 's| in (https://[^ ]*/pull/([0-9]+))$| ([#\2](\1))|' \
+            > release-notes.md
+          cat release-notes.md
+
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
           fail_on_unmatched_files: true
-          generate_release_notes: true
+          body_path: release-notes.md
