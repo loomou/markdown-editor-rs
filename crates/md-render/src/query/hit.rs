@@ -5,7 +5,7 @@ use md_core::block::{BlockId, BlockKind};
 use md_core::doc::Cursor;
 use md_layout::box_tree::BoxRole;
 
-fn row_at_y(art: &ShapeArtifact, y: Px) -> u32 {
+pub(super) fn row_at_y(art: &ShapeArtifact, y: Px) -> u32 {
     if art.bands.is_empty() {
         return (y / art.row_advance).floor().max(0.0) as u32;
     }

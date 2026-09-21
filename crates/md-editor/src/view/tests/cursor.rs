@@ -1,6 +1,8 @@
 use super::support::{editor_with_doc, focus_editor, place_caret};
-use crate::view::{CursorMotion, Direction, LineEdge};
+use crate::view::{CursorMotion, Direction, EditorElement, EditorView, LineEdge};
 use gpui::TestAppContext;
+use gpui::VisualTestContext;
+use gpui::{point, px, size};
 use md_core::doc::Cursor;
 
 #[gpui::test]
@@ -212,4 +214,159 @@ fn shift_motion_and_selection_seed_preserve_selected_utf8_text(cx: &mut TestAppC
         })
     });
     assert_eq!(seed, "αβ");
+}
+
+fn wrap_sweep_doc() -> String {
+    let unit = "lorem ipsum dolor sit amet consectetur adipiscing ".repeat(3);
+    let mut md = String::new();
+    for n in 0..=unit.len() {
+        md.push_str(&unit[..n]);
+        md.push_str("**bold run here** and `code span` tail\n\n");
+    }
+    md
+}
+
+struct CaretProbe {
+    block: u32,
+    offset: usize,
+    row: Option<i64>,
+}
+
+fn probe(editor: &gpui::Entity<EditorView>, cx: &mut VisualTestContext) -> CaretProbe {
+    let cur = cx.update(|_, app| {
+        let v = editor.read(app);
+        (v.state.cursor.block, v.state.cursor.offset)
+    });
+    let drawn = cx.draw(
+        point(px(0.0), px(0.0)),
+        size(px(800.0), px(600.0)),
+        |_, _| EditorElement {
+            state: editor.clone(),
+        },
+    );
+    let f = &drawn.1.frame;
+    let origin = f
+        .texts
+        .iter()
+        .find(|t| t.block == cur.0)
+        .map(|t| (t.content_origin_device.1, &t.art))
+        .or_else(|| {
+            f.cells
+                .iter()
+                .find(|c| c.block == cur.0)
+                .map(|c| (c.content_origin_device.1, &c.art))
+        });
+    let row = origin.and_then(|(coy, art)| {
+        f.caret_device
+            .map(|c| md_render::query::row_at_y(art, c.1 - coy) as i64)
+    });
+    CaretProbe {
+        block: cur.0,
+        offset: cur.1,
+        row,
+    }
+}
+
+fn settle(editor: &gpui::Entity<EditorView>, cx: &mut VisualTestContext) -> CaretProbe {
+    for _ in 0..8 {
+        let drawn = cx.draw(
+            point(px(0.0), px(0.0)),
+            size(px(800.0), px(600.0)),
+            |_, _| EditorElement {
+                state: editor.clone(),
+            },
+        );
+        if !drawn.1.refresh {
+            return probe(editor, cx);
+        }
+    }
+    probe(editor, cx)
+}
+
+#[gpui::test]
+fn down_arrow_never_stalls_on_the_row_it_left(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc(&wrap_sweep_doc(), cx);
+    focus_editor(&editor, cx);
+    let leaves = cx.update(|_, app| editor.read(app).state.doc.text_leaves().len());
+    let mut stalled = Vec::new();
+    let mut advanced = 0;
+    for leaf in 0..leaves {
+        place_caret(&editor, cx, leaf, 0);
+        let before = settle(&editor, cx);
+        cx.simulate_keystrokes("down");
+        let after = settle(&editor, cx);
+        if after.block != before.block {
+            continue;
+        }
+        if after.row == before.row && after.offset != before.offset {
+            stalled.push((leaf, before.offset, after.offset));
+        } else if after.row > before.row {
+            advanced += 1;
+        }
+    }
+    assert!(
+        advanced > 20,
+        "the sweep stopped exercising same-block vertical motion ({advanced} rows advanced)"
+    );
+    assert!(
+        stalled.is_empty(),
+        "down landed back on the row it started from: {stalled:?}"
+    );
+}
+
+fn cell_sweep_doc() -> String {
+    let unit = "lorem ipsum dolor sit amet consectetur adipiscing ".repeat(2);
+    let fixed = "fixed tail that keeps the second column wide ".repeat(2);
+    let mut md = String::from("| left | right |\n| --- | --- |\n");
+    for n in 0..=unit.len() {
+        md.push_str(&format!("| {}**bold run here** | {fixed} |\n", &unit[..n]));
+    }
+    md
+}
+
+#[gpui::test]
+fn down_arrow_never_stalls_inside_a_table_cell(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc(&cell_sweep_doc(), cx);
+    focus_editor(&editor, cx);
+    let targets = cx.update(|_, app| {
+        let v = editor.read(app);
+        v.state
+            .doc
+            .text_leaves()
+            .iter()
+            .enumerate()
+            .filter(|&(_, b)| {
+                v.state
+                    .doc
+                    .text(*b)
+                    .is_some_and(|t| t.contains("bold run here"))
+            })
+            .map(|(i, _)| i)
+            .collect::<Vec<_>>()
+    });
+    assert!(targets.len() > 50, "the sweep lost its cells");
+    let mut stalled = Vec::new();
+    let mut advanced = 0;
+    for &leaf in &targets {
+        place_caret(&editor, cx, leaf, 0);
+        let before = settle(&editor, cx);
+        cx.simulate_keystrokes("down");
+        let after = settle(&editor, cx);
+        if after.block != before.block {
+            continue;
+        }
+        if after.row == before.row && after.offset != before.offset {
+            stalled.push((leaf, before.offset, after.offset));
+        } else if after.row > before.row {
+            advanced += 1;
+        }
+    }
+    assert!(
+        advanced > 20,
+        "the sweep stopped exercising vertical motion inside cells ({advanced})"
+    );
+    assert!(
+        stalled.is_empty(),
+        "down landed back on the row it started from inside a cell: {stalled:?}"
+    );
 }
