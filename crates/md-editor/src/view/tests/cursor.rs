@@ -430,6 +430,54 @@ fn down_arrow_inside_a_table_never_lands_on_a_sibling_cell(cx: &mut TestAppConte
 }
 
 #[gpui::test]
+fn up_arrow_inside_a_table_never_lands_on_a_sibling_cell(cx: &mut TestAppContext) {
+    let mut sideways = Vec::new();
+    let mut crossed = 0;
+    for rows in [1usize, 2, 3] {
+        let (editor, cx) = editor_with_doc(&uneven_table_doc(rows), cx);
+        focus_editor(&editor, cx);
+        let leaves: Vec<u32> =
+            cx.update(|_, app| editor.read(app).state.doc.text_leaves().to_vec());
+        for (i, &leaf) in leaves.iter().enumerate() {
+            place_caret(&editor, cx, i, 0);
+            let before = cx.update(|_, app| {
+                let v = editor.read(app);
+                let b = v.state.cursor.block;
+                (b, v.state.doc.table_loc(b).map(|l| (l.row, l.col)))
+            });
+            cx.simulate_keystrokes("up");
+            let after = cx.update(|_, app| {
+                let v = editor.read(app);
+                let b = v.state.cursor.block;
+                (b, v.state.doc.table_loc(b).map(|l| (l.row, l.col)))
+            });
+            if after.0 == before.0 {
+                continue;
+            }
+            match (before.1, after.1) {
+                (Some((r, c)), Some((r2, c2))) => {
+                    if r2 + 1 == r && c2 == c {
+                        crossed += 1;
+                    } else {
+                        sideways.push((rows, i, leaf, (r, c), (r2, c2)));
+                    }
+                }
+                (Some(_), None) => crossed += 1,
+                _ => {}
+            }
+        }
+    }
+    assert!(
+        crossed > 3,
+        "the sweep never stepped across cells ({crossed})"
+    );
+    assert!(
+        sideways.is_empty(),
+        "up landed on a sibling cell instead of the one above: {sideways:?}"
+    );
+}
+
+#[gpui::test]
 fn down_arrow_walks_the_lines_inside_a_wrapping_table_cell(cx: &mut TestAppContext) {
     let (editor, cx) = editor_with_doc(&uneven_table_doc(2), cx);
     focus_editor(&editor, cx);
