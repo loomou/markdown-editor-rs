@@ -102,6 +102,7 @@ impl EditorView {
             self.follow_caret = false;
             self.pending_vertical = None;
             self.vertical_verify = None;
+            self.hide_table_grips(cx);
         } else {
             self.state.doc.set_read_only(false);
         }
