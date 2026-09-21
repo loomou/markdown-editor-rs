@@ -68,6 +68,7 @@ impl EditorView {
         self.pending_click = None;
         self.drag_pointer = None;
         self.pending_vertical = None;
+        self.vertical_verify = None;
         self.select_anchor = None;
         self.dragging = false;
         self.enter_block_edit_on_click = false;

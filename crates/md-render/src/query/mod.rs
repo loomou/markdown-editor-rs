@@ -34,6 +34,10 @@ impl Deref for Aligned<'_> {
     }
 }
 
+pub fn row_at_y(art: &md_content::shaper::ShapeArtifact, y: Px) -> u32 {
+    hit::row_at_y(art, y)
+}
+
 pub fn hit_test(
     layout: &LayoutSnapshot,
     paint_revision: u64,

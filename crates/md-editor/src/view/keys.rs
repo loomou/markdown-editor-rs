@@ -504,12 +504,14 @@ impl EditorView {
                 self.pending_vertical = Some(PendingVertical {
                     dir: Direction::Prev,
                     motion: CursorMotion::from_shift(shift),
+                    column: None,
                 })
             }
             "down" => {
                 self.pending_vertical = Some(PendingVertical {
                     dir: Direction::Next,
                     motion: CursorMotion::from_shift(shift),
+                    column: None,
                 })
             }
             "home" => self.line_edge(LineEdge::Start, CursorMotion::from_shift(shift)),

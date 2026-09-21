@@ -263,6 +263,17 @@ pub(crate) struct PendingClick {
 pub(crate) struct PendingVertical {
     dir: Direction,
     motion: CursorMotion,
+    column: Option<Px>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct VerticalVerify {
+    block: BlockId,
+    offset: usize,
+    row: i64,
+    dir: Direction,
+    motion: CursorMotion,
+    column: Px,
 }
 
 #[derive(Clone, Copy)]
@@ -384,6 +395,8 @@ pub struct EditorView {
     pub(crate) drag_pointer: Option<(Px, Px)>,
 
     pub(crate) pending_vertical: Option<PendingVertical>,
+
+    pub(crate) vertical_verify: Option<VerticalVerify>,
 
     pub(crate) pending_page: Option<PendingPage>,
 

@@ -6,7 +6,7 @@ use super::scrollbar::{
 use super::{
     CompatKey, CursorMotion, EditorElement, EditorView, ImagePopover, MathPopover, PaintFault,
     PendingClick, PendingPage, PendingVertical, PrepaintState, ReadingStep, ScrollUnit,
-    StableFrame, Viewfinder, popover,
+    StableFrame, VerticalVerify, Viewfinder, popover,
 };
 use gpui::{App, Bounds, Context, Pixels, Window};
 use md_content::shaper::{GpuiShaper, ShapeMedia};
@@ -777,9 +777,26 @@ impl EditorElement {
         let lh = gear.shaper.row_advance_for(kind);
         self.state.update(cx, |v, cx| {
             let click = v.pending_click.take();
-            let vert = v.pending_vertical.take();
+            let mut vert = v.pending_vertical.take();
             let page = v.pending_page.take();
+            let verify = v.vertical_verify.take();
             let mut moved = false;
+
+            if click.is_none()
+                && vert.is_none()
+                && page.is_none()
+                && let Some(rec) = verify
+                && v.state.cursor.block == rec.block
+                && v.state.cursor.offset == rec.offset
+                && caret_row_in(frame, rec.block)
+                    .is_some_and(|now| (now - rec.row) * rec.dir.sign() as i64 <= 0)
+            {
+                vert = Some(PendingVertical {
+                    dir: rec.dir,
+                    motion: rec.motion,
+                    column: Some(rec.column),
+                });
+            }
 
             if let Some(click) = click {
                 moved |= v.apply_click(frame, gear, click);
@@ -1045,10 +1062,15 @@ impl EditorView {
         self.abort_composing();
         let mut moved = moved;
         let dir = vert.dir.sign();
-        if let Some((mut cx0, mut cy0, _cw, ch)) = frame.caret_device {
-            if let Some(t) = frame.texts.iter().find(|t| {
-                t.block == self.state.cursor.block && is_scroll_well(t.kind, t.edit_source)
-            }) {
+        let cur = self.state.cursor;
+        let row_before = caret_row_in(frame, cur.block);
+        if let Some((cx_raw, mut cy0, _cw, ch)) = frame.caret_device {
+            let mut cx0 = vert.column.unwrap_or(cx_raw);
+            if let Some(t) = frame
+                .texts
+                .iter()
+                .find(|t| t.block == cur.block && is_scroll_well(t.kind, t.edit_source))
+            {
                 let s = self.well_scroll.get(&t.block).copied().unwrap_or_default();
                 cx0 -= s.x;
                 cy0 -= s.y;
@@ -1066,10 +1088,24 @@ impl EditorView {
                     (cx0, y),
                     gear.shaper,
                     |id| well_scroll_xy(&self.well_scroll, id),
-                ) && c != self.state.cursor
+                ) && c != cur
                 {
                     self.place_cursor(c, vert.motion);
                     moved = true;
+                    let settled = self.state.cursor;
+                    if vert.column.is_none()
+                        && settled.block == cur.block
+                        && let Some(row) = row_before
+                    {
+                        self.vertical_verify = Some(VerticalVerify {
+                            block: settled.block,
+                            offset: settled.offset,
+                            row,
+                            dir: vert.dir,
+                            motion: vert.motion,
+                            column: cx_raw,
+                        });
+                    }
                     break;
                 }
                 y += step;
@@ -1160,6 +1196,17 @@ impl EditorView {
             cx.notify();
         }
     }
+}
+
+fn caret_row_in(frame: &Frame, block: BlockId) -> Option<i64> {
+    let (_, cy, _, _) = frame.caret_device?;
+    let t = frame.texts.iter().find(|t| t.block == block)?;
+    if t.art.row_advance <= 0.0 || is_scroll_well(t.kind, t.edit_source) {
+        return None;
+    }
+    let rows = t.art.rows.max(1) as i64;
+    let row = md_render::query::row_at_y(&t.art, cy - t.content_origin_device.1) as i64;
+    Some(row.min(rows - 1))
 }
 
 fn mark_stale(v: &mut EditorView, cx: &mut Context<'_, EditorView>) {
@@ -1322,6 +1369,7 @@ mod tests {
                     PendingVertical {
                         dir: Direction::Next,
                         motion: CursorMotion::Move,
+                        column: None,
                     },
                     lh,
                     false,

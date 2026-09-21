@@ -107,6 +107,7 @@ fn down_arrow_schedules_the_frame_that_paints_the_new_caret(cx: &mut TestAppCont
             view.pending_vertical = Some(PendingVertical {
                 dir: Direction::Next,
                 motion: CursorMotion::Move,
+                column: None,
             });
         });
     });
