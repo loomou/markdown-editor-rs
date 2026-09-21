@@ -104,6 +104,7 @@ impl EditorView {
             drag_pointer: None,
             pending_vertical: None,
             vertical_verify: None,
+            vertical_column: None,
             pending_page: None,
             reading: false,
             reading_step: None,

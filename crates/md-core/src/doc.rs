@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 pub use crate::document::{
     FocusBias, RevealedImage, RevealedMath, floor_char_boundary, next_char_boundary,
-    prev_char_boundary,
+    next_grapheme_boundary, prev_char_boundary, prev_grapheme_boundary, snap_to_grapheme_boundary,
 };
 
 static NEXT_DOC_ID: AtomicU64 = AtomicU64::new(0);

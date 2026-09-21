@@ -137,6 +137,16 @@ impl EditorView {
         self.place_cursor_biased(c, motion, md_core::doc::FocusBias::Neutral);
     }
 
+    fn snap_to_cluster(&self, c: Cursor) -> Cursor {
+        let Some(text) = self.state.doc.caret_text(c.block) else {
+            return c;
+        };
+        Cursor {
+            block: c.block,
+            offset: md_core::doc::snap_to_grapheme_boundary(text, c.offset),
+        }
+    }
+
     pub(super) fn place_cursor_biased(
         &mut self,
         c: Cursor,
@@ -147,6 +157,8 @@ impl EditorView {
             CursorMotion::Extend => {
                 let anchor = *self.select_anchor.get_or_insert(self.state.cursor);
                 let (anchor, head) = self.state.doc.retarget_focus_range(anchor, c, bias);
+                let anchor = self.snap_to_cluster(anchor);
+                let head = self.snap_to_cluster(head);
                 self.select_anchor = Some(anchor);
                 self.state.selection = if anchor == head {
                     None
@@ -157,6 +169,7 @@ impl EditorView {
             }
             CursorMotion::Move => {
                 let c = self.state.doc.retarget_focus_biased(c, bias);
+                let c = self.snap_to_cluster(c);
                 self.select_anchor = None;
                 self.state.selection = None;
                 self.state.cursor = c;
@@ -182,6 +195,7 @@ impl EditorView {
                         .state
                         .doc
                         .retarget_focus_without_block_edit(c, md_core::doc::FocusBias::Neutral);
+                    let c = self.snap_to_cluster(c);
                     self.select_anchor = None;
                     self.state.selection = None;
                     self.state.cursor = c;
@@ -196,6 +210,7 @@ impl EditorView {
 
     pub(super) fn apply_click_hit(&mut self, c: Cursor, click: PendingClick) {
         self.abort_composing();
+        self.vertical_column = None;
         self.place_pointer_cursor(c, click.motion);
         if click.motion == CursorMotion::Move {
             self.select_anchor = Some(self.state.cursor);
@@ -344,7 +359,7 @@ impl EditorView {
         if a.block != b.block {
             return String::new();
         }
-        let Some(t) = self.state.doc.text(a.block) else {
+        let Some(t) = self.state.doc.caret_text(a.block) else {
             return String::new();
         };
         let (s, e) = if a.offset <= b.offset {

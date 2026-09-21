@@ -6,7 +6,7 @@ use super::scrollbar::{
 use super::{
     CompatKey, CursorMotion, EditorElement, EditorView, ImagePopover, MathPopover, PaintFault,
     PendingClick, PendingPage, PendingVertical, PrepaintState, ReadingStep, ScrollUnit,
-    StableFrame, VerticalVerify, Viewfinder, popover,
+    StableFrame, VerticalColumn, VerticalVerify, Viewfinder, popover,
 };
 use gpui::{App, Bounds, Context, Pixels, Window};
 use md_content::shaper::{GpuiShaper, ShapeMedia};
@@ -1065,8 +1065,24 @@ impl EditorView {
         let cur = self.state.cursor;
         let row_before = caret_row_in(frame, cur.block);
         let in_table = self.state.doc.in_table(cur.block);
+        let table_target = if in_table {
+            let step = if dir < 0 {
+                TableStep::Above
+            } else {
+                TableStep::Below
+            };
+            self.state.doc.table_step(cur, step).map(|c| c.block)
+        } else {
+            None
+        };
+        let remembered = self
+            .vertical_column
+            .filter(|v| v.caret == cur)
+            .map(|v| v.column);
+        let mut column = None;
         if let Some((cx_raw, mut cy0, _cw, ch)) = frame.caret_device {
-            let mut cx0 = vert.column.unwrap_or(cx_raw);
+            let mut cx0 = vert.column.or(remembered).unwrap_or(cx_raw);
+            column = Some(cx0);
             if let Some(t) = frame
                 .texts
                 .iter()
@@ -1076,6 +1092,15 @@ impl EditorView {
                 cx0 -= s.x;
                 cy0 -= s.y;
             }
+            let advances = |c: Cursor, y: Px| {
+                if c.block != cur.block {
+                    return true;
+                }
+                match (row_before, row_at_offset_y(frame, c.block, y)) {
+                    (Some(before), Some(now)) => (now - before) * dir as i64 > 0,
+                    _ => true,
+                }
+            };
             let step = lh * 0.25 * dir as Px;
             let mut y = if dir < 0 {
                 cy0 - lh * 0.5
@@ -1090,7 +1115,8 @@ impl EditorView {
                     gear.shaper,
                     |id| well_scroll_xy(&self.well_scroll, id),
                 ) && c != cur
-                    && (!in_table || c.block == cur.block)
+                    && (!in_table || c.block == cur.block || Some(c.block) == table_target)
+                    && advances(c, y)
                 {
                     self.place_cursor(c, vert.motion);
                     moved = true;
@@ -1133,7 +1159,7 @@ impl EditorView {
             } else {
                 self.state.doc.sibling_leaf(cur.block, dir).map(|nb| {
                     let off = if dir < 0 {
-                        self.state.doc.text(nb).map_or(0, |t| t.len())
+                        self.state.doc.caret_text(nb).map_or(0, |t| t.len())
                     } else {
                         0
                     };
@@ -1147,6 +1173,12 @@ impl EditorView {
                 self.place_cursor(c, vert.motion);
                 moved = true;
             }
+        }
+        if moved && let Some(column) = column {
+            self.vertical_column = Some(VerticalColumn {
+                column,
+                caret: self.state.cursor,
+            });
         }
         moved
     }
@@ -1200,8 +1232,7 @@ impl EditorView {
     }
 }
 
-fn caret_row_in(frame: &Frame, block: BlockId) -> Option<i64> {
-    let (_, cy, _, _) = frame.caret_device?;
+fn row_at_offset_y(frame: &Frame, block: BlockId, y: Px) -> Option<i64> {
     let (coy, art) = if let Some(t) = frame.texts.iter().find(|t| t.block == block) {
         if is_scroll_well(t.kind, t.edit_source) {
             return None;
@@ -1215,8 +1246,12 @@ fn caret_row_in(frame: &Frame, block: BlockId) -> Option<i64> {
         return None;
     }
     let rows = art.rows.max(1) as i64;
-    let row = md_render::query::row_at_y(art, cy - coy) as i64;
-    Some(row.min(rows - 1))
+    Some((md_render::query::row_at_y(art, y - coy) as i64).min(rows - 1))
+}
+
+fn caret_row_in(frame: &Frame, block: BlockId) -> Option<i64> {
+    let (_, cy, _, ch) = frame.caret_device?;
+    row_at_offset_y(frame, block, cy + ch * 0.5)
 }
 
 fn mark_stale(v: &mut EditorView, cx: &mut Context<'_, EditorView>) {

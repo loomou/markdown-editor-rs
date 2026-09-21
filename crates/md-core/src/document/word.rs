@@ -106,6 +106,23 @@ pub fn next_grapheme_boundary(text: &str, offset: usize) -> usize {
         .unwrap_or(text.len())
 }
 
+pub fn snap_to_grapheme_boundary(text: &str, offset: usize) -> usize {
+    let offset = floor_char_boundary(text, offset.min(text.len()));
+    if offset == 0 || offset >= text.len() {
+        return offset;
+    }
+    let start = prev_grapheme_boundary(text, offset);
+    let end = next_grapheme_boundary(text, start);
+    if end == offset {
+        return offset;
+    }
+    if offset - start <= end - offset {
+        start
+    } else {
+        end
+    }
+}
+
 pub fn word_span(text: &str, offset: usize) -> Option<(usize, usize)> {
     if text.is_empty() {
         return None;
@@ -144,7 +161,7 @@ fn is_word_seg(seg: &str) -> bool {
 mod tests {
     use super::{
         next_grapheme_boundary, next_word_boundary, prev_grapheme_boundary, prev_word_boundary,
-        word_span,
+        snap_to_grapheme_boundary, word_span,
     };
     use unicode_segmentation::UnicodeSegmentation;
 
@@ -247,6 +264,52 @@ mod tests {
         assert_eq!(next_grapheme_boundary(fam, 0), fam.len());
         assert_eq!(prev_grapheme_boundary("", 0), 0);
         assert_eq!(next_grapheme_boundary("", 0), 0);
+    }
+
+    #[test]
+    fn snap_pulls_a_caret_out_of_the_middle_of_a_cluster() {
+        let t = "ab \u{26a0}\u{fe0f} cd";
+        let warn = 3;
+        let vs16 = 6;
+        assert!(
+            t.is_char_boundary(vs16),
+            "the VS16 boundary is a char boundary"
+        );
+        assert_eq!(
+            snap_to_grapheme_boundary(t, vs16),
+            warn,
+            "a caret between the warning sign and its VS16 belongs in front of the pair"
+        );
+        assert_eq!(snap_to_grapheme_boundary(t, warn), warn);
+        assert_eq!(snap_to_grapheme_boundary(t, vs16 + 3), vs16 + 3);
+        assert_eq!(snap_to_grapheme_boundary(t, 0), 0);
+        assert_eq!(snap_to_grapheme_boundary(t, t.len()), t.len());
+
+        let fam = "x\u{1f469}\u{200d}\u{1f4bb}y";
+        let start = 1;
+        let end = fam.len() - 1;
+        assert_eq!(
+            snap_to_grapheme_boundary(fam, start + 4),
+            start,
+            "a caret in the front half of a ZWJ sequence goes in front of it"
+        );
+        assert_eq!(
+            snap_to_grapheme_boundary(fam, end - 2),
+            end,
+            "a caret in the back half lands behind it"
+        );
+
+        for i in 0..=fam.len() {
+            let s = snap_to_grapheme_boundary(fam, i);
+            assert!(
+                fam.is_char_boundary(s),
+                "snapping {i} left a partial character"
+            );
+            assert!(
+                s == 0 || next_grapheme_boundary(fam, prev_grapheme_boundary(fam, s)) == s,
+                "snapping {i} left the caret inside a cluster"
+            );
+        }
     }
 
     #[test]

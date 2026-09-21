@@ -54,7 +54,7 @@ pub use metrics::{reset as metrics_reset, snapshot as metrics_snapshot};
 pub use text::LeafSnapshot;
 pub use word::{
     next_grapheme_boundary, next_word_boundary, prev_grapheme_boundary, prev_word_boundary,
-    word_span,
+    snap_to_grapheme_boundary, word_span,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
