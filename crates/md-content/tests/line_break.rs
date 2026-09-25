@@ -38,6 +38,57 @@ fn seam_bytes(line: &WrappedLine) -> impl Iterator<Item = usize> + '_ {
     })
 }
 
+fn glyphs(line: &WrappedLine) -> Vec<(usize, f32)> {
+    line.unwrapped_layout
+        .runs
+        .iter()
+        .flat_map(|run| {
+            run.glyphs
+                .iter()
+                .map(|glyph| (glyph.index, f32::from(glyph.position.x)))
+        })
+        .collect()
+}
+
+fn row_bounds(line: &WrappedLine) -> Vec<(usize, usize)> {
+    let mut cuts = vec![0usize];
+    for boundary in &line.wrap_boundaries {
+        let before: usize = line
+            .unwrapped_layout
+            .runs
+            .iter()
+            .take(boundary.run_ix)
+            .map(|run| run.glyphs.len())
+            .sum();
+        cuts.push(before + boundary.glyph_ix);
+    }
+    cuts.push(glyphs(line).len());
+    cuts.windows(2).map(|pair| (pair[0], pair[1])).collect()
+}
+
+fn row_ink(line: &WrappedLine, row: usize) -> f32 {
+    let all = glyphs(line);
+    let (start, end) = row_bounds(line)[row];
+    let text: &str = line.text.as_ref();
+    let last = (start..end)
+        .rev()
+        .find(|&at| {
+            !text[all[at].0..]
+                .chars()
+                .next()
+                .is_some_and(char::is_whitespace)
+        })
+        .expect("the samples never end a row on whitespace alone");
+    let right = all
+        .get(last + 1)
+        .map_or(f32::from(line.unwrapped_layout.width), |&(_, x)| x);
+    right - all[start].1
+}
+
+fn positions(art: &ShapeArtifact) -> Vec<Vec<(usize, f32)>> {
+    art.lines.iter().map(glyphs).collect()
+}
+
 fn seams(art: &ShapeArtifact) -> Vec<usize> {
     art.lines.iter().flat_map(seam_bytes).collect()
 }
@@ -204,42 +255,49 @@ fn optimal_rows_cover_every_boundary(cx: &mut TestAppContext) {
     });
 }
 
+fn seams_round_trip(window: &gpui::Window, app: &gpui::App, mode: LineBreakMode, width: f64) {
+    let shaper = shaper_for(window, app, mode);
+    let art = shaper.artifact(
+        CHINESE,
+        &[],
+        width,
+        BlockKind::Paragraph,
+        ShapeIdentity::default(),
+    );
+    assert!(
+        art.rows >= 3,
+        "premise: the paragraph wrapped over several rows"
+    );
+    for row in 1..art.rows {
+        let start = shaper.offset_for_position(&art, 0.0, row, InlineAlign::Start, width);
+        assert!(start > 0, "row {row} must start past the first row");
+        let caret = shaper.caret_position_for_offset(&art, start, InlineAlign::Start, width);
+        assert_eq!(caret.1, row, "the caret on the seam belongs to row {row}");
+        assert_eq!(caret.0, 0.0, "the caret on the seam sits at the left edge");
+        let selection = shaper.position_for_offset(&art, start, InlineAlign::Start, width);
+        assert_eq!(
+            selection.1,
+            row - 1,
+            "a selection ending on the seam still ends the row above it"
+        );
+        let again = shaper.offset_for_position(&art, 0.0, row, InlineAlign::Start, width);
+        assert_eq!(
+            again, start,
+            "the seam must be stable across a second lookup"
+        );
+    }
+}
+
 #[gpui::test]
 fn optimal_line_seams_round_trip(cx: &mut TestAppContext) {
     let cx = cx.add_empty_window();
-    cx.update(|window, app| {
-        let width = 90.0;
-        let shaper = shaper_for(window, app, LineBreakMode::Optimal);
-        let art = shaper.artifact(
-            CHINESE,
-            &[],
-            width,
-            BlockKind::Paragraph,
-            ShapeIdentity::default(),
-        );
-        assert!(
-            art.rows >= 3,
-            "premise: the paragraph wrapped over several rows"
-        );
-        for row in 1..art.rows {
-            let start = shaper.offset_for_position(&art, 0.0, row, InlineAlign::Start, width);
-            assert!(start > 0, "row {row} must start past the first row");
-            let caret = shaper.caret_position_for_offset(&art, start, InlineAlign::Start, width);
-            assert_eq!(caret.1, row, "the caret on the seam belongs to row {row}");
-            assert_eq!(caret.0, 0.0, "the caret on the seam sits at the left edge");
-            let selection = shaper.position_for_offset(&art, start, InlineAlign::Start, width);
-            assert_eq!(
-                selection.1,
-                row - 1,
-                "a selection ending on the seam still ends the row above it"
-            );
-            let again = shaper.offset_for_position(&art, 0.0, row, InlineAlign::Start, width);
-            assert_eq!(
-                again, start,
-                "the seam must be stable across a second lookup"
-            );
-        }
-    });
+    cx.update(|window, app| seams_round_trip(window, app, LineBreakMode::Optimal, 90.0));
+}
+
+#[gpui::test]
+fn justify_line_seams_round_trip(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| seams_round_trip(window, app, LineBreakMode::Justify, 90.0));
 }
 
 #[gpui::test]
@@ -280,6 +338,178 @@ fn code_blocks_never_take_the_optimal_path(cx: &mut TestAppContext) {
                 art.lines.iter().all(|line| line.wrap_boundaries.is_empty()),
                 "{kind:?} must not wrap in either mode"
             );
+        }
+    });
+}
+
+fn justify_cases() -> [(String, BlockKind, f32); 4] {
+    [
+        (CHINESE.to_owned(), BlockKind::Paragraph, 200.0),
+        (format!("{CHINESE}{CHINESE}"), BlockKind::Paragraph, 260.0),
+        (LATIN.to_owned(), BlockKind::Paragraph, 220.0),
+        (REPEATED.repeat(2), BlockKind::Paragraph, 240.0),
+    ]
+}
+
+#[gpui::test]
+fn justify_mode_fills_the_measure(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let mut filled = 0usize;
+        for (text, kind, width) in justify_cases() {
+            let art = plan(window, app, LineBreakMode::Justify, &text, kind, f64::from(width));
+            for (line_ix, line) in art.lines.iter().enumerate() {
+                let rows = row_bounds(line).len();
+                for row in 0..rows.saturating_sub(1) {
+                    filled += 1;
+                    let ink = row_ink(line, row);
+                    assert!(
+                        (ink - width).abs() < 0.5,
+                        "{kind:?} {text:?} line {line_ix} row {row} ends at {ink}px, not at {width}px"
+                    );
+                }
+            }
+        }
+        assert!(
+            filled >= 6,
+            "premise: the samples wrapped into several rows, got {filled}"
+        );
+    });
+}
+
+#[gpui::test]
+fn justify_mode_leaves_the_ragged_rows_alone(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let mut checked = 0usize;
+        for (text, kind, width) in justify_cases() {
+            let art = plan(window, app, LineBreakMode::Justify, &text, kind, f64::from(width));
+            for line in &art.lines {
+                let rows = row_bounds(line);
+                for row in rows.len().saturating_sub(1)..rows.len() {
+                    checked += 1;
+                    let ink = row_ink(line, row);
+                    assert!(
+                        ink < width - 1.0,
+                        "{kind:?} {text:?} row {row} was stretched to {ink}px in a {width}px measure"
+                    );
+                }
+            }
+        }
+        assert!(checked >= 4, "premise: {checked} rows were measured");
+    });
+}
+
+#[gpui::test]
+fn a_hard_break_ends_an_unjustified_row(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let text = format!("{LATIN}\n{LATIN}");
+        let width = 90.0;
+        let art = plan(
+            window,
+            app,
+            LineBreakMode::Justify,
+            &text,
+            BlockKind::Paragraph,
+            width,
+        );
+        assert_eq!(art.lines.len(), 2, "premise: two hard lines");
+        for line in &art.lines {
+            let rows = row_bounds(line);
+            assert!(rows.len() >= 2, "premise: each hard line wrapped");
+            let last = rows.len() - 1;
+            assert!(
+                row_ink(line, last) < width as f32 - 1.0,
+                "the row in front of a newline was stretched to the measure"
+            );
+        }
+    });
+}
+
+#[gpui::test]
+fn justify_mode_widens_the_gaps_optimal_leaves_alone(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let mut moved = 0usize;
+        for (text, kind, width) in justify_cases() {
+            let optimal = plan(window, app, LineBreakMode::Optimal, &text, kind, f64::from(width));
+            let justify = plan(window, app, LineBreakMode::Justify, &text, kind, f64::from(width));
+            if positions(&optimal) != positions(&justify) {
+                moved += 1;
+            }
+        }
+        assert!(
+            moved >= 3,
+            "justify only moved the glyphs in {moved} of the samples, so the shifts are probably not wired up"
+        );
+    });
+}
+
+#[gpui::test]
+fn headings_and_cells_are_never_justified(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        for (text, kind) in [
+            (LATIN, BlockKind::Heading(1)),
+            (LATIN, BlockKind::Heading(3)),
+            (CHINESE, BlockKind::TableCell),
+        ] {
+            let optimal = plan(window, app, LineBreakMode::Optimal, text, kind, 60.0);
+            let justify = plan(window, app, LineBreakMode::Justify, text, kind, 60.0);
+            assert_eq!(
+                positions(&optimal),
+                positions(&justify),
+                "{kind:?} should ignore the justify setting"
+            );
+            assert_eq!(seams(&optimal), seams(&justify));
+        }
+    });
+}
+
+#[gpui::test]
+fn a_caret_on_a_justified_row_sits_where_the_text_was_drawn(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let width = 220.0;
+        let shaper = shaper_for(window, app, LineBreakMode::Justify);
+        let art = shaper.artifact(
+            LATIN,
+            &[],
+            width,
+            BlockKind::Paragraph,
+            ShapeIdentity::default(),
+        );
+        assert!(art.rows >= 3, "premise: the paragraph wrapped");
+        for line in &art.lines {
+            let all = glyphs(line);
+            let text: &str = line.text.as_ref();
+            let rows = row_bounds(line);
+            for (row, (start, end)) in rows.iter().copied().enumerate() {
+                if row + 1 == rows.len() {
+                    break;
+                }
+                let at = (start..end)
+                    .rev()
+                    .find(|&at| {
+                        !text[all[at].0..]
+                            .chars()
+                            .next()
+                            .is_some_and(char::is_whitespace)
+                    })
+                    .expect("a justified row ends on ink");
+                let right = all
+                    .get(at + 1)
+                    .map_or(f32::from(line.unwrapped_layout.width), |&(_, x)| x);
+                let advance = f64::from(right - all[at].1);
+                let (x, seen) =
+                    shaper.position_for_offset(&art, all[at].0, InlineAlign::Start, width);
+                assert_eq!(seen as usize, row, "the offset maps back to its own row");
+                assert!(
+                    (x + advance - width).abs() < 0.5,
+                    "row {row}: the caret on the last glyph sits at {x}px and the glyph is {advance}px wide, but the measure is {width}px"
+                );
+            }
         }
     });
 }

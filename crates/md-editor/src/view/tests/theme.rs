@@ -180,6 +180,68 @@ fn switching_the_line_break_mode_relayouts_the_paragraph(cx: &mut TestAppContext
 }
 
 #[gpui::test]
+fn a_selection_across_a_justified_row_reaches_the_right_margin(cx: &mut TestAppContext) {
+    use md_core::block::BlockKind;
+    use md_core::doc::Cursor;
+
+    let line = "这是一个很长的中文段落，它包含「引号」、括号（以及）标点：需要正确地避头尾排版，不能把标点丢到行首，也不能把开括号留在行尾！";
+    let text = format!("{line}{line}{line}");
+    let (editor, cx) = editor_with_doc(&format!("{text}\n"), cx);
+    focus_editor(&editor, cx);
+    cx.update(|_, app| {
+        editor.update(app, |v, cx| {
+            let mut themed = v.state.theme;
+            themed.line_break.mode = LineBreakMode::Justify;
+            v.set_theme(themed, cx);
+        });
+    });
+    cx.update(|_, app| {
+        editor.update(app, |v, _| {
+            let block = v.state.doc.text_leaves()[0];
+            let end = text.len();
+            v.state.cursor = Cursor { block, offset: end };
+            v.state.selection = Some((Cursor { block, offset: 0 }, Cursor { block, offset: end }));
+        });
+    });
+
+    let drawn = cx.draw(
+        point(px(0.0), px(0.0)),
+        size(px(800.0), px(600.0)),
+        |_, _| EditorElement {
+            state: editor.clone(),
+        },
+    );
+    let snap = drawn.1.frame.snapshot;
+    let piece = snap
+        .texts
+        .iter()
+        .find(|piece| piece.kind == BlockKind::Paragraph)
+        .expect("the paragraph is in the publish window")
+        .clone();
+    let inner = piece.content_width;
+    let rects = &snap.selection_device;
+    assert!(
+        rects.len() >= 3,
+        "premise: the paragraph wrapped into several rows, got {}",
+        rects.len()
+    );
+    for (row, rect) in rects.iter().enumerate() {
+        if row + 1 == rects.len() {
+            continue;
+        }
+        assert!(
+            (rect.2 - inner).abs() < 1.0,
+            "row {row} of the selection is {}px wide in a {inner}px measure",
+            rect.2
+        );
+    }
+    assert!(
+        rects.last().expect("a selection rect").2 < inner - 1.0,
+        "the last row of the selection was stretched to the measure"
+    );
+}
+
+#[gpui::test]
 fn the_engine_never_holds_a_layout_theme_the_view_has_moved_on_from(cx: &mut TestAppContext) {
     let (editor, cx) = editor_with_doc("# t\n\npara with some words\n\n- a\n- b\n", cx);
     focus_editor(&editor, cx);

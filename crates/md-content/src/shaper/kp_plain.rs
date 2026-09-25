@@ -1,11 +1,11 @@
 use super::resolved::ResolvedType;
-use gpui::{WrapBoundary, WrappedLine, WrappedLineLayout, px};
+use gpui::{LineLayout, ShapedRun, WrapBoundary, WrappedLine, WrappedLineLayout, px};
 use md_core::Px;
 use md_core::block::BlockKind;
 use md_core::inline::{InlineMarks, InlineRun};
 use md_layout::linebreak::{
-    Clusters, ItemCtx, Mode, OppCtx, Params, Plan, break_lines, build_items, has_complex_context,
-    opportunities,
+    Clusters, ItemCtx, Mode, OppCtx, Params, Plan, break_lines, build_items, glyph_shifts,
+    has_complex_context, opportunities,
 };
 use md_theme::{LineBreakMode, LineBreakTokens};
 use smallvec::SmallVec;
@@ -19,6 +19,11 @@ struct Ctx<'a> {
     em: f32,
     width: f32,
     params: &'a Params,
+}
+
+struct Planned {
+    boundaries: SmallVec<[WrapBoundary; 1]>,
+    shifts: Vec<(u32, f32)>,
 }
 
 pub(super) fn apply(
@@ -50,15 +55,20 @@ pub(super) fn apply(
     }
     let mut planned = Vec::with_capacity(lines.len());
     for (line, span) in lines.iter().zip(&spans) {
-        let Some(boundaries) = plan_line(line, span, &ctx) else {
+        let Some(planned_line) = plan_line(line, span, &ctx) else {
             return false;
         };
-        planned.push(boundaries);
+        planned.push(planned_line);
     }
-    for (line, boundaries) in lines.iter_mut().zip(planned) {
+    for (line, planned) in lines.iter_mut().zip(planned) {
+        let unwrapped_layout = if planned.shifts.is_empty() {
+            Arc::clone(&line.unwrapped_layout)
+        } else {
+            Arc::new(shifted_layout(&line.unwrapped_layout, &planned.shifts))
+        };
         let layout = WrappedLineLayout {
-            unwrapped_layout: Arc::clone(&line.unwrapped_layout),
-            wrap_boundaries: boundaries,
+            unwrapped_layout,
+            wrap_boundaries: planned.boundaries,
             wrap_width: Some(px(ctx.width)),
         };
         *DerefMut::deref_mut(line) = Arc::new(layout);
@@ -66,14 +76,13 @@ pub(super) fn apply(
     true
 }
 
-fn plan_line(
-    line: &WrappedLine,
-    span: &Range<usize>,
-    ctx: &Ctx<'_>,
-) -> Option<SmallVec<[WrapBoundary; 1]>> {
+fn plan_line(line: &WrappedLine, span: &Range<usize>, ctx: &Ctx<'_>) -> Option<Planned> {
     let text: &str = line.text.as_ref();
     if text.is_empty() {
-        return Some(SmallVec::new());
+        return Some(Planned {
+            boundaries: SmallVec::new(),
+            shifts: Vec::new(),
+        });
     }
     if has_complex_context(text) {
         return None;
@@ -100,7 +109,13 @@ fn plan_line(
     let opps = opportunities(text, &OppCtx { glue_before: &[] });
     let items = build_items(text, &clusters, &opps, &item_ctx);
     let plan = break_lines(text, &items, ctx.width, ctx.em, ctx.mode, ctx.params);
-    boundaries_of(line, &plan)
+    let boundaries = boundaries_of(line, &plan)?;
+    let shifts = if ctx.mode == Mode::Justify {
+        glyph_shifts(&plan, &items)
+    } else {
+        Vec::new()
+    };
+    Some(Planned { boundaries, shifts })
 }
 
 fn boundaries_of(line: &WrappedLine, plan: &Plan) -> Option<SmallVec<[WrapBoundary; 1]>> {
@@ -123,6 +138,39 @@ fn boundary_at(line: &WrappedLine, byte: u32) -> Option<WrapBoundary> {
         }
     }
     None
+}
+
+fn shifted_layout(base: &LineLayout, shifts: &[(u32, f32)]) -> LineLayout {
+    let total = shifts.last().map_or(0.0, |&(_, shift)| shift);
+    let runs = base
+        .runs
+        .iter()
+        .map(|run| ShapedRun {
+            font_id: run.font_id,
+            glyphs: run
+                .glyphs
+                .iter()
+                .map(|glyph| {
+                    let mut glyph = glyph.clone();
+                    glyph.position.x += px(shift_at(shifts, glyph.index));
+                    glyph
+                })
+                .collect(),
+        })
+        .collect();
+    LineLayout {
+        font_size: base.font_size,
+        width: base.width + px(total),
+        ascent: base.ascent,
+        descent: base.descent,
+        runs,
+        len: base.len,
+    }
+}
+
+fn shift_at(shifts: &[(u32, f32)], byte: usize) -> f32 {
+    let at = shifts.partition_point(|&(at, _)| at as usize <= byte);
+    if at == 0 { 0.0 } else { shifts[at - 1].1 }
 }
 
 fn clusters_of(line: &WrappedLine) -> Option<Clusters> {
@@ -180,11 +228,16 @@ fn expanded(range: Range<u32>, tab_source: Option<&str>) -> Range<u32> {
 }
 
 fn mode_for(kind: BlockKind, setting: LineBreakMode) -> Mode {
-    match (kind, setting) {
-        (BlockKind::Heading(_), _) => Mode::Balanced,
-        (BlockKind::TableCell, _) => Mode::Ragged,
-        (_, LineBreakMode::Greedy | LineBreakMode::Optimal | LineBreakMode::Justify) => {
-            Mode::Ragged
-        }
+    match kind {
+        BlockKind::Heading(_) => Mode::Balanced,
+        BlockKind::TableCell | BlockKind::CodeBlock | BlockKind::MetadataBlock => Mode::Ragged,
+        BlockKind::Paragraph
+        | BlockKind::ListItem
+        | BlockKind::BlockQuote
+        | BlockKind::FootnoteDefinition => match setting {
+            LineBreakMode::Justify => Mode::Justify,
+            LineBreakMode::Greedy | LineBreakMode::Optimal => Mode::Ragged,
+        },
+        _ => Mode::Ragged,
     }
 }
