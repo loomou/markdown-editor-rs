@@ -5,11 +5,12 @@ use super::cache::Key;
 use super::color::color_runs_by_line;
 use super::resolved::ResolvedType;
 use crate::gpui_theme::{ThemeColorExt, font_style, font_weight};
-use gpui::{Hsla, StrikethroughStyle, TextRun, UnderlineStyle, WrappedLine, px};
+use gpui::{Hsla, SharedString, StrikethroughStyle, TextRun, UnderlineStyle, WrappedLine, px};
 use md_core::Px;
 use md_core::block::BlockKind;
 use md_core::inline::{InlineMarks, InlineRun, covering_runs};
 use md_layout::shaper::ShapeIdentity;
+use md_theme::LineBreakMode;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
@@ -260,18 +261,45 @@ impl GpuiShaper {
         } else {
             Vec::new()
         };
-        let wrap = if matches!(block_kind, BlockKind::CodeBlock | BlockKind::MetadataBlock) {
+        let is_code_like = matches!(block_kind, BlockKind::CodeBlock | BlockKind::MetadataBlock);
+        let optimal = !is_code_like && self.line_break.mode != LineBreakMode::Greedy;
+        let wrap = if is_code_like || optimal {
             None
         } else {
             Some(px(avail_width as f32))
         };
         let (shaped, styled, tab_source) = super::tabs::prepare_shape(text, styled);
-        let lines: Vec<WrappedLine> = self
+        let shaped: SharedString = shaped.into();
+        let mut lines: Vec<WrappedLine> = self
             .text_system
-            .shape_text(shaped.into(), role.font_size, &styled, wrap, None)
+            .shape_text(shaped.clone(), role.font_size, &styled, wrap, None)
             .expect("shape_text")
             .into_iter()
             .collect();
+        if optimal
+            && !super::kp_plain::apply(
+                &mut lines,
+                avail_width,
+                role,
+                block_kind,
+                self.line_break,
+                runs,
+                tab_source.as_deref(),
+            )
+        {
+            lines = self
+                .text_system
+                .shape_text(
+                    shaped,
+                    role.font_size,
+                    &styled,
+                    Some(px(avail_width as f32)),
+                    None,
+                )
+                .expect("shape_text")
+                .into_iter()
+                .collect();
+        }
 
         let rows: u32 = lines
             .iter()

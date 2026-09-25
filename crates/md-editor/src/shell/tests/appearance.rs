@@ -61,6 +61,30 @@ fn the_appearance_rows_reach_the_document_theme(cx: &mut TestAppContext) {
     assert_eq!(t.edge_scale, Density::Compact.edge_scale());
 }
 
+#[gpui::test]
+fn the_line_break_choice_reaches_the_document_theme(cx: &mut TestAppContext) {
+    use md_theme::LineBreakMode;
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
+    stop_blink(&shell, cx);
+    assert_eq!(
+        shell.read_with(cx, |s, app| s.editor.read(app).state.theme.line_break.mode),
+        LineBreakMode::Greedy,
+        "premise: the factory default is the greedy path"
+    );
+
+    cx.update(|_, app| {
+        shell.update(app, |s, cx| {
+            s.settings.appearance.line_break = LineBreakMode::Justify;
+            s.appearance_changed(cx);
+        });
+    });
+    assert_eq!(
+        shell.read_with(cx, |s, app| s.editor.read(app).state.theme.line_break.mode),
+        LineBreakMode::Justify,
+        "the setting did not reach the theme the shaper reads"
+    );
+}
+
 #[test]
 fn the_font_slider_maps_the_track_onto_the_size_range() {
     let track = gpui::Bounds {

@@ -4,6 +4,7 @@ pub mod compose;
 pub mod flow;
 pub mod hot_path;
 pub mod island;
+pub mod linebreak;
 pub mod shaper;
 pub mod spine;
 pub mod style;

@@ -1,5 +1,5 @@
 use gpui::WindowTextSystem;
-use md_theme::{DecorationTokens, InlineTokens, SyntaxTokens};
+use md_theme::{DecorationTokens, InlineTokens, LineBreakTokens, SyntaxTokens};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -15,6 +15,8 @@ mod cache;
 mod color;
 mod flow;
 mod flow_text;
+mod kp_bands;
+mod kp_plain;
 mod measure;
 mod position;
 mod resolved;
@@ -51,6 +53,7 @@ pub struct GpuiShaper {
     block_image_dest: Rc<HashMap<u32, String>>,
     block_code_lang: Rc<HashMap<u32, String>>,
     syntax: SyntaxTokens,
+    line_break: LineBreakTokens,
     math_gen: u64,
     image_gen: u64,
 }

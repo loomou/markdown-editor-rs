@@ -89,6 +89,35 @@ impl Density {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum LineBreakMode {
+    #[default]
+    Greedy,
+    Optimal,
+    Justify,
+}
+
+impl LineBreakMode {
+    pub const ALL: [LineBreakMode; 3] = [Self::Greedy, Self::Optimal, Self::Justify];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Greedy => "greedy",
+            Self::Optimal => "optimal",
+            Self::Justify => "justify",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Self> {
+        match key {
+            "greedy" => Some(Self::Greedy),
+            "optimal" => Some(Self::Optimal),
+            "justify" => Some(Self::Justify),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Appearance {
     pub variant: ThemeVariant,
@@ -96,6 +125,7 @@ pub struct Appearance {
     pub code_font: Option<String>,
     pub body_size_px: f32,
     pub density: Density,
+    pub line_break: LineBreakMode,
     pub colors: [ColorOverrides; ThemeVariant::COUNT],
 }
 
@@ -122,6 +152,7 @@ impl Appearance {
     pub fn document_theme(&self) -> DocumentTheme {
         let mut theme = self.variant.document_theme();
         theme.edge_scale = self.density.edge_scale();
+        theme.line_break.mode = self.line_break;
 
         let k = self.body_size_px / Self::BASE_BODY_SIZE_PX;
         let body_family: &'static str = match &self.body_font {
@@ -156,6 +187,7 @@ impl Default for Appearance {
             code_font: None,
             body_size_px: Self::BASE_BODY_SIZE_PX,
             density: Density::default(),
+            line_break: LineBreakMode::default(),
             colors: [ColorOverrides::default(); ThemeVariant::COUNT],
         }
     }
@@ -163,7 +195,7 @@ impl Default for Appearance {
 
 #[cfg(test)]
 mod tests {
-    use super::{Appearance, Density, ThemeVariant};
+    use super::{Appearance, Density, LineBreakMode, ThemeVariant};
     use crate::{ColorSlot, DocumentTheme, SYSTEM_MONO, SYSTEM_UI, ThemeColor};
 
     #[test]
@@ -293,8 +325,12 @@ mod tests {
         for d in Density::ALL {
             assert_eq!(Density::from_key(d.key()), Some(d));
         }
+        for m in LineBreakMode::ALL {
+            assert_eq!(LineBreakMode::from_key(m.key()), Some(m));
+        }
         assert_eq!(ThemeVariant::from_key("gruvbox"), None);
         assert_eq!(Density::from_key(""), None);
+        assert_eq!(LineBreakMode::from_key("ragged"), None);
         for (i, v) in ThemeVariant::ALL.iter().enumerate() {
             assert_eq!(v.index(), i);
         }

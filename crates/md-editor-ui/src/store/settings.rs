@@ -1,7 +1,7 @@
 use crate::keymap::{Chord, Cmd, Keymap};
 use crate::platform::fs_atomic::write_bytes_atomic;
 use md_i18n::Lang;
-use md_theme::{Appearance, ColorSlot, Density, ThemeColor, ThemeVariant};
+use md_theme::{Appearance, ColorSlot, Density, LineBreakMode, ThemeColor, ThemeVariant};
 use serde_json::{Map, Value};
 use std::fs;
 use std::io;
@@ -86,6 +86,7 @@ impl Settings {
         }
         root.insert("body_size".into(), (a.body_size_px.round() as i64).into());
         root.insert("density".into(), a.density.key().into());
+        root.insert("line_break".into(), a.line_break.key().into());
         root.insert("autosave".into(), self.autosave.into());
         root.insert("remote_images".into(), self.remote_images.into());
         for variant in ThemeVariant::ALL {
@@ -159,6 +160,13 @@ impl Settings {
             .and_then(Density::from_key)
         {
             out.appearance.density = d;
+        }
+        if let Some(m) = root
+            .get("line_break")
+            .and_then(Value::as_str)
+            .and_then(LineBreakMode::from_key)
+        {
+            out.appearance.line_break = m;
         }
         if let Some(v) = root.get("autosave").and_then(Value::as_bool) {
             out.autosave = v;
@@ -275,7 +283,7 @@ pub fn load_or_default() -> Settings {
 mod tests {
     use super::{Chord, Cmd, LanguageChoice, Settings, SettingsStore};
     use md_i18n::Lang;
-    use md_theme::{ColorSlot, Density, ThemeColor, ThemeVariant};
+    use md_theme::{ColorSlot, Density, LineBreakMode, ThemeColor, ThemeVariant};
     use serde_json::Value;
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -316,6 +324,7 @@ mod tests {
         s.appearance.body_font = Some("Georgia".into());
         s.appearance.code_font = Some("Cascadia Code".into());
         s.appearance.density = Density::Relaxed;
+        s.appearance.line_break = LineBreakMode::Optimal;
         s.appearance = s.appearance.with_body_size_px(19.0);
         s.autosave = true;
         s.remote_images = true;
@@ -348,6 +357,7 @@ mod tests {
                 "  \"theme\": \"one-dark\",\n",
                 "  \"body_size\": 16,\n",
                 "  \"density\": \"normal\",\n",
+                "  \"line_break\": \"greedy\",\n",
                 "  \"autosave\": false,\n",
                 "  \"remote_images\": false,\n",
                 "  \"one-dark\": {\n",
@@ -442,6 +452,7 @@ mod tests {
             "version": 1,
             "theme": "one-light",
             "density": "nrmal",
+            "line_break": "ragged",
             "body_size": "huge",
             "autosave": "yes",
             "body_font": 7,
@@ -451,6 +462,7 @@ mod tests {
         let d = Settings::default();
         assert_eq!(parsed.appearance.variant, ThemeVariant::OneLight);
         assert_eq!(parsed.appearance.density, Density::default());
+        assert_eq!(parsed.appearance.line_break, LineBreakMode::default());
         assert_eq!(parsed.appearance.body_size_px, d.appearance.body_size_px);
         assert_eq!(parsed.autosave, d.autosave);
         assert_eq!(parsed.appearance.body_font, d.appearance.body_font);
@@ -532,7 +544,7 @@ mod tests {
         let Some(Value::Object(root)) = serde_json::from_str(&text).ok() else {
             panic!("{text}");
         };
-        assert_eq!(root.len(), 7, "{text}");
+        assert_eq!(root.len(), 8, "{text}");
         for v in ThemeVariant::ALL {
             assert!(!root.contains_key(v.key()), "{text}");
         }

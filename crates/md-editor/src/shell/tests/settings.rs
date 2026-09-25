@@ -227,6 +227,17 @@ fn every_settings_row_still_fits_in_the_other_language(cx: &mut TestAppContext) 
             Key::SetStartupHint,
             &[Key::SetStartupNew, Key::SetStartupLast][..],
         ),
+        (
+            "line break",
+            "row:SetLineBreak",
+            Key::SetLineBreak,
+            Key::SetLineBreakHint,
+            &[
+                Key::SetLineBreakGreedy,
+                Key::SetLineBreakOptimal,
+                Key::SetLineBreakJustify,
+            ][..],
+        ),
     ] {
         let column = f32::from(
             cx.debug_bounds(selector)

@@ -72,6 +72,7 @@ impl GpuiShaper {
             block_image_dest,
             block_code_lang,
             syntax: theme.syntax,
+            line_break: theme.line_break,
             math_gen,
             image_gen,
         }
@@ -88,6 +89,7 @@ impl GpuiShaper {
         self.decoration.fingerprint().hash(&mut h);
         format!("{:?}", self.roles).hash(&mut h);
         self.syntax.fingerprint().hash(&mut h);
+        format!("{:?}", self.line_break).hash(&mut h);
         h.finish()
     }
 
