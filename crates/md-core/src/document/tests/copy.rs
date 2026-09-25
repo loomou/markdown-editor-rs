@@ -211,6 +211,56 @@ fn table_cells_copy_as_plain_text() {
 }
 
 #[test]
+fn a_whole_table_copies_with_its_structure() {
+    let src = "| a | b |\n| --- | --- |\n| c | d |\n";
+    let doc = load_markdown(src, editor_options());
+    let copied = doc.copy_markdown(sel(&doc, 0, 0, 3, 1));
+    assert_eq!(copied, "| a | b |\n| --- | --- |\n| c | d |");
+    let again = load_markdown(&copied, editor_options());
+    let want: Vec<_> = doc
+        .text_leaves()
+        .into_iter()
+        .filter_map(|b| doc.kind(b))
+        .collect();
+    let got: Vec<_> = again
+        .text_leaves()
+        .into_iter()
+        .filter_map(|b| again.kind(b))
+        .collect();
+    assert_eq!(want, got, "copied={copied:?}");
+}
+
+#[test]
+fn a_partial_table_selection_still_copies_as_plain_text() {
+    let doc = load_markdown("| a | b |\n| --- | --- |\n| c | d |\n", editor_options());
+    assert_eq!(doc.copy_markdown(sel(&doc, 0, 0, 2, 1)), "a\n\nb\n\nc");
+    assert_eq!(doc.copy_markdown(sel(&doc, 1, 0, 2, 1)), "b\n\nc");
+}
+
+#[test]
+fn a_whole_table_carries_the_reference_its_cells_use() {
+    let doc = load_markdown(
+        "| a | b |\n| --- | --- |\n| [x][r] | d |\n\n[r]: https://ex.test\n",
+        editor_options(),
+    );
+    let copied = doc.copy_markdown(sel(&doc, 0, 0, 3, 1));
+    assert!(copied.starts_with("| a | b |"), "copied={copied:?}");
+    assert!(copied.contains("[r]: https://ex.test"), "copied={copied:?}");
+}
+
+#[test]
+fn a_whole_table_rebuilds_when_it_is_not_pristine() {
+    let doc = load_markdown(
+        "> | a | b |\n> | --- | --- |\n> | c | d |\n",
+        editor_options(),
+    );
+    assert_eq!(
+        doc.copy_markdown(sel(&doc, 0, 0, 3, 1)),
+        "| a | b |\n| --- | --- |\n| c | d |"
+    );
+}
+
+#[test]
 fn range_retarget_keeps_collapsed_inline_slice() {
     let mut doc = load_markdown("hello **bold** world\n", editor_options());
     let leaf = doc.text_leaves()[0];

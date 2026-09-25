@@ -236,6 +236,15 @@ impl Document {
                 i = last + 1;
                 continue;
             }
+            if whole && let Some((table, last)) = self.covered_table(leaves, i, hi_i, to) {
+                let mut piece = String::new();
+                write::write_node(self, table, &mut piece);
+                self.collect_subtree_deps(table, &mut deps.footnotes, &mut deps.links);
+                let piece = piece.trim_end_matches(['\n', '\r']);
+                push_piece(&mut out, piece, true);
+                i = last + 1;
+                continue;
+            }
             group = None;
             if whole
                 && self
@@ -317,6 +326,40 @@ impl Document {
             best = Some((id, end));
         }
         best
+    }
+
+    fn covered_table(
+        &self,
+        leaves: &[BlockId],
+        at: usize,
+        hi_i: usize,
+        to: usize,
+    ) -> Option<(NodeId, usize)> {
+        let leaf = self.live_id(leaves[at])?;
+        let mut up = self.arena.get(leaf).and_then(|n| n.parent);
+        while let Some(id) = up {
+            let Some(node) = self.arena.get(id) else {
+                break;
+            };
+            up = node.parent;
+            if node.kind != BlockKind::Table {
+                continue;
+            }
+            let mut kids = Vec::new();
+            self.subtree_text_leaves(id, &mut kids);
+            let (Some(&first), Some(&last)) = (kids.first(), kids.last()) else {
+                continue;
+            };
+            if first != leaf {
+                continue;
+            }
+            let end = at + kids.len() - 1;
+            if end > hi_i || (end == hi_i && to < self.caret_text(last).len()) {
+                continue;
+            }
+            return Some((id, end));
+        }
+        None
     }
 
     fn covered_footnote(
