@@ -3,7 +3,7 @@ use crate::view::{EditorElement, EditorView};
 use gpui::TestAppContext;
 use gpui::VisualTestContext;
 use gpui::{point, px, size};
-use md_theme::DocumentTheme;
+use md_theme::{DocumentTheme, LineBreakMode};
 use std::rc::Rc;
 
 #[gpui::test]
@@ -111,6 +111,71 @@ fn recoloring_keeps_the_layout_and_the_scroll_position(cx: &mut TestAppContext) 
     assert_ne!(
         resized.1, taller.1,
         "the body line height changed but the total height did not"
+    );
+}
+
+#[gpui::test]
+fn switching_the_line_break_mode_relayouts_the_paragraph(cx: &mut TestAppContext) {
+    let text = "这是一个很长的中文段落，它包含「引号」、括号（以及）标点：需要正确地避头尾排版，不能把标点丢到行首，也不能把开括号留在行尾！";
+    let (editor, cx) = editor_with_doc(&format!("{text}\n"), cx);
+    focus_editor(&editor, cx);
+    let widths = [200.0, 260.0, 320.0, 360.0, 420.0, 480.0];
+    let seams = |cx: &mut VisualTestContext, editor: &gpui::Entity<EditorView>, width: f32| {
+        let (_, prepaint) = cx.draw(
+            point(px(0.0), px(0.0)),
+            size(px(width), px(600.0)),
+            |_, _| EditorElement {
+                state: editor.clone(),
+            },
+        );
+        let art = prepaint
+            .frame
+            .snapshot
+            .texts
+            .iter()
+            .find(|piece| piece.kind == md_core::block::BlockKind::Paragraph)
+            .expect("the paragraph is in the publish window")
+            .art
+            .clone();
+        art.lines
+            .iter()
+            .flat_map(|line| {
+                line.wrap_boundaries
+                    .iter()
+                    .map(|b| line.unwrapped_layout.runs[b.run_ix].glyphs[b.glyph_ix].index)
+            })
+            .collect::<Vec<usize>>()
+    };
+
+    let greedy: Vec<Vec<usize>> = widths
+        .iter()
+        .map(|width| seams(cx, &editor, *width))
+        .collect();
+    assert!(
+        greedy.iter().any(|seams| !seams.is_empty()),
+        "premise: the paragraph wrapped at some of the widths"
+    );
+
+    cx.update(|_, app| {
+        editor.update(app, |v, cx| {
+            let mut themed = v.state.theme;
+            themed.line_break.mode = LineBreakMode::Optimal;
+            v.set_theme(themed, cx);
+            assert_eq!(v.state.theme.line_break.mode, LineBreakMode::Optimal);
+            assert!(
+                v.state.incremental.is_none(),
+                "the old engine survived a line break change"
+            );
+        })
+    });
+
+    let optimal: Vec<Vec<usize>> = widths
+        .iter()
+        .map(|width| seams(cx, &editor, *width))
+        .collect();
+    assert!(
+        greedy != optimal,
+        "switching the mode left every boundary where greedy had put it"
     );
 }
 

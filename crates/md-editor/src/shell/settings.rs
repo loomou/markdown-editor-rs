@@ -10,7 +10,7 @@ use gpui::{
     Stateful, StatefulInteractiveElement, Styled, Window, canvas, div, point, px, rgba,
 };
 use md_i18n::{Key, t as t18};
-use md_theme::{Density, ThemeVariant};
+use md_theme::{Density, LineBreakMode, ThemeVariant};
 use std::rc::Rc;
 
 const SETTINGS_NAV: [Key; 5] = [
@@ -194,6 +194,30 @@ impl Shell {
                                     |shell, i, cx| {
                                         shell.settings.appearance.density =
                                             Density::ALL[i.min(Density::ALL.len() - 1)];
+                                        shell.appearance_changed(cx);
+                                    },
+                                    &this,
+                                )
+                                .into_any_element(),
+                            ),
+                            self.set_row(
+                                t,
+                                Key::SetLineBreak,
+                                t18(Key::SetLineBreakHint),
+                                self.seg_control(
+                                    t,
+                                    &[
+                                        Key::SetLineBreakGreedy,
+                                        Key::SetLineBreakOptimal,
+                                        Key::SetLineBreakJustify,
+                                    ],
+                                    LineBreakMode::ALL
+                                        .iter()
+                                        .position(|m| *m == self.settings.appearance.line_break)
+                                        .unwrap_or(0),
+                                    |shell, i, cx| {
+                                        shell.settings.appearance.line_break =
+                                            LineBreakMode::ALL[i.min(LineBreakMode::ALL.len() - 1)];
                                         shell.appearance_changed(cx);
                                     },
                                     &this,

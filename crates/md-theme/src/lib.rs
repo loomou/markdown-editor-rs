@@ -11,7 +11,7 @@ mod syntax;
 mod type_scale;
 
 pub use app::AppTokens;
-pub use appearance::{Appearance, Density, ThemeVariant};
+pub use appearance::{Appearance, Density, LineBreakMode, ThemeVariant};
 pub use box_scale::BoxScale;
 pub use color::{ColorGroup, ColorOverrides, ColorSlot};
 pub use decoration::DecorationTokens;
@@ -32,6 +32,21 @@ use md_layout::style::{BoxLayoutStyle, Edges};
 use paint::Palette;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LineBreakTokens {
+    pub mode: LineBreakMode,
+    pub params: md_layout::linebreak::Params,
+}
+
+impl Default for LineBreakTokens {
+    fn default() -> Self {
+        Self {
+            mode: LineBreakMode::Greedy,
+            params: md_layout::linebreak::Params::default(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DocumentTheme {
     pub edge_scale: f64,
     pub paint: PaintTokens,
@@ -43,6 +58,7 @@ pub struct DocumentTheme {
     pub inline: InlineTokens,
     pub decoration: DecorationTokens,
     pub syntax: SyntaxTokens,
+    pub line_break: LineBreakTokens,
 }
 
 impl DocumentTheme {
@@ -66,6 +82,7 @@ impl DocumentTheme {
             inline,
             decoration: DecorationTokens::from_palette(&palette),
             syntax,
+            line_break: LineBreakTokens::default(),
         }
     }
 
@@ -139,6 +156,7 @@ impl DocumentTheme {
             inline,
             decoration,
             syntax,
+            line_break: LineBreakTokens::default(),
         }
     }
     pub fn is_dark(&self) -> bool {
@@ -150,6 +168,7 @@ impl DocumentTheme {
             && self.type_scale.without_colors() == other.type_scale.without_colors()
             && self.inline.without_colors() == other.inline.without_colors()
             && self.decoration.without_colors() == other.decoration.without_colors()
+            && self.line_break == other.line_break
     }
 
     pub fn type_role(&self, kind: BlockKind) -> TypeRole {
@@ -466,6 +485,14 @@ mod tests {
         let mut t = base;
         t.decoration.list_marker_gap += 1.0;
         assert!(!base.layout_metrics_eq(&t), "list marker gap");
+
+        let mut t = base;
+        t.line_break.mode = super::LineBreakMode::Optimal;
+        assert!(!base.layout_metrics_eq(&t), "line break mode");
+
+        let mut t = base;
+        t.line_break.params.runt_demerits += 1.0;
+        assert!(!base.layout_metrics_eq(&t), "line break parameter");
     }
 
     #[test]
