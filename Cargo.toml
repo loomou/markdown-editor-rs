@@ -105,6 +105,7 @@ sys-locale = "0.3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
+unicode-linebreak = "0.1.5"
 unicode-segmentation = "1.12"
 
 [profile.release]

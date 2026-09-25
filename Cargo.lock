@@ -3532,6 +3532,8 @@ name = "md-layout"
 version = "0.1.3"
 dependencies = [
  "md-core",
+ "unicode-linebreak",
+ "unicode-segmentation",
 ]
 
 [[package]]
