@@ -3,13 +3,89 @@ use super::atoms::line_atoms;
 use super::bands::{Atom, BandFlow, Pending, bands_to_artifact};
 use super::resolved::ResolvedType;
 use super::{GpuiShaper, SCRIPT_SCALE, SUB_DROP, SUPER_RISE};
-use gpui::px;
+use crate::math::MathEm;
+use gpui::{WrappedLine, px};
 use md_core::Px;
 use md_core::block::BlockKind;
 use md_core::inline::{InlineRun, covering_runs};
 use md_layout::shaper::ShapeIdentity;
+use md_theme::LineBreakMode;
+
+pub(super) struct MeasuredMath {
+    pub(super) metrics: MathEm,
+    pub(super) latex: String,
+    pub(super) display: bool,
+    pub(super) width: f32,
+    pub(super) fallback: Option<Box<WrappedLine>>,
+}
+
+pub(super) struct MeasuredImage {
+    pub(super) dest: String,
+    pub(super) slot_w: f32,
+    pub(super) slot_h: f32,
+    pub(super) fallback: Option<Box<WrappedLine>>,
+}
 
 impl GpuiShaper {
+    pub(super) fn measure_math(
+        &self,
+        latex: &str,
+        display: bool,
+        role: &ResolvedType,
+        avail: Px,
+        font_size: f32,
+        dpr: f32,
+    ) -> MeasuredMath {
+        let recorded = crate::math::metric(&self.math_metrics, latex, display);
+        let fallback = if matches!(recorded, Some(None)) {
+            let raw = if display {
+                format!("$${latex}$$")
+            } else {
+                format!("${latex}$")
+            };
+            Some(Box::new(self.shape_fallback(&raw, role, avail)))
+        } else {
+            None
+        };
+        let metrics = recorded
+            .flatten()
+            .unwrap_or_else(|| crate::math::MathEm::estimate(latex));
+        let width = match &fallback {
+            Some(line) => f32::from(line.width()),
+            None => metrics.box_width(font_size, dpr),
+        };
+        MeasuredMath {
+            metrics,
+            latex: latex.to_string(),
+            display,
+            width,
+            fallback,
+        }
+    }
+
+    pub(super) fn measure_image(
+        &self,
+        dest: String,
+        raw: Option<String>,
+        role: &ResolvedType,
+        avail: Px,
+    ) -> MeasuredImage {
+        let failed = !dest.is_empty() && self.image_failed.contains(dest.as_str());
+        let fallback = raw
+            .filter(|_| failed)
+            .map(|raw| Box::new(self.shape_fallback(&raw, role, avail)));
+        let (slot_w, slot_h) = match &fallback {
+            Some(line) => (f32::from(line.width()), role.row_advance as f32),
+            None => self.image_slot(&dest, avail, true, role),
+        };
+        MeasuredImage {
+            dest,
+            slot_w,
+            slot_h,
+            fallback,
+        }
+    }
+
     pub(super) fn shape_bands(
         &self,
         text: &str,
@@ -59,133 +135,134 @@ impl GpuiShaper {
             flow.flush();
         }
         let atoms = line_atoms(text, runs, self.link_dests.as_ref(), self.link_raw.as_ref());
+        let planned = self.line_break.mode != LineBreakMode::Greedy
+            && super::kp_bands::place(
+                self,
+                text,
+                runs,
+                &atoms,
+                block_kind,
+                self.line_break,
+                &mut flow,
+            );
         let mut last_was_break = false;
-        for atom in atoms {
-            match atom {
-                Atom::Break { offset } => {
-                    last_was_break = true;
-                    if flow.pending.is_empty() && *flow.x == 0.0 {
-                        let line = self.shape_slice(
+        if !planned {
+            for atom in atoms {
+                match atom {
+                    Atom::Break { offset } => {
+                        last_was_break = true;
+                        if flow.pending.is_empty() && *flow.x == 0.0 {
+                            let line = self.shape_slice(
+                                text,
+                                runs,
+                                offset..offset,
+                                role,
+                                role.font_size,
+                                None,
+                            );
+                            flow.pending.push(Pending::Text {
+                                line: Box::new(line),
+                                x: 0.0,
+                                start: offset,
+                                end: offset,
+                                dy: 0.0,
+                            });
+                            flow.flush();
+                        } else {
+                            flow.flush();
+                        }
+                    }
+                    Atom::Text { start, end } => {
+                        last_was_break = false;
+                        self.place_text_slice(
                             text,
                             runs,
-                            offset..offset,
-                            role,
+                            start..end,
                             role.font_size,
-                            None,
+                            0.0,
+                            &mut flow,
                         );
-                        flow.pending.push(Pending::Text {
-                            line: Box::new(line),
-                            x: 0.0,
-                            start: offset,
-                            end: offset,
-                            dy: 0.0,
-                        });
-                        flow.flush();
-                    } else {
-                        flow.flush();
                     }
-                }
-                Atom::Text { start, end } => {
-                    last_was_break = false;
-                    self.place_text_slice(text, runs, start..end, role.font_size, 0.0, &mut flow);
-                }
-                Atom::Script {
-                    start,
-                    end,
-                    super_script,
-                } => {
-                    last_was_break = false;
-                    let sz = px((font_size * SCRIPT_SCALE).max(1.0));
-                    let dy = if super_script {
-                        -font_size * SUPER_RISE
-                    } else {
-                        font_size * SUB_DROP
-                    };
-                    self.place_text_slice(text, runs, start..end, sz, dy, &mut flow);
-                }
-                Atom::Math {
-                    start,
-                    end,
-                    display,
-                } => {
-                    last_was_break = false;
-                    let latex = text.get(start..end).unwrap_or("");
-                    let recorded = crate::math::metric(&self.math_metrics, latex, display);
-                    let fallback = if matches!(recorded, Some(None)) {
-                        let raw = if display {
-                            format!("$${latex}$$")
+                    Atom::Script {
+                        start,
+                        end,
+                        super_script,
+                    } => {
+                        last_was_break = false;
+                        let sz = px((font_size * SCRIPT_SCALE).max(1.0));
+                        let dy = if super_script {
+                            -font_size * SUPER_RISE
                         } else {
-                            format!("${latex}$")
+                            font_size * SUB_DROP
                         };
-                        Some(Box::new(self.shape_fallback(&raw, role, avail)))
-                    } else {
-                        None
-                    };
-                    let metrics = recorded
-                        .flatten()
-                        .unwrap_or_else(|| crate::math::MathEm::estimate(latex));
-                    let w = match &fallback {
-                        Some(line) => f32::from(line.width()),
-                        None => metrics.box_width(font_size, dpr),
-                    };
-                    if *flow.x > 0.0 && *flow.x + w > flow.avail as f32 {
-                        flow.flush();
+                        self.place_text_slice(text, runs, start..end, sz, dy, &mut flow);
                     }
-                    let x = *flow.x;
-                    flow.pending.push(Pending::Math {
-                        x,
-                        metrics,
-                        latex: latex.to_string(),
+                    Atom::Math {
+                        start,
+                        end,
                         display,
-                        start,
-                        end,
-                        fallback,
-                    });
-                    *flow.x += w;
-                }
-                Atom::Image {
-                    start,
-                    end,
-                    dest,
-                    raw,
-                } => {
-                    last_was_break = false;
-                    let failed = !dest.is_empty() && self.image_failed.contains(dest.as_str());
-                    let fallback = raw
-                        .filter(|_| failed)
-                        .map(|raw| Box::new(self.shape_fallback(&raw, role, avail)));
-                    let (slot_w, slot_h) = match &fallback {
-                        Some(line) => (f32::from(line.width()), role.row_advance as f32),
-                        None => self.image_slot(&dest, avail, true, role),
-                    };
-                    if *flow.x > 0.0 && *flow.x + slot_w > flow.avail as f32 {
-                        flow.flush();
+                    } => {
+                        last_was_break = false;
+                        let measured = self.measure_math(
+                            text.get(start..end).unwrap_or(""),
+                            display,
+                            role,
+                            avail,
+                            font_size,
+                            dpr,
+                        );
+                        if *flow.x > 0.0 && *flow.x + measured.width > flow.avail as f32 {
+                            flow.flush();
+                        }
+                        let x = *flow.x;
+                        flow.pending.push(Pending::Math {
+                            x,
+                            metrics: measured.metrics,
+                            latex: measured.latex,
+                            display,
+                            start,
+                            end,
+                            fallback: measured.fallback,
+                        });
+                        *flow.x += measured.width;
                     }
-                    let x = *flow.x;
-                    flow.pending.push(Pending::Image {
-                        x,
-                        dest,
-                        slot_w,
-                        slot_h,
+                    Atom::Image {
                         start,
                         end,
-                        fallback,
-                    });
-                    *flow.x += slot_w;
+                        dest,
+                        raw,
+                    } => {
+                        last_was_break = false;
+                        let measured = self.measure_image(dest, raw, role, avail);
+                        if *flow.x > 0.0 && *flow.x + measured.slot_w > flow.avail as f32 {
+                            flow.flush();
+                        }
+                        let x = *flow.x;
+                        flow.pending.push(Pending::Image {
+                            x,
+                            dest: measured.dest,
+                            slot_w: measured.slot_w,
+                            slot_h: measured.slot_h,
+                            start,
+                            end,
+                            fallback: measured.fallback,
+                        });
+                        *flow.x += measured.slot_w;
+                    }
                 }
             }
-        }
-        if last_was_break && flow.pending.is_empty() && *flow.x == 0.0 {
-            let offset = text.len();
-            let line = self.shape_slice(text, runs, offset..offset, role, role.font_size, None);
-            flow.pending.push(Pending::Text {
-                line: Box::new(line),
-                x: 0.0,
-                start: offset,
-                end: offset,
-                dy: 0.0,
-            });
-            flow.flush();
+            if last_was_break && flow.pending.is_empty() && *flow.x == 0.0 {
+                let offset = text.len();
+                let line = self.shape_slice(text, runs, offset..offset, role, role.font_size, None);
+                flow.pending.push(Pending::Text {
+                    line: Box::new(line),
+                    x: 0.0,
+                    start: offset,
+                    end: offset,
+                    dy: 0.0,
+                });
+                flow.flush();
+            }
         }
         flow.flush();
         let mut art = bands_to_artifact(bands, role);

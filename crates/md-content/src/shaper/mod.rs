@@ -15,6 +15,7 @@ mod cache;
 mod color;
 mod flow;
 mod flow_text;
+mod kp_bands;
 mod kp_plain;
 mod measure;
 mod position;

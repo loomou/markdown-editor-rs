@@ -1,10 +1,11 @@
 use gpui::TestAppContext;
 use gpui::WrappedLine;
-use md_content::shaper::{GpuiShaper, ShapeArtifact, ShapeCache, ShapeMedia};
+use md_content::shaper::{GpuiShaper, ShapeArtifact, ShapeCache, ShapeMedia, ShapePart};
 use md_core::block::BlockKind;
-use md_core::inline::InlineAlign;
+use md_core::inline::{InlineAlign, InlineMarks, InlineRun};
 use md_layout::shaper::ShapeIdentity;
 use md_theme::{DocumentTheme, LineBreakMode};
+use std::ops::Range;
 use std::rc::Rc;
 
 fn media() -> ShapeMedia {
@@ -524,5 +525,364 @@ fn the_mode_is_part_of_the_environment_fingerprint(cx: &mut TestAppContext) {
             greedy, optimal,
             "a mode change must invalidate the shape cache"
         );
+    });
+}
+
+fn marked(range: Range<u32>, marks: InlineMarks) -> InlineRun {
+    InlineRun {
+        display_range: range,
+        source_range: None,
+        marks,
+        link: None,
+    }
+}
+
+fn plan_runs(
+    window: &gpui::Window,
+    app: &gpui::App,
+    mode: LineBreakMode,
+    text: &str,
+    runs: &[InlineRun],
+    kind: BlockKind,
+    width: f64,
+) -> Rc<ShapeArtifact> {
+    shaper_for(window, app, mode).artifact(text, runs, width, kind, ShapeIdentity::default())
+}
+
+fn markdown(source: &str) -> (String, Vec<InlineRun>) {
+    let doc = md_core::document::load_markdown(source, md_core::document::editor_options());
+    let block = doc.text_leaves()[0];
+    let node = doc.live_id(block).expect("the paragraph is live");
+    (
+        doc.text_of(block).expect("the block has text").to_owned(),
+        doc.runs(node).to_vec(),
+    )
+}
+
+fn math_range(runs: &[InlineRun]) -> Range<u32> {
+    runs.iter()
+        .find(|run| run.marks.is_math())
+        .map(|run| run.display_range.clone())
+        .expect("the fixture holds a formula")
+}
+
+fn part_start(part: &ShapePart) -> usize {
+    match part {
+        ShapePart::Text { byte_start, .. }
+        | ShapePart::Math { byte_start, .. }
+        | ShapePart::Image { byte_start, .. } => *byte_start,
+    }
+}
+
+fn part_end(part: &ShapePart) -> usize {
+    match part {
+        ShapePart::Text { byte_end, .. }
+        | ShapePart::Math { byte_end, .. }
+        | ShapePart::Image { byte_end, .. } => *byte_end,
+    }
+}
+
+fn part_right(part: &ShapePart) -> f64 {
+    match part {
+        ShapePart::Text { x, line, .. } => *x + f64::from(f32::from(line.width())),
+        ShapePart::Math { x, width, .. } | ShapePart::Image { x, width, .. } => *x + *width,
+    }
+}
+
+fn band_right(band: &md_content::shaper::ShapeBand) -> f64 {
+    band.parts.iter().map(part_right).fold(0.0, f64::max)
+}
+
+fn starts(art: &ShapeArtifact) -> Vec<Vec<usize>> {
+    art.bands
+        .iter()
+        .map(|band| band.parts.iter().map(part_start).collect())
+        .collect()
+}
+
+fn math_band(art: &ShapeArtifact) -> &md_content::shaper::ShapeBand {
+    art.bands
+        .iter()
+        .find(|band| {
+            band.parts
+                .iter()
+                .any(|part| matches!(part, ShapePart::Math { .. }))
+        })
+        .expect("the formula is on some band")
+}
+
+fn band_geometry(art: &ShapeArtifact) -> Vec<(f64, f64)> {
+    art.bands
+        .iter()
+        .map(|band| (band.height, band.text_dy))
+        .collect()
+}
+
+#[gpui::test]
+fn an_optimal_band_keeps_a_script_next_to_the_character_before_it(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let text = format!("{}xabc", "字".repeat(12));
+        let script = text.len() - 3;
+        let runs = [marked(script as u32..text.len() as u32, InlineMarks::SUPER)];
+        let greedy = plan_runs(
+            window,
+            app,
+            LineBreakMode::Greedy,
+            &text,
+            &runs,
+            BlockKind::Paragraph,
+            133.0,
+        );
+        assert!(greedy.rows >= 2, "premise: the text wrapped");
+        assert!(
+            starts(&greedy).iter().any(|band| band[0] == script),
+            "premise: greedy starts a band on the script: {:?}",
+            starts(&greedy)
+        );
+        for width in (60..400).step_by(10) {
+            let width = f64::from(width);
+            let optimal = plan_runs(
+                window,
+                app,
+                LineBreakMode::Optimal,
+                &text,
+                &runs,
+                BlockKind::Paragraph,
+                width,
+            );
+            assert!(
+                starts(&optimal).iter().all(|band| band[0] != script),
+                "at {width}px the optimal path started a band on the script: {:?}",
+                starts(&optimal)
+            );
+        }
+    });
+}
+
+#[gpui::test]
+fn an_optimal_band_keeps_a_footnote_marker_next_to_the_character_before_it(
+    cx: &mut TestAppContext,
+) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let text = format!("{}x[1]", "字".repeat(12));
+        let marker = text.len() - 3;
+        let runs = [
+            marked(0..3, InlineMarks::SUPER),
+            marked(marker as u32..text.len() as u32, InlineMarks::FOOTNOTE),
+        ];
+        let greedy = plan_runs(
+            window,
+            app,
+            LineBreakMode::Greedy,
+            &text,
+            &runs,
+            BlockKind::Paragraph,
+            133.0,
+        );
+        assert!(greedy.rows >= 2, "premise: the text wrapped");
+        assert!(
+            starts(&greedy).iter().any(|band| band[0] == marker),
+            "premise: greedy starts a band on the marker: {:?}",
+            starts(&greedy)
+        );
+        for width in (60..400).step_by(10) {
+            let width = f64::from(width);
+            let optimal = plan_runs(
+                window,
+                app,
+                LineBreakMode::Optimal,
+                &text,
+                &runs,
+                BlockKind::Paragraph,
+                width,
+            );
+            assert!(
+                starts(&optimal).iter().all(|band| band[0] != marker),
+                "at {width}px the optimal path started a band on the marker: {:?}",
+                starts(&optimal)
+            );
+        }
+    });
+}
+
+#[gpui::test]
+fn an_optimal_band_fills_the_row_a_formula_sits_on(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let width = 200.0;
+        let (text, runs) = markdown(
+            "中文中文中文中文$m$后面的文字还有很多很多还有很多很多还有很多很多还有很多很多",
+        );
+        assert!(
+            !math_range(&runs).is_empty(),
+            "premise: the fixture holds an inline formula"
+        );
+        let greedy = plan_runs(
+            window,
+            app,
+            LineBreakMode::Greedy,
+            &text,
+            &runs,
+            BlockKind::Paragraph,
+            width,
+        );
+        let optimal = plan_runs(
+            window,
+            app,
+            LineBreakMode::Optimal,
+            &text,
+            &runs,
+            BlockKind::Paragraph,
+            width,
+        );
+        let before = band_right(math_band(&greedy));
+        let after = band_right(math_band(&optimal));
+        assert!(
+            before < width - 40.0,
+            "premise: greedy leaves the formula's row at {before}px in a {width}px measure ({text:?})"
+        );
+        assert!(
+            after > before + 50.0,
+            "the optimal path left the formula's row at {after}px, greedy at {before}px"
+        );
+        assert!(
+            after > width - 40.0,
+            "the formula's row ends at {after}px in a {width}px measure"
+        );
+    });
+}
+
+#[gpui::test]
+fn a_lone_display_formula_is_centered_in_both_modes(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let width = 220.0;
+        let runs = [marked(0..5, InlineMarks::MATH_DISPLAY)];
+        let greedy = plan_runs(
+            window,
+            app,
+            LineBreakMode::Greedy,
+            "x^2+y",
+            &runs,
+            BlockKind::Paragraph,
+            width,
+        );
+        let optimal = plan_runs(
+            window,
+            app,
+            LineBreakMode::Optimal,
+            "x^2+y",
+            &runs,
+            BlockKind::Paragraph,
+            width,
+        );
+        assert_eq!(greedy.rows, 1, "premise: the formula owns its band");
+        assert_eq!(optimal.rows, 1);
+        let place = |art: &ShapeArtifact| match &math_band(art).parts[0] {
+            ShapePart::Math { x, width, .. } => (*x, *width),
+            _ => panic!("the band is the formula"),
+        };
+        assert_eq!(place(&greedy), place(&optimal));
+        assert_eq!(band_geometry(&greedy), band_geometry(&optimal));
+        let (x, w) = place(&greedy);
+        assert!(
+            ((x + w) - (width - x)).abs() < 0.5,
+            "the formula sits at {x}px with width {w}px in a {width}px measure"
+        );
+    });
+}
+
+#[gpui::test]
+fn a_band_keeps_the_geometry_greedy_gives_it(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let samples: [(String, Vec<InlineRun>, f64); 3] = [
+            (
+                format!("{}x2", "字".repeat(4)),
+                vec![marked(13..14, InlineMarks::SUPER)],
+                400.0,
+            ),
+            (
+                "质量为 m 的物体".to_owned(),
+                vec![marked(10..11, InlineMarks::MATH_DISPLAY)],
+                400.0,
+            ),
+            (
+                format!("{}x2{}", "字".repeat(6), "文".repeat(6)),
+                vec![marked(19..20, InlineMarks::SUPER)],
+                200.0,
+            ),
+        ];
+        for (text, runs, width) in samples {
+            let greedy = plan_runs(
+                window,
+                app,
+                LineBreakMode::Greedy,
+                &text,
+                &runs,
+                BlockKind::Paragraph,
+                width,
+            );
+            let optimal = plan_runs(
+                window,
+                app,
+                LineBreakMode::Optimal,
+                &text,
+                &runs,
+                BlockKind::Paragraph,
+                width,
+            );
+            assert_eq!(
+                greedy.bands.len(),
+                optimal.bands.len(),
+                "premise: both modes keep the same rows for {text:?}"
+            );
+            assert_eq!(
+                band_geometry(&greedy),
+                band_geometry(&optimal),
+                "the row heights and baselines moved for {text:?}"
+            );
+        }
+    });
+}
+
+#[gpui::test]
+fn greedy_bands_still_split_at_every_atom(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let text = "ab x^2 cd";
+        let runs = [marked(3..6, InlineMarks::MATH_DISPLAY)];
+        let greedy = plan_runs(
+            window,
+            app,
+            LineBreakMode::Greedy,
+            text,
+            &runs,
+            BlockKind::Paragraph,
+            400.0,
+        );
+        let optimal = plan_runs(
+            window,
+            app,
+            LineBreakMode::Optimal,
+            text,
+            &runs,
+            BlockKind::Paragraph,
+            400.0,
+        );
+        assert_eq!(greedy.rows, 1, "premise: everything fits on one row");
+        assert_eq!(
+            starts(&greedy),
+            vec![vec![0, 3, 6, 7]],
+            "the greedy chunker must keep placing one atom at a time"
+        );
+        assert_eq!(
+            starts(&optimal),
+            vec![vec![0, 3, 6]],
+            "the optimal path should merge the text around the formula"
+        );
+        assert_eq!(part_end(&greedy.bands[0].parts[3]), text.len());
     });
 }

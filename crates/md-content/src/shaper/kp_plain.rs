@@ -140,7 +140,7 @@ fn boundary_at(line: &WrappedLine, byte: u32) -> Option<WrapBoundary> {
     None
 }
 
-fn shifted_layout(base: &LineLayout, shifts: &[(u32, f32)]) -> LineLayout {
+pub(super) fn shifted_layout(base: &LineLayout, shifts: &[(u32, f32)]) -> LineLayout {
     let total = shifts.last().map_or(0.0, |&(_, shift)| shift);
     let runs = base
         .runs
@@ -168,7 +168,7 @@ fn shifted_layout(base: &LineLayout, shifts: &[(u32, f32)]) -> LineLayout {
     }
 }
 
-fn shift_at(shifts: &[(u32, f32)], byte: usize) -> f32 {
+pub(super) fn shift_at(shifts: &[(u32, f32)], byte: usize) -> f32 {
     let at = shifts.partition_point(|&(at, _)| at as usize <= byte);
     if at == 0 { 0.0 } else { shifts[at - 1].1 }
 }
@@ -227,7 +227,7 @@ fn expanded(range: Range<u32>, tab_source: Option<&str>) -> Range<u32> {
     }
 }
 
-fn mode_for(kind: BlockKind, setting: LineBreakMode) -> Mode {
+pub(super) fn mode_for(kind: BlockKind, setting: LineBreakMode) -> Mode {
     match kind {
         BlockKind::Heading(_) => Mode::Balanced,
         BlockKind::TableCell | BlockKind::CodeBlock | BlockKind::MetadataBlock => Mode::Ragged,
