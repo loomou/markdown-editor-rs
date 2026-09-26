@@ -179,7 +179,7 @@ fn compose_alert_quote_reserves_a_label_band() {
 }
 
 #[test]
-fn compose_quote_list_keeps_list_top_margin() {
+fn compose_quote_list_drops_list_top_margin() {
     let theme = quote_spacing_theme();
     let tree = compose(&load_markdown("> - item\n", editor_options()), &theme);
     let list = tree
@@ -190,7 +190,7 @@ fn compose_quote_list_keeps_list_top_margin() {
                 && n.id.role == crate::box_tree::BoxRole::Frame
         })
         .expect("list");
-    assert_eq!(tree.style_of(list).margin.top, 20.0);
+    assert_eq!(tree.style_of(list).margin.top, 0.0);
 }
 
 #[test]
@@ -594,4 +594,88 @@ fn doc_lead_flushes_every_block_kind() {
         "doc-lead blocks keep their top margin: {}",
         offenders.join(", ")
     );
+}
+
+fn wrapper_lead(doc: &Document, wrapper: BlockKind) -> (u32, BlockKind) {
+    let id = doc
+        .preorder()
+        .into_iter()
+        .find(|&id| doc.arena.get(id).map(|n| n.kind) == Some(wrapper))
+        .unwrap_or_else(|| panic!("{wrapper:?}"));
+    let first = doc
+        .arena
+        .get(id)
+        .and_then(|n| n.first_child)
+        .unwrap_or_else(|| panic!("{wrapper:?} has no children"));
+    let kind = doc
+        .arena
+        .get(first)
+        .map(|n| n.kind)
+        .unwrap_or(BlockKind::Paragraph);
+    (first.index, kind)
+}
+
+fn block_top(tree: &crate::box_tree::BoxTree, block: u32, kind: BlockKind) -> md_core::Px {
+    tree.style(crate::box_tree::LayoutBoxId::for_kind(kind, block))
+        .margin
+        .top
+}
+
+#[test]
+fn wrapper_lead_flushes_every_block_kind() {
+    let theme = spacing_theme(|_| 30.0).with_flow_metrics(flow_metrics(24.0));
+    let mut offenders = Vec::new();
+    for (label, src, kind) in [
+        ("paragraph", "> p\n", BlockKind::Paragraph),
+        ("heading", "> # h\n", BlockKind::Heading(1)),
+        ("code block", "> ```\n> c\n> ```\n", BlockKind::CodeBlock),
+        ("list", "> - a\n", BlockKind::List),
+        ("thematic break", "> ***\n", BlockKind::ThematicBreak),
+        ("nested quote", "> > n\n", BlockKind::BlockQuote),
+    ] {
+        let doc = load_markdown(src, editor_options());
+        let tree = compose(&doc, &theme);
+        let (block, lead) = wrapper_lead(&doc, BlockKind::BlockQuote);
+        assert_eq!(lead, kind, "{label}: the fixture must lead with {kind:?}");
+        let top = block_top(&tree, block, lead);
+        if top != 0.0 {
+            offenders.push(format!("{label} ({kind:?}): {top}"));
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "quote-lead blocks keep their top margin: {}",
+        offenders.join(", ")
+    );
+}
+
+#[test]
+fn wrapper_lead_takes_the_container_prose_top() {
+    let theme = spacing_theme(|_| 30.0).with_flow_metrics(FlowMetrics {
+        quote_paragraph_top: 7.0,
+        footnote_item_top: 9.0,
+        ..flow_metrics(24.0)
+    });
+    for (label, src, kind) in [
+        ("paragraph", "> p\n", BlockKind::Paragraph),
+        ("code block", "> ```\n> c\n> ```\n", BlockKind::CodeBlock),
+        ("thematic break", "> ***\n", BlockKind::ThematicBreak),
+        ("list", "> - a\n", BlockKind::List),
+    ] {
+        let doc = load_markdown(src, editor_options());
+        let tree = compose(&doc, &theme);
+        let (block, lead) = wrapper_lead(&doc, BlockKind::BlockQuote);
+        assert_eq!(lead, kind, "{label}: the fixture must lead with {kind:?}");
+        assert_eq!(
+            block_top(&tree, block, lead),
+            7.0,
+            "{label}: the quote lead must not depend on the block kind"
+        );
+    }
+
+    let doc = load_markdown("[^1]: n\n", editor_options());
+    let tree = compose(&doc, &theme);
+    let (block, lead) = wrapper_lead(&doc, BlockKind::FootnoteDefinition);
+    assert_eq!(lead, BlockKind::Paragraph);
+    assert_eq!(block_top(&tree, block, lead), 9.0, "footnote lead");
 }
