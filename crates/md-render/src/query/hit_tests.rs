@@ -5,6 +5,7 @@ use gpui::TestAppContext;
 use md_content::images::SourceKey;
 use md_content::shaper::{GpuiShaper, ShapeCache, ShapeMedia};
 use md_core::Px;
+use md_core::block::BlockKind;
 use md_core::doc::{Cursor, Doc};
 use md_core::document::{editor_options, load_markdown};
 use md_layout::island::FallbackSolver;
@@ -136,6 +137,64 @@ fn band_rows_survive_a_click_roundtrip(cx: &mut TestAppContext) {
             hit.offset,
             display.len(),
             "a click just right of the line middle swallowed the block-text end — the old shape of a row-count bug hitting the fallback"
+        );
+    });
+}
+
+#[gpui::test]
+fn a_thematic_break_is_a_caret_position(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let doc = Doc::new(load_markdown("alpha\n\n---\n\nomega\n", editor_options()));
+        let env = BoxLayoutEnvironment::default();
+        let theme = DocumentTheme::one_dark();
+        let shaper = test_shaper_with_media(window, app, &theme, HashMap::new(), HashMap::new());
+        let snap = SnapOperator::new(1.0);
+        let first = doc.text_leaves()[0];
+        let frame = compose(
+            FrameContext {
+                doc: &doc,
+                env,
+                shaper: &shaper,
+                snap: &snap,
+                theme: &theme,
+            },
+            &FrameRequest {
+                viewport: (env.viewport_width, 600.0),
+                scroll: 0.0,
+                cursor: Cursor {
+                    block: first,
+                    offset: 0,
+                },
+                selection: None,
+                marked: None,
+                search_query: "",
+                search_skip: None,
+            },
+            &FallbackSolver,
+            None,
+        );
+        let rule = frame
+            .texts
+            .iter()
+            .find(|t| t.kind == BlockKind::ThematicBreak)
+            .expect("the fixture must lay the rule out as a text box");
+        assert!(
+            rule.accepts_caret(),
+            "the rule is a block of its own and the caret can sit on it, so a reader can select and delete it"
+        );
+
+        let probe = (
+            rule.content_origin_device.0 + 1.0,
+            rule.content_origin_device.1 + rule.view_height * 0.5,
+        );
+        let hit = hit_test(&frame, frame.geometry_revision, probe, &shaper, |_| {
+            (0.0, 0.0)
+        })
+        .expect("a point on the rule must hit");
+        assert_eq!(
+            hit.block, rule.block,
+            "a probe on the rule must put the caret on the rule, not on a neighbour"
         );
     });
 }
