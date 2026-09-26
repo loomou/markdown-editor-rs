@@ -1032,4 +1032,69 @@ mod tests {
         doc.apply(sel, Command::DeleteForward);
         assert_eq!(doc.document.to_markdown(), "");
     }
+
+    #[test]
+    fn select_all_delete_clears_a_single_block_document() {
+        for source in [
+            "# heading\n",
+            "> quote\n",
+            "```\ncode\n```\n",
+            "$$\nx\n$$\n",
+            "[^1]: note\n",
+            "> # heading\n",
+            "> - item\n",
+            "- item\n",
+            "1. item\n",
+            "- [ ] task\n",
+        ] {
+            for name in ["backward", "forward"] {
+                let mut doc = Doc::new(load_markdown(source, editor_options()));
+                doc.enable_trailing_blank();
+                let sel = doc.whole_document_sel().expect("selection");
+                let cmd = if name == "backward" {
+                    Command::DeleteBackward
+                } else {
+                    Command::DeleteForward
+                };
+                doc.apply(sel, cmd);
+                let left = doc.text_leaves();
+                assert_eq!(left.len(), 1, "{source:?} {name}");
+                assert_eq!(
+                    doc.kind(left[0]),
+                    Some(BlockKind::Paragraph),
+                    "{source:?} {name}"
+                );
+                assert_eq!(doc.text(left[0]), Some(""), "{source:?} {name}");
+                assert_eq!(
+                    doc.document.to_markdown(),
+                    "",
+                    "{source:?} {name} must not leave the block marker behind"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn in_block_delete_keeps_the_marker_while_the_document_has_other_blocks() {
+        let mut doc = Doc::new(load_markdown("# heading\n\n123\n", editor_options()));
+        doc.enable_trailing_blank();
+        let leaves = doc.text_leaves();
+        let end = doc.caret_text(leaves[0]).unwrap_or("").len();
+        doc.apply(
+            Sel {
+                anchor: Cursor {
+                    block: leaves[0],
+                    offset: 0,
+                },
+                head: Cursor {
+                    block: leaves[0],
+                    offset: end,
+                },
+            },
+            Command::DeleteBackward,
+        );
+        assert_eq!(doc.kind(leaves[0]), Some(BlockKind::Heading(1)));
+        assert_eq!(doc.text(leaves[0]), Some(""));
+        assert_eq!(doc.text(leaves[1]), Some("123"));
+    }
 }

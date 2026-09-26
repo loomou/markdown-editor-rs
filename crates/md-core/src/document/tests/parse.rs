@@ -592,11 +592,11 @@ fn editing_a_fence_keeps_source_aligned_with_display() {
 }
 
 #[test]
-fn emptied_headings_keep_their_marker_and_retake_input() {
+fn emptied_headings_beside_other_blocks_keep_their_marker_and_retake_input() {
     use crate::doc::Doc;
     use crate::document::{Caret, Command, Sel};
 
-    let mut doc = Doc::new(load_markdown("# heading\n", editor_options()));
+    let mut doc = Doc::new(load_markdown("# heading\n\n123\n", editor_options()));
     let leaf = doc.text_leaves()[0];
     let caret = |offset: usize| Caret {
         block: leaf,
@@ -626,7 +626,7 @@ fn emptied_headings_keep_their_marker_and_retake_input() {
         "# €",
         "typing into the emptied heading must land after the marker"
     );
-    assert_eq!(doc.document.to_markdown(), "# €\n");
+    assert_eq!(doc.document.to_markdown(), "# €\n\n123\n");
 }
 
 #[test]
