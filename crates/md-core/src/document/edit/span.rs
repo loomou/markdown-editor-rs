@@ -1,8 +1,11 @@
 use super::{Caret, Sel, normalize};
 use crate::block::BlockId;
+use crate::block::BlockKind;
 use crate::document::Document;
 use crate::document::arena::NodeId;
 use std::ops::Range;
+
+const CLOSE_OUT_ROUNDS: usize = 8;
 
 pub(super) fn same_block_span(sel: Sel) -> Option<(BlockId, usize, usize)> {
     if sel.anchor.block != sel.head.block {
@@ -19,12 +22,9 @@ pub(super) fn delete_sel(doc: &mut Document, sel: Sel) -> Option<Caret> {
     {
         let lists = super::list::lists_touching_leaf(doc, block);
         let (_, offset) = doc.replace_text_with_caret(block, lo..hi, "");
-        return Some(super::list::collapse_empty_after_span(
-            doc,
-            &lists,
-            Caret { block, offset },
-            false,
-        ));
+        let caret =
+            super::list::collapse_empty_after_span(doc, &lists, Caret { block, offset }, false);
+        return Some(close_out_emptied_document(doc, caret));
     }
     if sel.anchor.block == sel.head.block {
         return None;
@@ -286,16 +286,55 @@ fn delete_across(
 }
 
 fn demote_emptied_survivor(doc: &mut Document, caret: Caret) -> Caret {
+    demote_emptied_block(doc, caret).unwrap_or(caret)
+}
+
+fn demote_emptied_block(doc: &mut Document, caret: Caret) -> Option<Caret> {
     if leaf_len(doc, caret.block) > 0 {
-        return caret;
+        return None;
     }
-    let Some(id) = doc.live_id(caret.block) else {
-        return caret;
-    };
+    let id = doc.live_id(caret.block)?;
     doc.try_demote_heading(id)
         .or_else(|| doc.try_demote_empty_block(id))
         .or_else(|| lift_out_of_emptied_wrapper(doc, id))
-        .unwrap_or(caret)
+}
+
+fn close_out_emptied_document(doc: &mut Document, caret: Caret) -> Caret {
+    if leaf_len(doc, caret.block) > 0 || !document_is_empty_except(doc, caret.block) {
+        return caret;
+    }
+    let mut caret = caret;
+    let mut rounds = 0;
+    while rounds < CLOSE_OUT_ROUNDS {
+        let Some(next) = demote_emptied_block(doc, caret) else {
+            break;
+        };
+        caret = next;
+        rounds += 1;
+    }
+    caret
+}
+
+fn document_is_empty_except(doc: &Document, keep: BlockId) -> bool {
+    let keep_id = doc.live_id(keep);
+    for id in doc.preorder() {
+        let Some(node) = doc.arena.get(id) else {
+            continue;
+        };
+        if Some(id) == keep_id {
+            continue;
+        }
+        if node.kind.is_text_leaf() {
+            if !doc.display(id).is_empty() {
+                return false;
+            }
+            continue;
+        }
+        if matches!(node.kind, BlockKind::ThematicBreak | BlockKind::Table) {
+            return false;
+        }
+    }
+    true
 }
 
 fn lift_out_of_emptied_wrapper(doc: &mut Document, id: NodeId) -> Option<Caret> {
