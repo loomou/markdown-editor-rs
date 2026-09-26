@@ -672,3 +672,43 @@ fn quote_list_and_fence_commit_keep_doc_lead_zero() {
     );
     commit_keep_zero(&mut doc, &mut tree, &layout, BlockKind::CodeBlock);
 }
+
+#[test]
+fn wrapper_lead_stays_flushed_through_a_sync() {
+    use crate::box_tree::LayoutBoxId;
+    use md_core::block::BlockKind;
+
+    let layout = spacing_theme(|kind| match kind {
+        BlockKind::Paragraph => 20.0,
+        BlockKind::BlockQuote => 30.0,
+        BlockKind::ThematicBreak => 24.0,
+        _ => 0.0,
+    })
+    .with_flow_metrics(flow_metrics(24.0));
+
+    let mut doc = load_markdown("> ***\n> p\n", editor_options());
+    let mut tree = compose(&doc, &layout);
+    let rule = doc
+        .preorder()
+        .into_iter()
+        .find(|&id| doc.arena.get(id).map(|n| n.kind) == Some(BlockKind::ThematicBreak))
+        .expect("rule");
+    let bid = LayoutBoxId::for_kind(BlockKind::ThematicBreak, rule.index);
+    assert_eq!(tree.style(bid).margin.top, 0.0, "quote-lead rule");
+
+    let leaf = doc.text_leaves()[0];
+    let changes = doc.split_leaf(leaf, 0).0;
+    let _ = sync_layout(&mut tree, &doc, &changes, &layout);
+
+    let cold = compose(&doc, &layout);
+    assert_eq!(
+        tree.style(bid).margin.top,
+        0.0,
+        "the rule is still the quote's lead after the split"
+    );
+    assert_eq!(
+        tree.style(bid).margin.top,
+        cold.style(bid).margin.top,
+        "hot and cold must agree on the quote lead"
+    );
+}

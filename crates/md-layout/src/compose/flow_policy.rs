@@ -115,6 +115,16 @@ fn is_prose(kind: BlockKind) -> bool {
     matches!(kind, BlockKind::Paragraph | BlockKind::Heading(_))
 }
 
+fn wrapper_lead_top(theme: &LayoutTheme, doc: &Document, id: NodeId) -> Option<md_core::Px> {
+    if is_kind_lead(doc, id, BlockKind::BlockQuote) {
+        return Some(theme.quote_paragraph_top);
+    }
+    if is_kind_lead(doc, id, BlockKind::FootnoteDefinition) {
+        return Some(theme.footnote_item_top);
+    }
+    None
+}
+
 pub(super) fn flow_top_margin(
     theme: &LayoutTheme,
     doc: &Document,
@@ -145,6 +155,9 @@ pub(super) fn flow_top_margin(
     }
     if is_prose(kind) && has_ancestor_kind(doc, id, BlockKind::FootnoteDefinition) {
         return theme.footnote_item_top;
+    }
+    if let Some(top) = wrapper_lead_top(theme, doc, id) {
+        return top;
     }
     base
 }
