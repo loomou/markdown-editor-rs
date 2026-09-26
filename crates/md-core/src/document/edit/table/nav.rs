@@ -77,24 +77,45 @@ fn step_vertical(doc: &Document, path: &TablePath, down: bool) -> Option<Caret> 
 }
 
 fn exit_after(doc: &Document, table: NodeId) -> Option<Caret> {
-    let next = doc.arena.get(table).and_then(|n| n.next_sibling)?;
-    let leaf = first_text_leaf(doc, next)?;
+    let block = first_caret_block(doc, next_outward(doc, table)?)?;
     Some(Caret {
-        block: leaf.index,
+        block: block.index,
         offset: 0,
     })
 }
 
 fn exit_before(doc: &Document, table: NodeId) -> Option<Caret> {
-    let prev = doc.arena.get(table).and_then(|n| n.prev_sibling)?;
-    let (block, offset) = doc.last_text_caret(prev)?;
-    Some(Caret { block, offset })
+    let block = last_caret_block(doc, prev_outward(doc, table)?)?;
+    Some(Caret {
+        block: block.index,
+        offset: doc.caret_text(block).len(),
+    })
 }
 
-fn first_text_leaf(doc: &Document, id: NodeId) -> Option<NodeId> {
+fn next_outward(doc: &Document, id: NodeId) -> Option<NodeId> {
+    let mut cur = id;
+    loop {
+        if let Some(next) = doc.arena.get(cur).and_then(|n| n.next_sibling) {
+            return Some(next);
+        }
+        cur = doc.arena.get(cur).and_then(|n| n.parent)?;
+    }
+}
+
+fn prev_outward(doc: &Document, id: NodeId) -> Option<NodeId> {
+    let mut cur = id;
+    loop {
+        if let Some(prev) = doc.arena.get(cur).and_then(|n| n.prev_sibling) {
+            return Some(prev);
+        }
+        cur = doc.arena.get(cur).and_then(|n| n.parent)?;
+    }
+}
+
+fn first_caret_block(doc: &Document, id: NodeId) -> Option<NodeId> {
     let mut stack = vec![id];
     while let Some(cur) = stack.pop() {
-        if doc.arena.get(cur).is_some_and(|n| n.kind.is_text_leaf()) {
+        if doc.arena.get(cur).is_some_and(|n| n.kind.is_caret_block()) {
             return Some(cur);
         }
         let mut children = kids(doc, cur);
@@ -103,6 +124,22 @@ fn first_text_leaf(doc: &Document, id: NodeId) -> Option<NodeId> {
         }
     }
     None
+}
+
+fn last_caret_block(doc: &Document, id: NodeId) -> Option<NodeId> {
+    let mut last = None;
+    let mut stack = vec![id];
+    while let Some(cur) = stack.pop() {
+        if doc.arena.get(cur).is_some_and(|n| n.kind.is_caret_block()) {
+            last = Some(cur);
+        }
+        let mut child = doc.arena.get(cur).and_then(|n| n.last_child);
+        while let Some(id) = child {
+            stack.push(id);
+            child = doc.arena.get(id).and_then(|n| n.prev_sibling);
+        }
+    }
+    last
 }
 
 fn caret_at(doc: &Document, cell: NodeId, at_end: bool) -> Caret {

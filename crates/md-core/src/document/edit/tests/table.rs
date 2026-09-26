@@ -20,6 +20,13 @@ fn first_table(doc: &Document) -> NodeId {
         .expect("table")
 }
 
+fn first_rule(doc: &Document) -> NodeId {
+    doc.preorder()
+        .into_iter()
+        .find(|&id| doc.arena.get(id).map(|n| n.kind) == Some(BlockKind::ThematicBreak))
+        .expect("rule")
+}
+
 fn rows(doc: &Document, table: NodeId) -> Vec<NodeId> {
     doc.arena.children(table).collect()
 }
@@ -694,6 +701,94 @@ fn table_step_exit_before_lands_on_the_previous_block() {
     let before = table_step(&doc, caret(a, 0), TableStep::ExitBefore).expect("before");
     assert_eq!(doc.text_of(before.block).unwrap(), "before");
     assert_eq!(before.offset, "before".len());
+}
+
+#[test]
+fn table_step_exit_after_leaves_a_quote_that_ends_with_the_table() {
+    let doc = load_markdown(
+        "> | a | b |\n> | --- | --- |\n> | c | d |\n\nafter\n",
+        editor_options(),
+    );
+    let d = leaf_named(&doc, "d");
+    let after = table_step(&doc, caret(d, 0), TableStep::ExitAfter).expect("after");
+    assert_eq!(doc.text_of(after.block).unwrap(), "after");
+    assert_eq!(after.offset, 0);
+}
+
+#[test]
+fn table_step_exit_after_leaves_a_list_item_that_ends_with_the_table() {
+    let doc = load_markdown(
+        "- | a | b |\n  | --- | --- |\n  | c | d |\n\nafter\n",
+        editor_options(),
+    );
+    let d = leaf_named(&doc, "d");
+    let after = table_step(&doc, caret(d, 0), TableStep::ExitAfter).expect("after");
+    assert_eq!(doc.text_of(after.block).unwrap(), "after");
+    assert_eq!(after.offset, 0);
+}
+
+#[test]
+fn table_step_exit_before_leaves_a_quote_that_starts_with_the_table() {
+    let doc = load_markdown(
+        "before\n\n> | a | b |\n> | --- | --- |\n> | c | d |\n",
+        editor_options(),
+    );
+    let a = leaf_named(&doc, "a");
+    let before = table_step(&doc, caret(a, 0), TableStep::ExitBefore).expect("before");
+    assert_eq!(doc.text_of(before.block).unwrap(), "before");
+    assert_eq!(before.offset, "before".len());
+}
+
+#[test]
+fn table_step_exit_after_lands_on_a_thematic_break() {
+    let doc = load_markdown(
+        "| a | b |\n| --- | --- |\n| c | d |\n\n---\n\nafter\n",
+        editor_options(),
+    );
+    let rule = first_rule(&doc);
+    let d = leaf_named(&doc, "d");
+    let out = table_step(&doc, caret(d, 0), TableStep::ExitAfter).expect("rule");
+    assert_eq!(out.block, rule.index);
+    assert_eq!(out.offset, 0);
+}
+
+#[test]
+fn table_step_exit_before_lands_on_a_thematic_break() {
+    let doc = load_markdown(
+        "before\n\n---\n\n| a | b |\n| --- | --- |\n| c | d |\n",
+        editor_options(),
+    );
+    let rule = first_rule(&doc);
+    let a = leaf_named(&doc, "a");
+    let out = table_step(&doc, caret(a, 0), TableStep::ExitBefore).expect("rule");
+    assert_eq!(out.block, rule.index);
+    assert_eq!(out.offset, 0);
+}
+
+#[test]
+fn table_step_exit_after_leaves_a_quote_and_lands_on_the_rule() {
+    let doc = load_markdown(
+        "> | a | b |\n> | --- | --- |\n> | c | d |\n\n---\n",
+        editor_options(),
+    );
+    let rule = first_rule(&doc);
+    let d = leaf_named(&doc, "d");
+    let out = table_step(&doc, caret(d, 0), TableStep::ExitAfter).expect("rule");
+    assert_eq!(out.block, rule.index);
+    assert_eq!(out.offset, 0);
+}
+
+#[test]
+fn table_step_exit_before_lands_on_the_rule_before_a_quote() {
+    let doc = load_markdown(
+        "---\n\n> | a | b |\n> | --- | --- |\n> | c | d |\n",
+        editor_options(),
+    );
+    let rule = first_rule(&doc);
+    let a = leaf_named(&doc, "a");
+    let out = table_step(&doc, caret(a, 0), TableStep::ExitBefore).expect("rule");
+    assert_eq!(out.block, rule.index);
+    assert_eq!(out.offset, 0);
 }
 
 #[test]

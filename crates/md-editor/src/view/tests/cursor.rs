@@ -3,6 +3,7 @@ use crate::view::{CursorMotion, Direction, EditorElement, EditorView, LineEdge};
 use gpui::TestAppContext;
 use gpui::VisualTestContext;
 use gpui::{point, px, size};
+use md_core::block::BlockKind;
 use md_core::doc::Cursor;
 
 #[gpui::test]
@@ -586,6 +587,85 @@ fn down_arrow_advances_one_row_inside_a_wrapping_heading(cx: &mut TestAppContext
         (back.block, back.offset),
         (before.block, before.offset),
         "up did not return to the line down started from"
+    );
+}
+
+#[gpui::test]
+fn down_arrow_leaves_a_table_that_ends_a_quote(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc("> | a | b |\n> | --- | --- |\n> | c | d |\n\nafter\n", cx);
+    focus_editor(&editor, cx);
+    let leaves = cx.update(|_, app| editor.read(app).state.doc.text_leaves().to_vec());
+    assert_eq!(leaves.len(), 6, "four cells, the paragraph, and the tail");
+    place_caret(&editor, cx, 3, 0);
+    cx.simulate_keystrokes("down");
+    let after = settle(&editor, cx);
+    assert_eq!(
+        after.block, leaves[4],
+        "down did not leave the table at the end of the quote"
+    );
+}
+
+#[gpui::test]
+fn down_arrow_leaves_a_table_that_ends_a_list_item(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc("- | a | b |\n  | --- | --- |\n  | c | d |\n\nafter\n", cx);
+    focus_editor(&editor, cx);
+    let leaves = cx.update(|_, app| editor.read(app).state.doc.text_leaves().to_vec());
+    assert_eq!(leaves.len(), 6, "four cells, the paragraph, and the tail");
+    place_caret(&editor, cx, 3, 0);
+    cx.simulate_keystrokes("down");
+    let after = settle(&editor, cx);
+    assert_eq!(
+        after.block, leaves[4],
+        "down did not leave the table at the end of the list item"
+    );
+}
+
+#[gpui::test]
+fn up_arrow_stops_on_a_thematic_break_and_then_leaves_it(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc("alpha\n\n---\n\nomega\n", cx);
+    focus_editor(&editor, cx);
+    let leaves = cx.update(|_, app| editor.read(app).state.doc.text_leaves().to_vec());
+    place_caret(&editor, cx, 1, 0);
+
+    cx.simulate_keystrokes("up");
+    let on_rule = settle(&editor, cx);
+    let kind = cx.update(|_, app| editor.read(app).state.doc.kind(on_rule.block));
+    assert_eq!(
+        kind,
+        Some(BlockKind::ThematicBreak),
+        "the rule is a block of its own, so up from the block below it lands on the rule"
+    );
+
+    cx.simulate_keystrokes("up");
+    let after = settle(&editor, cx);
+    assert_eq!(
+        after.block, leaves[0],
+        "up from the rule must reach the block above it, not stall on the rule"
+    );
+}
+
+#[gpui::test]
+fn down_arrow_leaves_a_table_and_lands_on_the_rule_below(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc("| a | b |\n| --- | --- |\n| c | d |\n\n---\n\nafter\n", cx);
+    focus_editor(&editor, cx);
+    let leaves = cx.update(|_, app| editor.read(app).state.doc.text_leaves().to_vec());
+    assert_eq!(leaves.len(), 6, "four cells, the paragraph, and the tail");
+    place_caret(&editor, cx, 3, 0);
+
+    cx.simulate_keystrokes("down");
+    let on_rule = settle(&editor, cx);
+    let kind = cx.update(|_, app| editor.read(app).state.doc.kind(on_rule.block));
+    assert_eq!(
+        kind,
+        Some(BlockKind::ThematicBreak),
+        "down from the last table row must land on the rule right below the table"
+    );
+
+    cx.simulate_keystrokes("down");
+    let after = settle(&editor, cx);
+    assert_eq!(
+        after.block, leaves[4],
+        "down from the rule must reach the block below it, not stall on the rule"
     );
 }
 
