@@ -175,7 +175,7 @@ impl TypeScale {
             quote: role(
                 UI_FONT,
                 FontWeight::MEDIUM,
-                FontStyle::Italic,
+                FontStyle::Normal,
                 16.0,
                 28.0,
                 p.slate_900,
