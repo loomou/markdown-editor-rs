@@ -644,6 +644,31 @@ fn up_arrow_stops_on_a_thematic_break_and_then_leaves_it(cx: &mut TestAppContext
     );
 }
 
+#[gpui::test]
+fn down_arrow_leaves_a_table_and_lands_on_the_rule_below(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc("| a | b |\n| --- | --- |\n| c | d |\n\n---\n\nafter\n", cx);
+    focus_editor(&editor, cx);
+    let leaves = cx.update(|_, app| editor.read(app).state.doc.text_leaves().to_vec());
+    assert_eq!(leaves.len(), 6, "four cells, the paragraph, and the tail");
+    place_caret(&editor, cx, 3, 0);
+
+    cx.simulate_keystrokes("down");
+    let on_rule = settle(&editor, cx);
+    let kind = cx.update(|_, app| editor.read(app).state.doc.kind(on_rule.block));
+    assert_eq!(
+        kind,
+        Some(BlockKind::ThematicBreak),
+        "down from the last table row must land on the rule right below the table"
+    );
+
+    cx.simulate_keystrokes("down");
+    let after = settle(&editor, cx);
+    assert_eq!(
+        after.block, leaves[4],
+        "down from the rule must reach the block below it, not stall on the rule"
+    );
+}
+
 fn caret_offset(editor: &gpui::Entity<EditorView>, cx: &mut VisualTestContext) -> usize {
     cx.update(|_, app| editor.read(app).state.cursor.offset)
 }

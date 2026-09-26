@@ -80,6 +80,10 @@ impl BlockKind {
         )
     }
 
+    pub fn is_caret_block(self) -> bool {
+        matches!(self, BlockKind::ThematicBreak) || self.is_text_leaf()
+    }
+
     pub fn supports_block_edit(self) -> bool {
         matches!(
             self,
@@ -381,6 +385,39 @@ mod tests {
         alignment_at, insert_alignment, pack_alignments, remove_alignment, set_alignment,
         swap_alignment,
     };
+
+    #[test]
+    fn a_caret_block_is_a_text_leaf_or_a_thematic_break() {
+        use super::BlockKind;
+
+        for kind in [
+            BlockKind::Paragraph,
+            BlockKind::Heading(2),
+            BlockKind::CodeBlock,
+            BlockKind::MetadataBlock,
+            BlockKind::TableCell,
+            BlockKind::Image,
+            BlockKind::Mermaid,
+            BlockKind::Math,
+        ] {
+            assert!(kind.is_text_leaf(), "{kind:?}");
+            assert!(kind.is_caret_block(), "{kind:?}");
+        }
+        assert!(BlockKind::ThematicBreak.is_caret_block());
+        assert!(!BlockKind::ThematicBreak.is_text_leaf());
+        for kind in [
+            BlockKind::DocRoot,
+            BlockKind::DocStart,
+            BlockKind::BlockQuote,
+            BlockKind::List,
+            BlockKind::ListItem,
+            BlockKind::Table,
+            BlockKind::TableRow,
+            BlockKind::FootnoteDefinition,
+        ] {
+            assert!(!kind.is_caret_block(), "{kind:?}");
+        }
+    }
 
     #[test]
     fn packed_insert_remove_and_swap_keep_column_bits() {
