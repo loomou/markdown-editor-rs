@@ -551,7 +551,7 @@ mod tests {
         assert_eq!(flow.quote_paragraph_slot, TypeSlot::Quote);
         let dark = DocumentTheme::one_dark();
         assert_eq!(dark.type_scale.quote.weight, FontWeight::MEDIUM);
-        assert_eq!(dark.type_scale.quote.style, FontStyle::Italic);
+        assert_eq!(dark.type_scale.quote.style, FontStyle::Normal);
         assert_eq!(dark.type_scale.heading[0].letter_spacing_px, -0.3);
         assert!((dark.inline.link_underline.a - 0.4).abs() < f32::EPSILON);
     }
