@@ -385,7 +385,14 @@ fn select_all_backspace_clears_a_heading_document(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn select_all_backspace_clears_a_single_block_document(cx: &mut TestAppContext) {
-    for md in ["# heading\n", "> quote\n", "```\ncode\n```\n", "> - item\n"] {
+    for md in [
+        "# heading\n",
+        "> quote\n",
+        "```\ncode\n```\n",
+        "> - item\n",
+        "> | a | b |\n> | --- | --- |\n> | c | d |\n",
+        "> > ---\n",
+    ] {
         let (editor, cx) = editor_with_doc(md, cx);
         focus_editor(&editor, cx);
         cx.simulate_keystrokes("secondary-a");

@@ -4,6 +4,8 @@ use super::super::change::DocChange;
 use super::Caret;
 use crate::block::{BlockId, BlockKind, NodeExtra};
 
+const COVERED_QUOTE_ROUNDS: usize = 8;
+
 pub(crate) fn tombstone(doc: &mut Document, id: NodeId) {
     doc.arena.detach(id);
     doc.arena.tombstone(id);
@@ -48,6 +50,7 @@ pub(crate) fn drop_covered_empty_quotes(
     changes: &mut Vec<DocChange>,
 ) -> Caret {
     let span_set: std::collections::HashSet<BlockId> = span.iter().copied().collect();
+    let mut caret = caret;
     let mut candidates: Vec<NodeId> = Vec::new();
     for &block in span {
         let Some(mut id) = doc.live_id(block) else {
@@ -64,60 +67,93 @@ pub(crate) fn drop_covered_empty_quotes(
         }
     }
     candidates.sort_by_key(|&id| std::cmp::Reverse(quote_depth(doc, id)));
-    if let (Some(&first), Some(&last)) = (span.first(), span.last()) {
+    for quote in candidates {
+        caret = drop_covered_quote(doc, quote, &span_set, caret, changes);
+    }
+    let mut handled: Vec<NodeId> = Vec::new();
+    let mut rounds = 0;
+    while rounds < COVERED_QUOTE_ROUNDS {
+        let Some((lo, hi)) = covered_leaf_range(doc, span, from_start) else {
+            break;
+        };
+        let mut fresh: Vec<NodeId> = Vec::new();
         let mut seen = 0usize;
-        let mut lo = None;
-        let mut hi = None;
         for id in doc.preorder() {
             let Some(node) = doc.arena.get(id) else {
                 continue;
             };
             if node.kind.is_text_leaf() {
-                if id.index == first {
-                    lo = Some(seen);
-                }
-                if id.index == last {
-                    hi = Some(seen);
-                }
                 seen += 1;
+            } else if node.kind == BlockKind::BlockQuote
+                && node.first_child.is_none()
+                && node.parent.is_some()
+                && seen >= lo
+                && seen <= hi
+                && !handled.contains(&id)
+            {
+                fresh.push(id);
             }
         }
-        if let (Some(lo), Some(hi)) = (lo, hi) {
-            let lo_bound = if from_start { 0 } else { lo + 1 };
-            let mut seen = 0usize;
-            for id in doc.preorder() {
-                let Some(node) = doc.arena.get(id) else {
-                    continue;
-                };
-                if node.kind.is_text_leaf() {
-                    seen += 1;
-                } else if node.kind == BlockKind::BlockQuote
-                    && node.first_child.is_none()
-                    && node.parent.is_some()
-                    && seen >= lo_bound
-                    && seen <= hi
-                    && !candidates.contains(&id)
-                {
-                    candidates.push(id);
-                }
-            }
+        if fresh.is_empty() {
+            break;
         }
-    }
-    let mut caret = caret;
-    for quote in candidates {
-        if doc.arena.get(quote).is_none() {
-            continue;
+        fresh.sort_by_key(|&id| std::cmp::Reverse(quote_depth(doc, id)));
+        for quote in fresh {
+            handled.push(quote);
+            caret = drop_covered_quote(doc, quote, &span_set, caret, changes);
         }
-        let covered = doc
-            .text_leaves()
-            .into_iter()
-            .all(|leaf| !is_under(doc, leaf, quote) || span_set.contains(&leaf));
-        if !covered {
-            continue;
-        }
-        caret = drop_one_empty_quote(doc, quote, caret, changes);
+        rounds += 1;
     }
     caret
+}
+
+fn covered_leaf_range(
+    doc: &Document,
+    span: &[BlockId],
+    from_start: bool,
+) -> Option<(usize, usize)> {
+    let first = *span.first()?;
+    let last = *span.last()?;
+    let mut seen = 0usize;
+    let mut lo = None;
+    let mut hi = None;
+    for id in doc.preorder() {
+        let Some(node) = doc.arena.get(id) else {
+            continue;
+        };
+        if node.kind.is_text_leaf() {
+            if id.index == first {
+                lo = Some(seen);
+            }
+            if id.index == last {
+                hi = Some(seen);
+            }
+            seen += 1;
+        }
+    }
+    let lo = lo?;
+    let hi = hi?;
+    Some((if from_start { 0 } else { lo + 1 }, hi))
+}
+
+fn drop_covered_quote(
+    doc: &mut Document,
+    quote: NodeId,
+    span_set: &std::collections::HashSet<BlockId>,
+    caret: Caret,
+    changes: &mut Vec<DocChange>,
+) -> Caret {
+    if doc.arena.get(quote).is_none() {
+        return caret;
+    }
+    let covered = doc
+        .text_leaves()
+        .into_iter()
+        .all(|leaf| !is_under(doc, leaf, quote) || span_set.contains(&leaf));
+    if !covered {
+        return caret;
+    }
+    drop_one_empty_quote(doc, quote, caret, changes)
 }
 
 fn quote_depth(doc: &Document, id: NodeId) -> usize {
