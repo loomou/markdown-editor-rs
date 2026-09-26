@@ -77,8 +77,7 @@ fn step_vertical(doc: &Document, path: &TablePath, down: bool) -> Option<Caret> 
 }
 
 fn exit_after(doc: &Document, table: NodeId) -> Option<Caret> {
-    let next = doc.arena.get(table).and_then(|n| n.next_sibling)?;
-    let leaf = first_text_leaf(doc, next)?;
+    let leaf = first_text_leaf(doc, next_outward(doc, table)?)?;
     Some(Caret {
         block: leaf.index,
         offset: 0,
@@ -86,9 +85,28 @@ fn exit_after(doc: &Document, table: NodeId) -> Option<Caret> {
 }
 
 fn exit_before(doc: &Document, table: NodeId) -> Option<Caret> {
-    let prev = doc.arena.get(table).and_then(|n| n.prev_sibling)?;
-    let (block, offset) = doc.last_text_caret(prev)?;
+    let (block, offset) = doc.last_text_caret(prev_outward(doc, table)?)?;
     Some(Caret { block, offset })
+}
+
+fn next_outward(doc: &Document, id: NodeId) -> Option<NodeId> {
+    let mut cur = id;
+    loop {
+        if let Some(next) = doc.arena.get(cur).and_then(|n| n.next_sibling) {
+            return Some(next);
+        }
+        cur = doc.arena.get(cur).and_then(|n| n.parent)?;
+    }
+}
+
+fn prev_outward(doc: &Document, id: NodeId) -> Option<NodeId> {
+    let mut cur = id;
+    loop {
+        if let Some(prev) = doc.arena.get(cur).and_then(|n| n.prev_sibling) {
+            return Some(prev);
+        }
+        cur = doc.arena.get(cur).and_then(|n| n.parent)?;
+    }
 }
 
 fn first_text_leaf(doc: &Document, id: NodeId) -> Option<NodeId> {

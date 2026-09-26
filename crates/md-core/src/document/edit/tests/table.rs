@@ -697,6 +697,42 @@ fn table_step_exit_before_lands_on_the_previous_block() {
 }
 
 #[test]
+fn table_step_exit_after_leaves_a_quote_that_ends_with_the_table() {
+    let doc = load_markdown(
+        "> | a | b |\n> | --- | --- |\n> | c | d |\n\nafter\n",
+        editor_options(),
+    );
+    let d = leaf_named(&doc, "d");
+    let after = table_step(&doc, caret(d, 0), TableStep::ExitAfter).expect("after");
+    assert_eq!(doc.text_of(after.block).unwrap(), "after");
+    assert_eq!(after.offset, 0);
+}
+
+#[test]
+fn table_step_exit_after_leaves_a_list_item_that_ends_with_the_table() {
+    let doc = load_markdown(
+        "- | a | b |\n  | --- | --- |\n  | c | d |\n\nafter\n",
+        editor_options(),
+    );
+    let d = leaf_named(&doc, "d");
+    let after = table_step(&doc, caret(d, 0), TableStep::ExitAfter).expect("after");
+    assert_eq!(doc.text_of(after.block).unwrap(), "after");
+    assert_eq!(after.offset, 0);
+}
+
+#[test]
+fn table_step_exit_before_leaves_a_quote_that_starts_with_the_table() {
+    let doc = load_markdown(
+        "before\n\n> | a | b |\n> | --- | --- |\n> | c | d |\n",
+        editor_options(),
+    );
+    let a = leaf_named(&doc, "a");
+    let before = table_step(&doc, caret(a, 0), TableStep::ExitBefore).expect("before");
+    assert_eq!(doc.text_of(before.block).unwrap(), "before");
+    assert_eq!(before.offset, "before".len());
+}
+
+#[test]
 fn last_cell_insert_row_then_row_home_lands_on_first_cell() {
     let mut doc = load_markdown("| a | b |\n| --- | --- |\n| c | d |\n", editor_options());
     let d = leaf_named(&doc, "d");
