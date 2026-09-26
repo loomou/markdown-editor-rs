@@ -1,3 +1,4 @@
+use crate::block::BlockKind;
 use crate::document::{Document, editor_options, load_markdown};
 
 fn fixtures() -> Vec<(&'static str, &'static str)> {
@@ -152,6 +153,34 @@ fn nth_from_matches_index_arithmetic() {
                 );
             }
         }
+    }
+}
+
+#[test]
+fn nth_from_leaves_a_block_that_is_not_a_text_leaf() {
+    for md in ["a\n\n---\n\nb\n", "> a\n>\n> ---\n>\n> b\n"] {
+        let doc = doc_of(md);
+        let rule = doc
+            .preorder()
+            .into_iter()
+            .find(|&id| doc.arena.get(id).map(|n| n.kind) == Some(BlockKind::ThematicBreak))
+            .unwrap_or_else(|| panic!("{md:?} must hold a thematic break"));
+        let leaves = doc.text_leaves();
+        assert_eq!(
+            doc.nth_text_leaf_from(rule.index, -1),
+            Some(leaves[0]),
+            "{md:?}: up from the rule"
+        );
+        assert_eq!(
+            doc.nth_text_leaf_from(rule.index, 1),
+            Some(leaves[1]),
+            "{md:?}: down from the rule"
+        );
+        assert_eq!(
+            doc.nth_text_leaf_from(rule.index, 0),
+            None,
+            "{md:?}: the rule is not itself a text leaf"
+        );
     }
 }
 

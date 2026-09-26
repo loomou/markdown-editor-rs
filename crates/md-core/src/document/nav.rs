@@ -142,15 +142,15 @@ impl Document {
 
     pub fn nth_text_leaf_from(&self, from: BlockId, delta: i32) -> Option<BlockId> {
         let mut cur = self.live_id(from)?;
-        if !self.arena.get(cur)?.kind.is_text_leaf() {
-            return None;
-        }
         for _ in 0..delta.unsigned_abs() {
             cur = if delta < 0 {
                 self.prev_text_leaf(cur)?
             } else {
                 self.next_text_leaf(cur)?
             };
+        }
+        if !self.arena.get(cur)?.kind.is_text_leaf() {
+            return None;
         }
         Some(cur.index)
     }
