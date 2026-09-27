@@ -75,7 +75,7 @@ impl Document {
         }
         let first = *leaves.first()?;
         let last = *leaves.last()?;
-        let anchor = self
+        let mut anchor = self
             .textless_block_before(self.live_id(first)?)
             .unwrap_or(first);
         let head = self
@@ -85,6 +85,11 @@ impl Document {
             .live_id(head)
             .map(|id| self.caret_text(id).len())
             .unwrap_or(0);
+        if anchor == head && head_offset == 0 {
+            anchor = self
+                .outermost_wrapper(self.live_id(head)?)
+                .unwrap_or(anchor);
+        }
         Some(Sel {
             anchor: Caret {
                 block: anchor,
@@ -95,6 +100,19 @@ impl Document {
                 offset: head_offset,
             },
         })
+    }
+
+    fn outermost_wrapper(&self, id: NodeId) -> Option<BlockId> {
+        let mut out = None;
+        let mut cur = self.arena.get(id).and_then(|node| node.parent);
+        while let Some(parent) = cur {
+            if parent == self.root {
+                break;
+            }
+            out = Some(parent.index);
+            cur = self.arena.get(parent).and_then(|node| node.parent);
+        }
+        out
     }
 
     fn textless_block_before(&self, stop: NodeId) -> Option<BlockId> {

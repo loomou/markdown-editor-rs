@@ -392,6 +392,11 @@ fn select_all_backspace_clears_a_single_block_document(cx: &mut TestAppContext) 
         "> - item\n",
         "> | a | b |\n> | --- | --- |\n> | c | d |\n",
         "> > ---\n",
+        "> ```\n> ```\n",
+        "- ```\n  ```\n",
+        "> #\n",
+        "-\n",
+        "[^1]:\n",
     ] {
         let (editor, cx) = editor_with_doc(md, cx);
         focus_editor(&editor, cx);

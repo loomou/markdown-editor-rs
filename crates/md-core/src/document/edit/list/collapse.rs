@@ -29,6 +29,13 @@ pub(crate) fn lists_touching_span(doc: &Document, span: &[crate::block::BlockId]
     out
 }
 
+pub(crate) fn all_lists(doc: &Document) -> Vec<NodeId> {
+    doc.preorder()
+        .into_iter()
+        .filter(|&id| doc.arena.get(id).is_some_and(|n| n.kind == BlockKind::List))
+        .collect()
+}
+
 pub(crate) fn collapse_empty_after_span(
     doc: &mut Document,
     lists: &[NodeId],

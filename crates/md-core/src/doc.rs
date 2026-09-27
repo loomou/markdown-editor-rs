@@ -1149,6 +1149,50 @@ mod tests {
     }
 
     #[test]
+    fn select_all_delete_clears_an_emptied_fence_inside_a_container() {
+        select_all_delete_leaves_one_empty_paragraph(
+            &[
+                "> ```\n> ```\n",
+                "> > ```\n> > ```\n",
+                "- ```\n  ```\n",
+                "> - ```\n>   ```\n",
+                "- - ```\n    ```\n",
+                "> ```mermaid\n> ```\n",
+                "> $$\n> $$\n",
+                "- $$\n  $$\n",
+                "- - ```mermaid\n    ```\n",
+            ],
+            "an emptied fence",
+        );
+    }
+
+    #[test]
+    fn select_all_delete_clears_an_emptied_heading_inside_a_container() {
+        select_all_delete_leaves_one_empty_paragraph(
+            &["> #\n", "> > #\n", "- #\n", "> - #\n", "- - #\n", "- ##\n"],
+            "an emptied heading",
+        );
+    }
+
+    #[test]
+    fn select_all_delete_clears_an_empty_container_beside_the_caret() {
+        select_all_delete_leaves_one_empty_paragraph(
+            &[
+                "-\n",
+                "- [ ]\n",
+                "[^1]:\n",
+                "> -\n",
+                "> - [ ]\n",
+                "> [^1]:\n",
+                "> > -\n",
+                "- - [^1]:\n",
+                "> - [^1]:\n",
+            ],
+            "an empty container",
+        );
+    }
+
+    #[test]
     fn select_all_delete_drops_a_quote_that_a_removed_break_empties() {
         select_all_delete_leaves_one_empty_paragraph(
             &["> > ---\n", "> > > ---\n", "> > ---\n> >\n> > tail\n"],
