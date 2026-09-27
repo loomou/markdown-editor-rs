@@ -1,6 +1,6 @@
 use super::arena::NodeId;
 use super::chars::floor_char_boundary;
-use super::edit::Sel;
+use super::edit::{Caret, Sel};
 use super::reference;
 use super::{Document, bind, write};
 use crate::block::{BlockId, BlockKind, NodeExtra, TextEditStrategy};
@@ -20,6 +20,10 @@ impl Document {
         if self.selection_reaches_textless_block(sel) {
             return self.whole_document_markdown();
         }
+        let sel = Sel {
+            anchor: self.first_leaf_of(sel.anchor),
+            head: sel.head,
+        };
         let mut leaves = Vec::new();
         let mut i0 = None;
         let mut i1 = None;
@@ -64,6 +68,28 @@ impl Document {
             self.live_id(block)
                 .is_some_and(|id| !self.subtree_has_text_leaf(id))
         })
+    }
+
+    fn first_leaf_of(&self, caret: Caret) -> Caret {
+        let Some(id) = self.live_id(caret.block) else {
+            return caret;
+        };
+        if self
+            .arena
+            .get(id)
+            .is_some_and(|node| node.kind.is_text_leaf())
+        {
+            return caret;
+        }
+        let mut kids = Vec::new();
+        self.subtree_text_leaves(id, &mut kids);
+        match kids.first() {
+            Some(&first) => Caret {
+                block: first.index,
+                offset: 0,
+            },
+            None => caret,
+        }
     }
 
     fn whole_document_markdown(&self) -> String {

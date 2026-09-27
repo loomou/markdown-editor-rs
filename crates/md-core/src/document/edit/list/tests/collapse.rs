@@ -58,12 +58,23 @@ fn select_all_nested_list_unwraps_list() {
 #[test]
 fn select_all_single_item_unwraps_list() {
     let mut doc = load_markdown("- hello\n", editor_options());
+    let sel = doc.whole_document_sel().expect("selection");
+    let out = apply(&mut doc, sel, Command::DeleteBackward);
+    assert_eq!(list_count(&doc), 0);
+    assert_eq!(item_count(&doc), 0);
+    assert_eq!(doc.kind(out.block), Some(BlockKind::Paragraph));
+    assert_eq!(doc.text_of(out.block).unwrap(), "");
+}
+
+#[test]
+fn clearing_the_only_items_text_keeps_the_list() {
+    let mut doc = load_markdown("- hello\n", editor_options());
     let leaf = doc.text_leaves()[0];
     let end = doc.text_of(leaf).unwrap().len();
     let sel = span(&doc, 0, 0, 0, end);
     let out = apply(&mut doc, sel, Command::DeleteBackward);
-    assert_eq!(list_count(&doc), 0);
-    assert_eq!(item_count(&doc), 0);
+    assert_eq!(list_count(&doc), 1);
+    assert_eq!(item_count(&doc), 1);
     assert_eq!(doc.kind(out.block), Some(BlockKind::Paragraph));
     assert_eq!(doc.text_of(out.block).unwrap(), "");
 }

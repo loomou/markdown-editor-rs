@@ -4,7 +4,7 @@ use super::super::change::DocChange;
 use super::Caret;
 use crate::block::{BlockId, BlockKind, NodeExtra};
 
-const COVERED_QUOTE_ROUNDS: usize = 8;
+const COVERED_WRAPPER_ROUNDS: usize = 8;
 
 pub(crate) fn tombstone(doc: &mut Document, id: NodeId) {
     doc.arena.detach(id);
@@ -42,7 +42,7 @@ pub(crate) fn sync_loose_up(doc: &mut Document, start: NodeId, changes: &mut Vec
     sync_loose_up_inner(doc, start, changes, None);
 }
 
-pub(crate) fn drop_covered_empty_quotes(
+pub(crate) fn drop_covered_empty_wrappers(
     doc: &mut Document,
     span: &[BlockId],
     from_start: bool,
@@ -57,7 +57,7 @@ pub(crate) fn drop_covered_empty_quotes(
             continue;
         };
         while let Some(node) = doc.arena.get(id) {
-            if node.kind == BlockKind::BlockQuote && !candidates.contains(&id) {
+            if is_emptiable_wrapper(node.kind) && !candidates.contains(&id) {
                 candidates.push(id);
             }
             let Some(parent) = node.parent else {
@@ -66,13 +66,13 @@ pub(crate) fn drop_covered_empty_quotes(
             id = parent;
         }
     }
-    candidates.sort_by_key(|&id| std::cmp::Reverse(quote_depth(doc, id)));
-    for quote in candidates {
-        caret = drop_covered_quote(doc, quote, &span_set, caret, changes);
+    candidates.sort_by_key(|&id| std::cmp::Reverse(wrapper_depth(doc, id)));
+    for wrapper in candidates {
+        caret = drop_covered_wrapper(doc, wrapper, &span_set, caret, changes);
     }
     let mut handled: Vec<NodeId> = Vec::new();
     let mut rounds = 0;
-    while rounds < COVERED_QUOTE_ROUNDS {
+    while rounds < COVERED_WRAPPER_ROUNDS {
         let Some((lo, hi)) = covered_leaf_range(doc, span, from_start) else {
             break;
         };
@@ -84,7 +84,7 @@ pub(crate) fn drop_covered_empty_quotes(
             };
             if node.kind.is_text_leaf() {
                 seen += 1;
-            } else if node.kind == BlockKind::BlockQuote
+            } else if is_emptiable_wrapper(node.kind)
                 && node.first_child.is_none()
                 && node.parent.is_some()
                 && seen >= lo
@@ -97,14 +97,18 @@ pub(crate) fn drop_covered_empty_quotes(
         if fresh.is_empty() {
             break;
         }
-        fresh.sort_by_key(|&id| std::cmp::Reverse(quote_depth(doc, id)));
-        for quote in fresh {
-            handled.push(quote);
-            caret = drop_covered_quote(doc, quote, &span_set, caret, changes);
+        fresh.sort_by_key(|&id| std::cmp::Reverse(wrapper_depth(doc, id)));
+        for wrapper in fresh {
+            handled.push(wrapper);
+            caret = drop_covered_wrapper(doc, wrapper, &span_set, caret, changes);
         }
         rounds += 1;
     }
     caret
+}
+
+fn is_emptiable_wrapper(kind: BlockKind) -> bool {
+    matches!(kind, BlockKind::BlockQuote | BlockKind::FootnoteDefinition)
 }
 
 fn covered_leaf_range(
@@ -136,34 +140,34 @@ fn covered_leaf_range(
     Some((if from_start { 0 } else { lo + 1 }, hi))
 }
 
-fn drop_covered_quote(
+fn drop_covered_wrapper(
     doc: &mut Document,
-    quote: NodeId,
+    wrapper: NodeId,
     span_set: &std::collections::HashSet<BlockId>,
     caret: Caret,
     changes: &mut Vec<DocChange>,
 ) -> Caret {
-    if doc.arena.get(quote).is_none() {
+    if doc.arena.get(wrapper).is_none() {
         return caret;
     }
     let covered = doc
         .text_leaves()
         .into_iter()
-        .all(|leaf| !is_under(doc, leaf, quote) || span_set.contains(&leaf));
+        .all(|leaf| !is_under(doc, leaf, wrapper) || span_set.contains(&leaf));
     if !covered {
         return caret;
     }
-    drop_one_empty_quote(doc, quote, caret, changes)
+    drop_emptied_wrapper(doc, wrapper, caret, changes)
 }
 
-fn quote_depth(doc: &Document, id: NodeId) -> usize {
+fn wrapper_depth(doc: &Document, id: NodeId) -> usize {
     let mut depth = 0;
     let mut walk = doc.arena.get(id).and_then(|n| n.parent);
     while let Some(p) = walk {
         if doc
             .arena
             .get(p)
-            .is_some_and(|n| n.kind == BlockKind::BlockQuote)
+            .is_some_and(|n| is_emptiable_wrapper(n.kind))
         {
             depth += 1;
         }
@@ -189,28 +193,28 @@ fn under_node(doc: &Document, mut id: NodeId, root: NodeId) -> bool {
     }
 }
 
-fn drop_one_empty_quote(
+fn drop_emptied_wrapper(
     doc: &mut Document,
-    quote: NodeId,
+    wrapper: NodeId,
     caret: Caret,
     changes: &mut Vec<DocChange>,
 ) -> Caret {
-    let Some(host) = doc.arena.get(quote).and_then(|n| n.parent) else {
+    let Some(host) = doc.arena.get(wrapper).and_then(|n| n.parent) else {
         return caret;
     };
-    let quote_prev = doc.arena.get(quote).and_then(|n| n.prev_sibling);
+    let wrapper_prev = doc.arena.get(wrapper).and_then(|n| n.prev_sibling);
     if let Some(id) = doc.live_id(caret.block)
-        && under_node(doc, id, quote)
+        && under_node(doc, id, wrapper)
         && doc.arena.get(id).is_some_and(|n| n.kind.is_text_leaf())
     {
         let leaf_parent = doc
             .arena
             .get(id)
             .and_then(|n| n.parent)
-            .expect("a node under a quote always has a parent");
+            .expect("a node under a wrapper always has a parent");
         let leaf_prev = doc.arena.get(id).and_then(|n| n.prev_sibling);
         doc.arena.detach(id);
-        doc.arena.insert_after(host, Some(quote), id);
+        doc.arena.insert_after(host, Some(wrapper), id);
         doc.bump_structure(host);
         changes.push(DocChange::TreeSpliced {
             parent: leaf_parent,
@@ -220,18 +224,18 @@ fn drop_one_empty_quote(
         });
         changes.push(DocChange::TreeSpliced {
             parent: host,
-            before: Some(quote),
+            before: Some(wrapper),
             removed: Vec::new(),
             inserted: vec![id],
         });
     }
-    let mut stack = vec![quote];
+    let mut stack = vec![wrapper];
     while let Some(id) = stack.pop() {
         doc.arena.snapshot(id);
         stack.extend(doc.arena.children(id));
     }
-    doc.arena.detach(quote);
-    let mut stack = vec![(quote, false)];
+    doc.arena.detach(wrapper);
+    let mut stack = vec![(wrapper, false)];
     while let Some((id, visited)) = stack.pop() {
         if visited {
             doc.arena.tombstone(id);
@@ -244,8 +248,8 @@ fn drop_one_empty_quote(
     doc.bump_structure(host);
     changes.push(DocChange::TreeSpliced {
         parent: host,
-        before: quote_prev,
-        removed: vec![quote],
+        before: wrapper_prev,
+        removed: vec![wrapper],
         inserted: Vec::new(),
     });
     if doc.arena.get(host).is_some() {

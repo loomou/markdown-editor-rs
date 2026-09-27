@@ -392,6 +392,11 @@ fn select_all_backspace_clears_a_single_block_document(cx: &mut TestAppContext) 
         "> - item\n",
         "> | a | b |\n> | --- | --- |\n> | c | d |\n",
         "> > ---\n",
+        "> ```\n> ```\n",
+        "- ```\n  ```\n",
+        "> #\n",
+        "-\n",
+        "[^1]:\n",
     ] {
         let (editor, cx) = editor_with_doc(md, cx);
         focus_editor(&editor, cx);
@@ -438,6 +443,35 @@ fn select_all_backspace_clears_a_document_that_opens_with_a_break(cx: &mut TestA
                 "{md:?} must not leave the thematic break behind"
             );
         });
+    }
+}
+
+#[gpui::test]
+fn backspace_after_selecting_text_inside_a_fenced_quote_keeps_the_container(
+    cx: &mut TestAppContext,
+) {
+    let (editor, cx) = editor_with_doc("> ```\n> abc\n> ```\n", cx);
+    focus_editor(&editor, cx);
+    select_range(&editor, cx, 0, 0, 3);
+    cx.simulate_keystrokes("backspace");
+    let markdown = cx.update(|_, app| editor.read(app).state.doc.document.to_markdown());
+    assert_eq!(markdown, "> ```\n> ```\n");
+}
+
+#[gpui::test]
+fn backspace_after_selecting_part_of_a_quoted_paragraph_keeps_the_quote(cx: &mut TestAppContext) {
+    for (md, from, to, expected) in [
+        ("> abc\n", 1, 3, "> a\n"),
+        ("> abc\n", 0, 3, "> \n"),
+        ("- abc\n", 1, 3, "- a\n"),
+        ("> > abc\n", 0, 3, "> > \n"),
+    ] {
+        let (editor, cx) = editor_with_doc(md, cx);
+        focus_editor(&editor, cx);
+        select_range(&editor, cx, 0, from, to);
+        cx.simulate_keystrokes("backspace");
+        let markdown = cx.update(|_, app| editor.read(app).state.doc.document.to_markdown());
+        assert_eq!(markdown, expected, "{md:?} {from}..{to}");
     }
 }
 

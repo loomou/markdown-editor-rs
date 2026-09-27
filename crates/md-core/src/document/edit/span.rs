@@ -20,11 +20,8 @@ pub(super) fn delete_sel(doc: &mut Document, sel: Sel) -> Option<Caret> {
     if let Some((block, lo, hi)) = same_block_span(sel)
         && lo < hi
     {
-        let lists = super::list::lists_touching_leaf(doc, block);
         let (_, offset) = doc.replace_text_with_caret(block, lo..hi, "");
-        let caret =
-            super::list::collapse_empty_after_span(doc, &lists, Caret { block, offset }, false);
-        return Some(close_out_emptied_document(doc, caret));
+        return Some(demote_emptied_root_block(doc, Caret { block, offset }));
     }
     if sel.anchor.block == sel.head.block {
         return None;
@@ -67,7 +64,7 @@ pub(super) fn delete_sel(doc: &mut Document, sel: Sel) -> Option<Caret> {
     } else {
         delete_across(doc, &span, from, to, edges)?
     };
-    Some(close_out_emptied_document(doc, caret))
+    Some(close_out_emptied_document(doc, caret, &span, from == 0))
 }
 
 #[derive(Clone, Copy, Default)]
@@ -220,7 +217,8 @@ fn delete_across(
         detach_structures(doc, &doomed);
         return caret;
     }
-    let suffix = if super::table::cell_table(doc, last).is_some() {
+    let single = first == last;
+    let suffix = if single || super::table::cell_table(doc, last).is_some() {
         String::new()
     } else {
         doc.source_suffix(last, to)
@@ -235,11 +233,12 @@ fn delete_across(
         (caret.block, 0)
     } else {
         let first_len = leaf_len(doc, first);
-        let from = from.min(first_len);
-        let joined = doc.replace_text(first, from..first_len, &suffix);
+        let end = if single { to.min(first_len) } else { first_len };
+        let from = from.min(end);
+        let joined = doc.replace_text(first, from..end, &suffix);
         if joined.is_empty() && !suffix.is_empty() {
             keep_tail = true;
-            let (_, offset) = doc.replace_text_with_caret(first, from..first_len, "");
+            let (_, offset) = doc.replace_text_with_caret(first, from..end, "");
             let _ = doc.replace_text(last, 0..to, "");
             (first, offset)
         } else {
@@ -253,9 +252,9 @@ fn delete_across(
         super::table::detach_table(doc, *table);
     }
     detach_structures(doc, &doomed);
-    let quote_before = doc.revision;
-    let mut quote_changes = Vec::new();
-    let quote_caret = normalize::drop_covered_empty_quotes(
+    let wrapper_before = doc.revision;
+    let mut wrapper_changes = Vec::new();
+    let wrapper_caret = normalize::drop_covered_empty_wrappers(
         doc,
         span,
         from == 0,
@@ -263,10 +262,10 @@ fn delete_across(
             block: survivor,
             offset: caret_off,
         },
-        &mut quote_changes,
+        &mut wrapper_changes,
     );
-    if !quote_changes.is_empty() {
-        let _ = doc.commit(quote_before, quote_changes);
+    if !wrapper_changes.is_empty() {
+        let _ = doc.commit(wrapper_before, wrapper_changes);
     }
     for &block in span.iter().rev() {
         if block == survivor || (keep_tail && block == last) || !in_tree(doc, block) {
@@ -281,13 +280,26 @@ fn delete_across(
     {
         Caret { block, offset }
     } else {
-        quote_caret
+        wrapper_caret
     };
     let caret = super::list::collapse_empty_after_span(doc, &lists, caret, true);
     Some(demote_emptied_survivor(doc, caret))
 }
 
 fn demote_emptied_survivor(doc: &mut Document, caret: Caret) -> Caret {
+    demote_emptied_block(doc, caret).unwrap_or(caret)
+}
+
+fn demote_emptied_root_block(doc: &mut Document, caret: Caret) -> Caret {
+    let Some(id) = doc.live_id(caret.block) else {
+        return caret;
+    };
+    if doc.arena.get(id).and_then(|node| node.parent) != Some(doc.root) {
+        return caret;
+    }
+    if !document_is_empty_except(doc, caret.block) {
+        return caret;
+    }
     demote_emptied_block(doc, caret).unwrap_or(caret)
 }
 
@@ -301,7 +313,12 @@ fn demote_emptied_block(doc: &mut Document, caret: Caret) -> Option<Caret> {
         .or_else(|| lift_out_of_emptied_wrapper(doc, id))
 }
 
-fn close_out_emptied_document(doc: &mut Document, caret: Caret) -> Caret {
+fn close_out_emptied_document(
+    doc: &mut Document,
+    caret: Caret,
+    span: &[BlockId],
+    from_start: bool,
+) -> Caret {
     if !document_is_empty_except(doc, caret.block) {
         return caret;
     }
@@ -312,8 +329,14 @@ fn close_out_emptied_document(doc: &mut Document, caret: Caret) -> Caret {
         if let Some(next) = demote_emptied_block(doc, caret) {
             caret = next;
         }
-        let lists = super::list::lists_touching_leaf(doc, caret.block);
+        let lists = super::list::all_lists(doc);
         caret = super::list::collapse_empty_after_span(doc, &lists, caret, false);
+        let sweep = doc.revision();
+        let mut changes = Vec::new();
+        caret = normalize::drop_covered_empty_wrappers(doc, span, from_start, caret, &mut changes);
+        if !changes.is_empty() {
+            let _ = doc.commit(sweep, changes);
+        }
         if doc.revision() == before {
             break;
         }
