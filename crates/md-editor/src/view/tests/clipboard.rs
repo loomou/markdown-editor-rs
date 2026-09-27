@@ -390,6 +390,7 @@ fn select_all_backspace_clears_a_single_block_document(cx: &mut TestAppContext) 
         "# heading\n",
         "> quote\n",
         "```\ncode\n```\n",
+        "```\n```\n",
         "> - item\n",
         "> | a | b |\n> | --- | --- |\n> | c | d |\n",
         "> > ---\n",
@@ -398,6 +399,7 @@ fn select_all_backspace_clears_a_single_block_document(cx: &mut TestAppContext) 
         "> #\n",
         "-\n",
         "[^1]:\n",
+        "---\n\n---\n",
     ] {
         let (editor, cx) = editor_with_doc(md, cx);
         focus_editor(&editor, cx);
@@ -420,6 +422,49 @@ fn select_all_backspace_clears_a_single_block_document(cx: &mut TestAppContext) 
             );
         });
     }
+}
+
+#[gpui::test]
+fn select_all_backspace_clears_a_front_matter_opened_by_the_keyboard(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc("", cx);
+    focus_editor(&editor, cx);
+    cx.simulate_input("---");
+    cx.simulate_keystrokes("enter");
+    cx.update(|_, app| {
+        let view = editor.read(app);
+        assert_eq!(
+            view.state.doc.kind(view.state.doc.text_leaves()[0]),
+            Some(BlockKind::MetadataBlock),
+            "the dash rule on the first line must open a front matter"
+        );
+    });
+
+    cx.simulate_keystrokes("secondary-a");
+    cx.update(|_, app| {
+        let view = editor.read(app);
+        let (anchor, head) = view
+            .state
+            .selection
+            .expect("select all must keep a selection on a front matter");
+        assert_ne!(
+            anchor, head,
+            "select all must not collapse onto a caret inside the front matter"
+        );
+    });
+
+    cx.simulate_keystrokes("backspace");
+    cx.update(|_, app| {
+        let view = editor.read(app);
+        let leaves = view.state.doc.text_leaves();
+        assert_eq!(leaves.len(), 1);
+        assert_eq!(view.state.doc.kind(leaves[0]), Some(BlockKind::Paragraph));
+        assert_eq!(view.state.doc.text(leaves[0]), Some(""));
+        assert_eq!(
+            view.state.doc.document.to_markdown(),
+            "",
+            "select all must not leave the front matter behind"
+        );
+    });
 }
 
 #[gpui::test]

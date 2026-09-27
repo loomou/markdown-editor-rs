@@ -363,13 +363,18 @@ impl Document {
                 | BlockKind::CodeBlock
                 | BlockKind::Mermaid
                 | BlockKind::Math
+                | BlockKind::MetadataBlock
                 | BlockKind::Image
         ) {
             return None;
         }
         if matches!(
             transition.old_kind,
-            BlockKind::CodeBlock | BlockKind::Mermaid | BlockKind::Math | BlockKind::Image
+            BlockKind::CodeBlock
+                | BlockKind::Mermaid
+                | BlockKind::Math
+                | BlockKind::MetadataBlock
+                | BlockKind::Image
         ) && !empty
         {
             return None;

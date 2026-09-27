@@ -1364,4 +1364,31 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn select_all_delete_clears_an_empty_block_that_opens_the_document() {
+        select_all_delete_leaves_one_empty_paragraph(
+            &["---\n\n---\n", "```\n```\n", "$$\n$$\n"],
+            "an empty block",
+        );
+    }
+
+    #[test]
+    fn select_all_stays_visible_on_a_document_that_is_one_empty_block() {
+        for source in ["---\n\n---\n", "```\n```\n", "$$\n$$\n", "#\n"] {
+            let mut doc = Doc::new(load_markdown(source, editor_options()));
+            doc.enable_trailing_blank();
+            let sel = doc.whole_document_sel().expect("selection");
+            assert_ne!(
+                sel.anchor, sel.head,
+                "the whole-document selection of {source:?} must not collapse onto a caret"
+            );
+            let copied = doc.copy_markdown(sel);
+            assert_eq!(
+                load_markdown(&copied, editor_options()).to_markdown(),
+                source,
+                "the whole-document copy of {source:?} must reload unchanged, got {copied:?}"
+            );
+        }
+    }
 }
