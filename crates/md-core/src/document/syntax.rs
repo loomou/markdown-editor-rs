@@ -44,6 +44,11 @@ pub(crate) fn is_thematic_break_line(source: &str) -> bool {
     n >= 3
 }
 
+pub(crate) fn is_front_matter_fence_line(source: &str) -> bool {
+    let s = normalize_source(source);
+    s.len() >= 3 && s.bytes().all(|byte| byte == b'-')
+}
+
 pub(crate) fn is_open_fence_line(source: &str) -> bool {
     let s = normalize_source(source);
     if s.is_empty() || s.contains('\n') {

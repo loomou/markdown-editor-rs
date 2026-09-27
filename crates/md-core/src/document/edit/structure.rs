@@ -44,6 +44,11 @@ pub(super) fn break_block(doc: &mut Document, sel: Sel) -> Caret {
         return caret;
     }
     if let Some(id) = doc.live_id(at.block)
+        && let Some(caret) = doc.try_commit_metadata_block(id)
+    {
+        return caret;
+    }
+    if let Some(id) = doc.live_id(at.block)
         && let Some(caret) = doc.try_commit_thematic_break(id)
     {
         return caret;

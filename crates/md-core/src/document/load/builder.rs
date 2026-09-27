@@ -5,7 +5,7 @@ use crate::document::Document;
 use crate::document::arena::{DocumentArena, NodeId};
 use crate::document::change::ChangeSet;
 use crate::document::focus::ConstructRecorder;
-use crate::document::text::TextStore;
+use crate::document::text::{LeafSource, TextStore};
 use crate::inline::InlineMarks;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -268,6 +268,7 @@ impl Builder {
             self.enter_leaf(id, BlockKind::Paragraph, LeafSink::Text, 0..0);
             self.leave_text_leaf(&source, false);
         }
+        self.merge_leading_front_matter(&source);
         self.texts.shrink_runs_and_pieces();
         Document {
             arena: self.arena,
@@ -286,6 +287,65 @@ impl Builder {
             focus: None,
             block_edit: None,
         }
+    }
+
+    fn merge_leading_front_matter(&mut self, source: &str) {
+        let root = self.parents[0];
+        let kids: Vec<NodeId> = self.arena.children(root).take(2).collect();
+        if kids.len() < 2 {
+            return;
+        }
+        let (first, second) = (kids[0], kids[1]);
+        let Some(head) = self.front_matter_fence_span(source, first) else {
+            return;
+        };
+        let Some(tail) = self.front_matter_fence_span(source, second) else {
+            return;
+        };
+        if !source
+            .get(head.end..tail.start)
+            .is_some_and(|gap| gap.trim().is_empty())
+        {
+            return;
+        }
+        let merged = head.start..tail.end;
+        let mut leaf = LeafCtx {
+            id: first,
+            kind: BlockKind::MetadataBlock,
+            node_span: merged.clone(),
+            sink: LeafSink::Raw,
+            html: String::new(),
+            source_ranges: vec![merged],
+            constructs: Vec::new(),
+            log: Vec::new(),
+        };
+        self.leave_raw_leaf(source, &mut leaf);
+        if let Some(node) = self.arena.get_mut(first) {
+            node.extra = NodeExtra::None;
+        }
+        self.arena.detach(second);
+        self.texts.clear_slot(second.index);
+        self.arena.tombstone(second);
+    }
+
+    fn front_matter_fence_span(&self, source: &str, id: NodeId) -> Option<Range<usize>> {
+        let node = self.arena.get(id)?;
+        if node.kind != BlockKind::ThematicBreak {
+            return None;
+        }
+        let LeafSource::Span(span) = &self.texts.get(id.text_id())?.source else {
+            return None;
+        };
+        let range = span.start as usize..span.end as usize;
+        let line_start = source
+            .get(..range.start)
+            .and_then(|prefix| prefix.rfind('\n'))
+            .map_or(0, |newline| newline + 1);
+        if line_start != range.start {
+            return None;
+        }
+        let line = source.get(range.clone())?;
+        crate::document::syntax::is_front_matter_fence_line(line).then_some(range)
     }
 
     pub(super) fn merge_image_runs(

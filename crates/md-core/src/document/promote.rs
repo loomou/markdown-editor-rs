@@ -161,6 +161,41 @@ impl Document {
         })
     }
 
+    pub(crate) fn try_commit_metadata_block(&mut self, id: NodeId) -> Option<Caret> {
+        let transition = self.leaf_transition(id)?;
+        if transition.old_kind != BlockKind::Paragraph {
+            return None;
+        }
+        if !self.is_document_first_child(id) {
+            return None;
+        }
+        let source = syntax::normalize_source(&transition.old_source);
+        if !syntax::is_front_matter_fence_line(source) {
+            return None;
+        }
+        let offset = source.len() + 1;
+        let text = format!("{source}\n\n{source}\n");
+        let frag = load_markdown(&text, editor_options());
+        let (_, next) = bind::unique_root(&frag)?;
+        if next != BlockKind::MetadataBlock {
+            return None;
+        }
+        self.set_leaf_shape(&transition, BlockKind::MetadataBlock, NodeExtra::None);
+        let text_change = self.replace_leaf_projection(
+            &transition,
+            text.clone(),
+            text.clone(),
+            Vec::new(),
+            Some(bind::identity_map(text.len())),
+            Some(Vec::new()),
+        );
+        self.finish_leaf_transition(transition, text_change, Vec::new());
+        Some(Caret {
+            block: id.index,
+            offset,
+        })
+    }
+
     pub(crate) fn try_commit_thematic_break(&mut self, id: NodeId) -> Option<Caret> {
         let transition = self.leaf_transition(id)?;
         if transition.old_kind != BlockKind::Paragraph {
@@ -207,6 +242,13 @@ impl Document {
             block: caret.index,
             offset: 0,
         })
+    }
+
+    pub(crate) fn is_document_first_child(&self, id: NodeId) -> bool {
+        let Some(node) = self.arena.get(id) else {
+            return false;
+        };
+        node.prev_sibling.is_none() && node.parent == Some(self.root)
     }
 
     pub(crate) fn is_list_item_first_child(&self, id: NodeId) -> bool {
