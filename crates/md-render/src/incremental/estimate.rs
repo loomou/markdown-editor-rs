@@ -99,7 +99,9 @@ impl Estimator {
             _ => 1.0,
         };
         let mut content = est_rows * self.line_height * kind_mult;
-        if node.kind() == BlockKind::CodeBlock || node.edit_source() {
+        if matches!(node.kind(), BlockKind::CodeBlock | BlockKind::MetadataBlock)
+            || node.edit_source()
+        {
             content = content.min(self.code_max_height);
         }
         content + style.top_border_padding() + style.bottom_border_padding()

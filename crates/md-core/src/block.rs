@@ -311,6 +311,13 @@ impl NodeExtra {
         }
     }
 
+    pub fn front_matter_marker(self) -> Option<FrontMatterMarker> {
+        match self {
+            NodeExtra::FrontMatter { marker, .. } => Some(marker),
+            _ => None,
+        }
+    }
+
     pub(crate) fn code_fence_style(self) -> Option<(CodeFenceMarker, usize)> {
         match self {
             NodeExtra::CodeFence { marker, len, .. } => Some((marker, usize::from(len))),

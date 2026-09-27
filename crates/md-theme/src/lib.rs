@@ -308,6 +308,12 @@ mod tests {
         );
         assert_eq!(
             dark.decoration
+                .well_max_height(md_core::block::BlockKind::MetadataBlock, false),
+            Some(420.0),
+            "the front matter shares the code well, so it must share its height cap"
+        );
+        assert_eq!(
+            dark.decoration
                 .well_max_height(md_core::block::BlockKind::Math, false),
             Some(420.0)
         );

@@ -1,4 +1,5 @@
 use super::support::{editor_with_doc, focus_editor, place_caret};
+use crate::view::clipboard::hosts_plain_text_paste;
 use crate::view::{CursorMotion, EditorElement, EditorView};
 use gpui::TestAppContext;
 use gpui::VisualTestContext;
@@ -489,4 +490,24 @@ fn paste_host_reads_through_a_select_all_that_reaches_a_break(cx: &mut TestAppCo
             );
         });
     }
+}
+
+#[test]
+fn plain_text_paste_hosts_cover_the_front_matter() {
+    for kind in [
+        BlockKind::CodeBlock,
+        BlockKind::MetadataBlock,
+        BlockKind::Mermaid,
+        BlockKind::Math,
+        BlockKind::TableCell,
+        BlockKind::Image,
+    ] {
+        assert!(
+            hosts_plain_text_paste(Some(kind)),
+            "{kind:?} must take a literal paste"
+        );
+    }
+    assert!(!hosts_plain_text_paste(Some(BlockKind::Paragraph)));
+    assert!(!hosts_plain_text_paste(Some(BlockKind::Heading(2))));
+    assert!(!hosts_plain_text_paste(None));
 }

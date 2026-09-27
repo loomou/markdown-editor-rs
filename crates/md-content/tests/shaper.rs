@@ -345,3 +345,56 @@ fn multiline_subscript_retains_its_first_line(cx: &mut TestAppContext) {
         assert_eq!(retained, text.replace('\n', ""));
     });
 }
+
+fn media_with_langs(langs: &[(u32, &str)]) -> ShapeMedia {
+    let mut m = media();
+    m.block_code_lang = Rc::new(
+        langs
+            .iter()
+            .map(|(index, lang)| (*index, (*lang).to_string()))
+            .collect(),
+    );
+    m
+}
+
+#[gpui::test]
+fn a_front_matter_body_is_highlighted_like_a_code_block(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let theme = DocumentTheme::one_dark();
+        let text = "title: hello\ntags: rust";
+        let shaper = GpuiShaper::new(
+            window,
+            app,
+            &theme,
+            1.0,
+            ShapeCache::new(),
+            media_with_langs(&[(0, "yaml"), (1, "yaml")]),
+        );
+        let front = shaper.artifact(
+            text,
+            &[],
+            400.0,
+            BlockKind::MetadataBlock,
+            ShapeIdentity {
+                index: 0,
+                ..Default::default()
+            },
+        );
+        let code = shaper.artifact(
+            text,
+            &[],
+            400.0,
+            BlockKind::CodeBlock,
+            ShapeIdentity {
+                index: 1,
+                ..Default::default()
+            },
+        );
+        assert!(
+            !front.line_colors.is_empty(),
+            "the well head promises yaml, so the body must be highlighted like a code block"
+        );
+        assert_eq!(front.line_colors, code.line_colors);
+    });
+}

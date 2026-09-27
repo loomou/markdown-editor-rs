@@ -47,7 +47,12 @@ impl Document {
                 }
                 let keeps_trailing_blank = matches!(
                     self.arena.get(id).map(|n| n.kind),
-                    Some(BlockKind::CodeBlock | BlockKind::Mermaid | BlockKind::TableCell)
+                    Some(
+                        BlockKind::CodeBlock
+                            | BlockKind::MetadataBlock
+                            | BlockKind::Mermaid
+                            | BlockKind::TableCell
+                    )
                 );
                 let text = if parts.len() > 1 || keeps_trailing_blank {
                     text

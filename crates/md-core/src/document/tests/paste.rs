@@ -1065,3 +1065,19 @@ fn single_paragraph_paste_refreshes_existing_references() {
         "saved={saved:?}"
     );
 }
+
+#[test]
+fn plain_paste_into_front_matter_keeps_the_trailing_blank() {
+    let mut doc = load_markdown("---\ntitle: hi\n---\n", editor_options());
+    let _ = doc.take_changes();
+    let leaf = doc.text_leaves()[0];
+    assert_eq!(doc.kind(leaf), Some(BlockKind::MetadataBlock));
+    let (changes, _, _) = doc.paste(leaf, 0..0, "tags: rust\n\n", PasteIntent::PlainText);
+    assert!(!changes.is_structural());
+    assert_eq!(
+        doc.text_of(leaf).unwrap(),
+        "tags: rust\n\ntitle: hi",
+        "a front matter body is literal text, so a pasted blank line must survive"
+    );
+    assert_eq!(doc.to_markdown(), "---\ntags: rust\n\ntitle: hi\n---\n");
+}

@@ -5,6 +5,20 @@ use md_core::block::{BlockId, BlockKind};
 use md_core::doc::Cursor;
 use md_core::document::{Command, PasteIntent, Sel};
 
+pub(super) fn hosts_plain_text_paste(kind: Option<BlockKind>) -> bool {
+    matches!(
+        kind,
+        Some(
+            BlockKind::CodeBlock
+                | BlockKind::MetadataBlock
+                | BlockKind::Mermaid
+                | BlockKind::Math
+                | BlockKind::TableCell
+                | BlockKind::Image
+        )
+    )
+}
+
 impl EditorView {
     pub(crate) fn copy(&mut self, cx: &mut Context<'_, Self>) {
         let Some((anchor, head)) = self.state.selection else {
@@ -74,15 +88,10 @@ impl EditorView {
         if text.is_empty() {
             return;
         }
-        let intent = match self.paste_host() {
-            Some(
-                BlockKind::CodeBlock
-                | BlockKind::Mermaid
-                | BlockKind::Math
-                | BlockKind::TableCell
-                | BlockKind::Image,
-            ) => PasteIntent::PlainText,
-            _ => PasteIntent::IndependentFragment,
+        let intent = if hosts_plain_text_paste(self.paste_host()) {
+            PasteIntent::PlainText
+        } else {
+            PasteIntent::IndependentFragment
         };
         self.apply_cmd(Command::Paste { text, intent });
         self.note_edit(cx);

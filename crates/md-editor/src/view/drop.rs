@@ -1,7 +1,7 @@
 use super::EditorView;
+use super::clipboard::hosts_plain_text_paste;
 use gpui::{Context, Window};
 use md_content::images;
-use md_core::block::BlockKind;
 use md_core::document::{Command, PasteIntent};
 use std::path::Path;
 
@@ -54,15 +54,10 @@ impl EditorView {
             return;
         }
         let text = snippets.join("\n\n");
-        let intent = match self.paste_host() {
-            Some(
-                BlockKind::CodeBlock
-                | BlockKind::Mermaid
-                | BlockKind::Math
-                | BlockKind::TableCell
-                | BlockKind::Image,
-            ) => PasteIntent::PlainText,
-            _ => PasteIntent::IndependentFragment,
+        let intent = if hosts_plain_text_paste(self.paste_host()) {
+            PasteIntent::PlainText
+        } else {
+            PasteIntent::IndependentFragment
         };
         self.apply_cmd(Command::Paste { text, intent });
         self.note_edit(cx);
