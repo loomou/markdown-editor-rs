@@ -20,11 +20,8 @@ pub(super) fn delete_sel(doc: &mut Document, sel: Sel) -> Option<Caret> {
     if let Some((block, lo, hi)) = same_block_span(sel)
         && lo < hi
     {
-        let lists = super::list::lists_touching_leaf(doc, block);
         let (_, offset) = doc.replace_text_with_caret(block, lo..hi, "");
-        let caret =
-            super::list::collapse_empty_after_span(doc, &lists, Caret { block, offset }, false);
-        return Some(close_out_emptied_document(doc, caret, &[block], lo == 0));
+        return Some(demote_emptied_root_block(doc, Caret { block, offset }));
     }
     if sel.anchor.block == sel.head.block {
         return None;
@@ -290,6 +287,19 @@ fn delete_across(
 }
 
 fn demote_emptied_survivor(doc: &mut Document, caret: Caret) -> Caret {
+    demote_emptied_block(doc, caret).unwrap_or(caret)
+}
+
+fn demote_emptied_root_block(doc: &mut Document, caret: Caret) -> Caret {
+    let Some(id) = doc.live_id(caret.block) else {
+        return caret;
+    };
+    if doc.arena.get(id).and_then(|node| node.parent) != Some(doc.root) {
+        return caret;
+    }
+    if !document_is_empty_except(doc, caret.block) {
+        return caret;
+    }
     demote_emptied_block(doc, caret).unwrap_or(caret)
 }
 

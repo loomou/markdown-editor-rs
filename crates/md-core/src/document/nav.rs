@@ -85,7 +85,7 @@ impl Document {
             .live_id(head)
             .map(|id| self.caret_text(id).len())
             .unwrap_or(0);
-        if anchor == head && head_offset == 0 {
+        if anchor == head {
             anchor = self
                 .outermost_wrapper(self.live_id(head)?)
                 .unwrap_or(anchor);

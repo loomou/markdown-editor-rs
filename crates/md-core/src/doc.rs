@@ -1256,4 +1256,112 @@ mod tests {
         );
         assert_eq!(doc.document.to_markdown(), "> \n> \n> tail\n");
     }
+
+    #[test]
+    fn clearing_a_block_keeps_the_container_that_holds_it() {
+        for (source, expected) in [
+            ("> ```\n> abc\n> ```\n", "> ```\n> ```\n"),
+            ("> > ```\n> > abc\n> > ```\n", "> > ```\n> > ```\n"),
+            ("- ```\n  abc\n  ```\n", "- \n  ```\n  ```\n"),
+            ("> - ```\n>   abc\n>   ```\n", "> - \n>   ```\n>   ```\n"),
+            ("> abc\n", "> \n"),
+            ("> > abc\n", "> > \n"),
+            ("- abc\n", "- \n"),
+            ("> - abc\n", "> - \n"),
+            ("> # heading\n", "> # \n"),
+            ("> ![alt](a.png)\n", "> ![]()\n"),
+            ("- ![alt](a.png)\n", "- \n"),
+            ("[^1]: note\n", "[^1]: \n"),
+            ("> [^1]: note\n", "> [^1]: \n"),
+        ] {
+            let mut doc = Doc::new(load_markdown(source, editor_options()));
+            doc.enable_trailing_blank();
+            let leaf = doc.text_leaves()[0];
+            let end = doc.caret_text(leaf).unwrap_or("").len();
+            doc.apply(
+                Sel {
+                    anchor: Cursor {
+                        block: leaf,
+                        offset: 0,
+                    },
+                    head: Cursor {
+                        block: leaf,
+                        offset: end,
+                    },
+                },
+                Command::DeleteBackward,
+            );
+            assert_eq!(
+                doc.document.to_markdown(),
+                expected,
+                "{source:?} must only lose the text"
+            );
+        }
+    }
+
+    #[test]
+    fn clearing_part_of_a_block_keeps_the_container_too() {
+        for &(source, from, to, expected) in &[
+            ("> ```\n> abc\n> ```\n", 1, 3, "> ```\n> a\n> ```\n"),
+            ("> abc\n", 1, 3, "> a\n"),
+            ("> > abc\n", 0, 1, "> > bc\n"),
+            ("- abc\n", 0, 2, "- c\n"),
+            ("> - abc\n", 1, 2, "> - ac\n"),
+        ] {
+            let mut doc = Doc::new(load_markdown(source, editor_options()));
+            doc.enable_trailing_blank();
+            let leaf = doc.text_leaves()[0];
+            doc.apply(
+                Sel {
+                    anchor: Cursor {
+                        block: leaf,
+                        offset: from,
+                    },
+                    head: Cursor {
+                        block: leaf,
+                        offset: to,
+                    },
+                },
+                Command::DeleteBackward,
+            );
+            assert_eq!(doc.document.to_markdown(), expected, "{source:?}");
+        }
+    }
+
+    #[test]
+    fn a_whole_document_selection_never_collapses_onto_one_block() {
+        for source in [
+            "> abc\n",
+            "> > abc\n",
+            "- abc\n",
+            "> - abc\n",
+            "[^1]: note\n",
+            "> [^1]: note\n",
+            "> ![alt](a.png)\n",
+        ] {
+            let mut doc = Doc::new(load_markdown(source, editor_options()));
+            doc.enable_trailing_blank();
+            let leaf = doc.text_leaves()[0];
+            let end = doc.caret_text(leaf).unwrap_or("").len();
+            let sel = doc.whole_document_sel().expect("selection");
+            assert_ne!(
+                sel.anchor.block, leaf,
+                "the whole-document selection of {source:?} must anchor on the container"
+            );
+            assert_eq!(
+                doc.copy_markdown(sel),
+                doc.copy_markdown(Sel {
+                    anchor: Cursor {
+                        block: leaf,
+                        offset: 0,
+                    },
+                    head: Cursor {
+                        block: leaf,
+                        offset: end,
+                    },
+                }),
+                "the container anchor of {source:?} must not change the copy"
+            );
+        }
+    }
 }

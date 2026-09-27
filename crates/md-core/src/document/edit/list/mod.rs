@@ -8,9 +8,7 @@ mod wrap;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use collapse::{
-    all_lists, collapse_empty_after_span, lists_touching_leaf, lists_touching_span,
-};
+pub(crate) use collapse::{all_lists, collapse_empty_after_span, lists_touching_span};
 pub(crate) use indent::{lift_item, lift_items, sink_items};
 pub(crate) use join::delete_backward;
 pub(crate) use split::split_item;
