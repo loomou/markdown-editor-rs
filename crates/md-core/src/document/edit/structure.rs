@@ -17,14 +17,12 @@ pub(super) fn break_block(doc: &mut Document, sel: Sel) -> Caret {
     if doc.kind(at.block) == Some(BlockKind::ThematicBreak) {
         return at;
     }
-    if matches!(
-        doc.kind(at.block),
-        Some(BlockKind::TableCell | BlockKind::Image)
-    ) {
+    if doc.kind(at.block) == Some(BlockKind::TableCell) {
         return at;
     }
-    if is_fence_leaf(doc.kind(at.block))
-        && let Some(id) = doc.live_id(at.block)
+    let leaf_kind = doc.kind(at.block);
+    if let Some(id) = doc.live_id(at.block)
+        && (is_fence_leaf(leaf_kind) || leaf_kind == Some(BlockKind::Image))
     {
         return doc.break_literal_leaf(id, at.offset);
     }
