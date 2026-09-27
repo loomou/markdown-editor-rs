@@ -60,12 +60,14 @@ pub(super) fn delete_sel(doc: &mut Document, sel: Sel) -> Option<Caret> {
     let last = *span.last()?;
     let t0 = super::table::cell_table(doc, first);
     let t1 = super::table::cell_table(doc, last);
-    if let (Some(table), Some(other)) = (t0, t1)
+    let caret = if let (Some(table), Some(other)) = (t0, t1)
         && table == other
     {
-        return delete_in_table(doc, table, first, from, last, to);
-    }
-    delete_across(doc, &span, from, to, edges)
+        delete_in_table(doc, table, first, from, last, to)?
+    } else {
+        delete_across(doc, &span, from, to, edges)?
+    };
+    Some(close_out_emptied_document(doc, caret))
 }
 
 #[derive(Clone, Copy, Default)]
@@ -290,26 +292,31 @@ fn demote_emptied_survivor(doc: &mut Document, caret: Caret) -> Caret {
 }
 
 fn demote_emptied_block(doc: &mut Document, caret: Caret) -> Option<Caret> {
-    if leaf_len(doc, caret.block) > 0 {
+    let id = doc.live_id(caret.block)?;
+    if !doc.display(id).is_empty() {
         return None;
     }
-    let id = doc.live_id(caret.block)?;
     doc.try_demote_heading(id)
         .or_else(|| doc.try_demote_empty_block(id))
         .or_else(|| lift_out_of_emptied_wrapper(doc, id))
 }
 
 fn close_out_emptied_document(doc: &mut Document, caret: Caret) -> Caret {
-    if leaf_len(doc, caret.block) > 0 || !document_is_empty_except(doc, caret.block) {
+    if !document_is_empty_except(doc, caret.block) {
         return caret;
     }
     let mut caret = caret;
     let mut rounds = 0;
     while rounds < CLOSE_OUT_ROUNDS {
-        let Some(next) = demote_emptied_block(doc, caret) else {
+        let before = doc.revision();
+        if let Some(next) = demote_emptied_block(doc, caret) {
+            caret = next;
+        }
+        let lists = super::list::lists_touching_leaf(doc, caret.block);
+        caret = super::list::collapse_empty_after_span(doc, &lists, caret, false);
+        if doc.revision() == before {
             break;
-        };
-        caret = next;
+        }
         rounds += 1;
     }
     caret

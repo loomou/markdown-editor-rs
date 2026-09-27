@@ -1035,43 +1035,21 @@ mod tests {
 
     #[test]
     fn select_all_delete_clears_a_single_block_document() {
-        for source in [
-            "# heading\n",
-            "> quote\n",
-            "```\ncode\n```\n",
-            "$$\nx\n$$\n",
-            "[^1]: note\n",
-            "> # heading\n",
-            "> - item\n",
-            "- item\n",
-            "1. item\n",
-            "- [ ] task\n",
-        ] {
-            for name in ["backward", "forward"] {
-                let mut doc = Doc::new(load_markdown(source, editor_options()));
-                doc.enable_trailing_blank();
-                let sel = doc.whole_document_sel().expect("selection");
-                let cmd = if name == "backward" {
-                    Command::DeleteBackward
-                } else {
-                    Command::DeleteForward
-                };
-                doc.apply(sel, cmd);
-                let left = doc.text_leaves();
-                assert_eq!(left.len(), 1, "{source:?} {name}");
-                assert_eq!(
-                    doc.kind(left[0]),
-                    Some(BlockKind::Paragraph),
-                    "{source:?} {name}"
-                );
-                assert_eq!(doc.text(left[0]), Some(""), "{source:?} {name}");
-                assert_eq!(
-                    doc.document.to_markdown(),
-                    "",
-                    "{source:?} {name} must not leave the block marker behind"
-                );
-            }
-        }
+        select_all_delete_leaves_one_empty_paragraph(
+            &[
+                "# heading\n",
+                "> quote\n",
+                "```\ncode\n```\n",
+                "$$\nx\n$$\n",
+                "[^1]: note\n",
+                "> # heading\n",
+                "> - item\n",
+                "- item\n",
+                "1. item\n",
+                "- [ ] task\n",
+            ],
+            "a block marker",
+        );
     }
 
     #[test]
@@ -1096,5 +1074,142 @@ mod tests {
         assert_eq!(doc.kind(leaves[0]), Some(BlockKind::Heading(1)));
         assert_eq!(doc.text(leaves[0]), Some(""));
         assert_eq!(doc.text(leaves[1]), Some("123"));
+    }
+
+    fn select_all_delete_leaves_one_empty_paragraph(sources: &[&str], what: &str) {
+        for source in sources {
+            for name in ["backward", "forward"] {
+                let mut doc = Doc::new(load_markdown(source, editor_options()));
+                doc.enable_trailing_blank();
+                let sel = doc.whole_document_sel().expect("selection");
+                let cmd = if name == "backward" {
+                    Command::DeleteBackward
+                } else {
+                    Command::DeleteForward
+                };
+                doc.apply(sel, cmd);
+                let left = doc.text_leaves();
+                assert_eq!(left.len(), 1, "{what} {source:?} {name}");
+                assert_eq!(
+                    doc.kind(left[0]),
+                    Some(BlockKind::Paragraph),
+                    "{what} {source:?} {name}"
+                );
+                assert_eq!(doc.text(left[0]), Some(""), "{what} {source:?} {name}");
+                assert_eq!(
+                    doc.document.to_markdown(),
+                    "",
+                    "{what} {source:?} {name} must not leave the container behind"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn select_all_delete_clears_a_table_inside_a_container() {
+        select_all_delete_leaves_one_empty_paragraph(
+            &[
+                "> | a | b |\n> | --- | --- |\n> | c | d |\n",
+                "> > | a | b |\n> > | --- | --- |\n> > | c | d |\n",
+                "- | a | b |\n  | --- | --- |\n  | c | d |\n",
+                "> - | a | b |\n>   | --- | --- |\n>   | c | d |\n",
+                "- - | a | b |\n    | --- | --- |\n    | c | d |\n",
+                "[^1]: | a | b |\n    | --- | --- |\n    | c | d |\n",
+            ],
+            "a table",
+        );
+    }
+
+    #[test]
+    fn select_all_delete_clears_a_literal_block_inside_a_list() {
+        select_all_delete_leaves_one_empty_paragraph(
+            &[
+                "- ```\n  code\n  ```\n",
+                "- $$\n  x\n  $$\n",
+                "- ```mermaid\n  graph TD;\n  ```\n",
+                "- - ```\n    code\n    ```\n",
+                "- - $$\n    x\n    $$\n",
+                "> - ```\n>   code\n>   ```\n",
+                "> - $$\n>   x\n>   $$\n",
+            ],
+            "a literal block",
+        );
+    }
+
+    #[test]
+    fn select_all_delete_clears_an_image_inside_a_container() {
+        select_all_delete_leaves_one_empty_paragraph(
+            &[
+                "![alt](a.png)\n",
+                "> ![alt](a.png)\n",
+                "> > ![alt](a.png)\n",
+            ],
+            "an image",
+        );
+    }
+
+    #[test]
+    fn select_all_delete_drops_a_quote_that_a_removed_break_empties() {
+        select_all_delete_leaves_one_empty_paragraph(
+            &["> > ---\n", "> > > ---\n", "> > ---\n> >\n> > tail\n"],
+            "an emptied quote",
+        );
+    }
+
+    #[test]
+    fn an_across_delete_drops_every_quote_it_empties() {
+        for source in [
+            "> a\n>\n> b\n\ntail\n",
+            "> > a\n> >\n> > b\n\ntail\n",
+            "> > > a\n> > >\n> > > b\n\ntail\n",
+        ] {
+            let mut doc = Doc::new(load_markdown(source, editor_options()));
+            doc.enable_trailing_blank();
+            let leaves = doc.text_leaves();
+            let end = doc.caret_text(leaves[1]).unwrap_or("").len();
+            doc.apply(
+                Sel {
+                    anchor: Cursor {
+                        block: leaves[0],
+                        offset: 0,
+                    },
+                    head: Cursor {
+                        block: leaves[1],
+                        offset: end,
+                    },
+                },
+                Command::DeleteBackward,
+            );
+            assert_eq!(
+                doc.document.to_markdown(),
+                "tail\n",
+                "{source:?} must not leave an emptied quote behind"
+            );
+        }
+    }
+
+    #[test]
+    fn deleting_a_table_keeps_the_container_that_still_has_content() {
+        let mut doc = Doc::new(load_markdown(
+            "> | a | b |\n> | --- | --- |\n> | c | d |\n>\n> tail\n",
+            editor_options(),
+        ));
+        doc.enable_trailing_blank();
+        let leaves = doc.text_leaves();
+        let end = doc.caret_text(leaves[3]).unwrap_or("").len();
+        doc.apply(
+            Sel {
+                anchor: Cursor {
+                    block: leaves[0],
+                    offset: 0,
+                },
+                head: Cursor {
+                    block: leaves[3],
+                    offset: end,
+                },
+            },
+            Command::DeleteBackward,
+        );
+        assert_eq!(doc.document.to_markdown(), "> \n> \n> tail\n");
     }
 }

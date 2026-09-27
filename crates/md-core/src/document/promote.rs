@@ -310,13 +310,17 @@ impl Document {
         let empty = self.display(id).is_empty();
         if !matches!(
             transition.old_kind,
-            BlockKind::ThematicBreak | BlockKind::CodeBlock | BlockKind::Mermaid | BlockKind::Math
+            BlockKind::ThematicBreak
+                | BlockKind::CodeBlock
+                | BlockKind::Mermaid
+                | BlockKind::Math
+                | BlockKind::Image
         ) {
             return None;
         }
         if matches!(
             transition.old_kind,
-            BlockKind::CodeBlock | BlockKind::Mermaid | BlockKind::Math
+            BlockKind::CodeBlock | BlockKind::Mermaid | BlockKind::Math | BlockKind::Image
         ) && !empty
         {
             return None;
