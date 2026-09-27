@@ -170,7 +170,25 @@ impl Document {
             let set = self.replace_text(index, range, text);
             return (set, index, start + text.len());
         }
-        let fragment = load_markdown(text, editor_options());
+        let at_head = range.start == 0
+            && self
+                .arena
+                .get(id)
+                .is_some_and(|n| n.parent == Some(self.root) && n.prev_sibling.is_none());
+        let mut fragment = load_markdown(text, editor_options());
+        let first_root = fragment.arena.children(fragment.root).next();
+        for root in fragment
+            .arena
+            .children(fragment.root)
+            .collect::<Vec<NodeId>>()
+        {
+            if at_head && Some(root) == first_root {
+                continue;
+            }
+            if fragment.arena.get(root).map(|n| n.kind) == Some(BlockKind::MetadataBlock) {
+                fragment.demote_front_matter(root);
+            }
+        }
         let roots: Vec<NodeId> = fragment.arena.children(fragment.root).collect();
         if roots.is_empty() {
             let start = range.start;
@@ -240,6 +258,26 @@ impl Document {
         self.rebind_fragment_links(&fragment, &inserted, &mut changes);
         let set = self.commit(before, changes);
         (set, caret.0, caret.1)
+    }
+
+    fn demote_front_matter(&mut self, root: NodeId) {
+        let body = self.leaf_source(root).to_string();
+        let mut literal = String::new();
+        bind::escape_literal(&mut literal, &body);
+        let demoted = load_markdown(&format!("***\n\n{literal}\n\n***\n"), editor_options());
+        let nodes: Vec<NodeId> = demoted.arena.children(demoted.root).collect();
+        let Some(parent) = self.arena.get(root).and_then(|n| n.parent) else {
+            return;
+        };
+        let mut after = self.arena.get(root).and_then(|n| n.prev_sibling);
+        for node in nodes {
+            let cloned = self.clone_subtree(&demoted, node);
+            self.arena.insert_after(parent, after, cloned);
+            after = Some(cloned);
+        }
+        self.arena.detach(root);
+        self.texts.clear_slot(root.index);
+        self.arena.tombstone(root);
     }
 
     fn adopt_reference_definitions(

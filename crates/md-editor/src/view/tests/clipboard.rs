@@ -324,6 +324,44 @@ fn well_head_copy_math_exports_the_fence_form(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn pasting_a_copied_front_matter_does_not_open_a_second_one(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc("---\ntitle: hi\n---\n\nbody\n", cx);
+    focus_editor(&editor, cx);
+    let (x, y) = well_copy_point(&editor, cx, BlockKind::MetadataBlock, 0);
+    cx.simulate_mouse_down(point(px(x), px(y)), MouseButton::Left, Modifiers::none());
+    assert_eq!(clipboard(cx), "---\ntitle: hi\n---\n");
+
+    cx.update(|_, app| {
+        editor.update(app, |view, _| {
+            let block = view.state.doc.text_leaves()[1];
+            let offset = view.state.doc.text(block).unwrap_or("").len();
+            view.place_cursor(Cursor { block, offset }, CursorMotion::Move);
+        })
+    });
+    cx.simulate_keystrokes("secondary-v");
+    cx.update(|_, app| {
+        let view = editor.read(app);
+        let leaves = view.state.doc.text_leaves();
+        let kinds: Vec<BlockKind> = leaves
+            .iter()
+            .filter_map(|&b| view.state.doc.kind(b))
+            .collect();
+        assert_eq!(
+            kinds
+                .iter()
+                .filter(|k| **k == BlockKind::MetadataBlock)
+                .count(),
+            1,
+            "a paste must not open a second front matter: {kinds:?}"
+        );
+        assert_eq!(
+            view.state.doc.document.to_markdown(),
+            "---\ntitle: hi\n---\n\nbody\n\n---\n\ntitle: hi\n\n---\n"
+        );
+    });
+}
+
+#[gpui::test]
 fn well_copy_check_mark_fades_and_a_second_click_resets_it(cx: &mut TestAppContext) {
     let (editor, cx) = editor_with_doc("```rust\nfn a() {}\n```\n\n```python\nprint(1)\n```\n", cx);
     focus_editor(&editor, cx);

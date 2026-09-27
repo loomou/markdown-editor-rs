@@ -1067,6 +1067,76 @@ fn single_paragraph_paste_refreshes_existing_references() {
 }
 
 #[test]
+fn pasting_a_front_matter_never_adds_a_second_one() {
+    let mut doc = load_markdown("---\ntitle: hi\n---\n\nbody\n", editor_options());
+    let leaf = doc.text_leaves()[1];
+    let at = doc.text_of(leaf).unwrap().len();
+    let _ = doc.paste(
+        leaf,
+        at..at,
+        "---\nother: x\n---\n",
+        PasteIntent::IndependentFragment,
+    );
+    assert_eq!(kind_count(&doc, BlockKind::MetadataBlock), 1);
+    assert_eq!(
+        doc.to_markdown(),
+        "---\ntitle: hi\n---\n\nbody\n\n---\n\nother: x\n\n---\n"
+    );
+    let again = load_markdown(&doc.to_markdown(), editor_options());
+    assert_eq!(kind_count(&again, BlockKind::MetadataBlock), 1);
+    assert_eq!(again.to_markdown(), doc.to_markdown());
+}
+
+#[test]
+fn a_front_matter_fragment_only_stays_one_at_the_document_head() {
+    let mut empty = load_markdown("\n", editor_options());
+    let leaf = empty.text_leaves()[0];
+    let _ = empty.paste(
+        leaf,
+        0..0,
+        "---\ntitle: hi\n---\n",
+        PasteIntent::IndependentFragment,
+    );
+    assert_eq!(kind_count(&empty, BlockKind::MetadataBlock), 1);
+    assert_eq!(empty.to_markdown(), "---\ntitle: hi\n---\n");
+
+    let mut body = load_markdown("body\n", editor_options());
+    let leaf = body.text_leaves()[0];
+    let at = body.text_of(leaf).unwrap().len();
+    let _ = body.paste(
+        leaf,
+        at..at,
+        "---\ntitle: hi\n---\n",
+        PasteIntent::IndependentFragment,
+    );
+    assert_eq!(kind_count(&body, BlockKind::MetadataBlock), 0);
+    assert_eq!(body.to_markdown(), "body\n\n---\n\ntitle: hi\n\n---\n");
+}
+
+#[test]
+fn a_demoted_front_matter_body_stays_literal() {
+    let mut doc = load_markdown("body\n", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let at = doc.text_of(leaf).unwrap().len();
+    let _ = doc.paste(
+        leaf,
+        at..at,
+        "---\n# not a heading\n---\n",
+        PasteIntent::IndependentFragment,
+    );
+    assert_eq!(kind_count(&doc, BlockKind::Heading(1)), 0);
+    assert_eq!(kind_count(&doc, BlockKind::MetadataBlock), 0);
+    let markdown = doc.to_markdown();
+    assert_eq!(markdown, "body\n\n---\n\n\\# not a heading\n\n---\n");
+    let again = load_markdown(&markdown, editor_options());
+    assert_eq!(again.to_markdown(), markdown);
+    assert_eq!(
+        again.text_of(again.text_leaves()[1]),
+        Some("# not a heading")
+    );
+}
+
+#[test]
 fn plain_paste_into_front_matter_keeps_the_trailing_blank() {
     let mut doc = load_markdown("---\ntitle: hi\n---\n", editor_options());
     let _ = doc.take_changes();
