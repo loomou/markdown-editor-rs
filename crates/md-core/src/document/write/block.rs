@@ -1,4 +1,6 @@
-use super::inline::{escape_leading_fences, paragraph_export, trim_end_newlines};
+use super::inline::{
+    LeadingBlock, escape_leading_block_markers, paragraph_export, trim_end_newlines,
+};
 use super::{
     MarkdownExport, MarkdownWriter, Prefix, blank_line, push_first_and_rest, write_prefixed,
 };
@@ -258,18 +260,22 @@ where
     D: MarkdownExport,
     W: fmt::Write,
 {
+    let last = kids.len().saturating_sub(1);
     let mut steps = Vec::with_capacity(kids.len() * 2);
     let mut previous = None;
     for (i, id) in kids.into_iter().enumerate() {
+        let trailing_blank = i == last && i > 0 && is_blank_paragraph(doc, id);
         if i > 0 && previous != Some(BlockKind::MetadataBlock) {
             steps.push(Step::BlankLine {
                 prefix: prefix.clone(),
             });
         }
-        steps.push(Step::Block {
-            id,
-            prefix: prefix.clone(),
-        });
+        if !trailing_blank {
+            steps.push(Step::Block {
+                id,
+                prefix: prefix.clone(),
+            });
+        }
         previous = doc.kind(id);
     }
     push_rev(stack, steps);
@@ -433,7 +439,7 @@ fn thematic_break_line<D: MarkdownExport>(doc: &D, id: NodeId) -> String {
 fn heading_line<D: MarkdownExport>(doc: &D, id: NodeId, level: u8) -> String {
     let source = trim_end_newlines(doc.leaf_source(id));
     if source.contains('\n') {
-        return escape_leading_fences(source);
+        return escape_leading_block_markers(source, LeadingBlock::Heading);
     }
     let hashes = source.chars().take_while(|c| *c == '#').count();
     if (1..=6).contains(&hashes)

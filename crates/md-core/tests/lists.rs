@@ -403,11 +403,14 @@ fn live_markers_still_promote_on_typing() {
             block: id,
             offset: 0,
         }),
-        Command::Insert { text: "- ".into() },
+        Command::Insert { text: "> ".into() },
     );
-    println!("live list saved={:?}", d.document.to_markdown());
-    assert_eq!(d.document.to_markdown(), "- hi\n");
+    println!("live quote saved={:?}", d.document.to_markdown());
+    assert_eq!(d.document.to_markdown(), "> hi\n");
+}
 
+#[test]
+fn a_marker_insert_that_stays_text_is_escaped_on_save() {
     let mut d = Doc::new(doc("hi\n"));
     let id = d.first_text_leaf().unwrap();
     d.apply(
@@ -415,10 +418,24 @@ fn live_markers_still_promote_on_typing() {
             block: id,
             offset: 0,
         }),
-        Command::Insert { text: "> ".into() },
+        Command::Insert { text: "- ".into() },
     );
-    println!("live quote saved={:?}", d.document.to_markdown());
-    assert_eq!(d.document.to_markdown(), "> hi\n");
+    let saved = d.document.to_markdown();
+    println!("live list saved={saved:?}");
+    assert!(
+        d.document
+            .preorder()
+            .into_iter()
+            .all(|id| d.document.arena.get(id).map(|node| node.kind)
+                != Some(md_core::block::BlockKind::List)),
+        "the marker stays literal text, so nothing was promoted"
+    );
+    assert_eq!(saved, "\\- hi\n");
+    assert_eq!(
+        doc(&saved).to_markdown(),
+        saved,
+        "the literal marker must survive the save"
+    );
 }
 
 #[test]

@@ -1389,6 +1389,130 @@ fn indented_and_tilde_fence_lines_are_escaped_too() {
     assert_eq!(reloaded.to_markdown(), saved);
 }
 
+fn kind_count(doc: &Document, kind: BlockKind) -> usize {
+    doc.preorder()
+        .into_iter()
+        .filter(|&id| doc.arena.get(id).map(|node| node.kind) == Some(kind))
+        .count()
+}
+
+#[test]
+fn a_literal_dash_marker_inside_a_list_item_survives_saving() {
+    let mut doc = load_markdown("", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let at = type_chars(&mut doc, caret(leaf, 0), "- ");
+    let _ = type_chars(&mut doc, at, "- ");
+
+    let markdown = doc.to_markdown();
+    assert_eq!(markdown, "- \\- \n");
+
+    let again = load_markdown(&markdown, editor_options());
+    assert_eq!(
+        kind_count(&again, BlockKind::List),
+        1,
+        "markdown={markdown:?}"
+    );
+    assert_eq!(
+        kind_count(&again, BlockKind::ListItem),
+        1,
+        "markdown={markdown:?}"
+    );
+    assert_eq!(again.text_of(again.text_leaves()[0]), Some("-"));
+}
+
+#[test]
+fn literal_block_markers_inside_a_list_item_survive_saving() {
+    for text in ["- ", "+ ", "* ", "1. ", "1) ", "---", "***", "___"] {
+        let mut doc = load_markdown("", editor_options());
+        let leaf = doc.text_leaves()[0];
+        let at = type_chars(&mut doc, caret(leaf, 0), "- ");
+        let _ = type_chars(&mut doc, at, text);
+
+        let mut markdown = doc.to_markdown();
+        let mut previous = String::new();
+        for round in 0..3 {
+            let again = load_markdown(&markdown, editor_options());
+            assert_eq!(
+                kind_count(&again, BlockKind::List),
+                1,
+                "text={text:?} round={round} markdown={markdown:?}"
+            );
+            assert_eq!(
+                kind_count(&again, BlockKind::ListItem),
+                1,
+                "text={text:?} round={round} markdown={markdown:?}"
+            );
+            assert_eq!(
+                again.text_of(again.text_leaves()[0]),
+                Some(text.trim_end()),
+                "text={text:?} round={round} markdown={markdown:?}"
+            );
+            let saved = again.to_markdown();
+            if round >= 1 {
+                assert_eq!(
+                    saved, previous,
+                    "text={text:?} is not a save fixed point at round {round}"
+                );
+            }
+            previous = saved.clone();
+            markdown = saved;
+        }
+    }
+}
+
+#[test]
+fn thematic_break_text_typed_at_the_root_stays_a_paragraph_across_saves() {
+    for text in ["---", "***", "___"] {
+        let mut doc = load_markdown("", editor_options());
+        let leaf = doc.text_leaves()[0];
+        let at = type_chars(&mut doc, caret(leaf, 0), text);
+        assert_eq!(
+            doc.kind(at.block),
+            Some(BlockKind::Paragraph),
+            "text={text:?}"
+        );
+
+        let markdown = doc.to_markdown();
+        assert_eq!(markdown, format!("\\{text}\n"), "text={text:?}");
+
+        let again = load_markdown(&markdown, editor_options());
+        assert_eq!(
+            again.kind(again.text_leaves()[0]),
+            Some(BlockKind::Paragraph),
+            "text={text:?} markdown={markdown:?}"
+        );
+        assert_eq!(
+            again.text_of(again.text_leaves()[0]),
+            Some(text),
+            "text={text:?} markdown={markdown:?}"
+        );
+        assert_eq!(
+            again.to_markdown(),
+            markdown,
+            "text={text:?} is not a save fixed point"
+        );
+    }
+}
+
+#[test]
+fn an_empty_paragraph_inside_a_quote_does_not_emit_a_duplicate_line() {
+    let mut doc = load_markdown("> hi\n", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let _ = apply(&mut doc, Sel::collapsed(caret(leaf, 2)), Command::Break);
+
+    let quote = doc
+        .preorder()
+        .into_iter()
+        .find(|&id| doc.arena.get(id).map(|node| node.kind) == Some(BlockKind::BlockQuote))
+        .expect("quote");
+    assert_eq!(
+        doc.arena.children(quote).count(),
+        2,
+        "the quote holds two paragraphs"
+    );
+    assert_eq!(doc.to_markdown(), "> hi\n> \n");
+}
+
 #[test]
 fn fence_marker_text_inside_a_table_cell_stays_literal() {
     let doc = load_markdown("| ``` |\n| --- |\n| ```x``` |\n", editor_options());
