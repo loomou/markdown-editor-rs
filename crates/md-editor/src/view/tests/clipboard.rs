@@ -1,4 +1,5 @@
 use super::support::{editor_with_doc, focus_editor, place_caret};
+use crate::view::clipboard::hosts_plain_text_paste;
 use crate::view::{CursorMotion, EditorElement, EditorView};
 use gpui::TestAppContext;
 use gpui::VisualTestContext;
@@ -323,6 +324,44 @@ fn well_head_copy_math_exports_the_fence_form(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn pasting_a_copied_front_matter_does_not_open_a_second_one(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc("---\ntitle: hi\n---\n\nbody\n", cx);
+    focus_editor(&editor, cx);
+    let (x, y) = well_copy_point(&editor, cx, BlockKind::MetadataBlock, 0);
+    cx.simulate_mouse_down(point(px(x), px(y)), MouseButton::Left, Modifiers::none());
+    assert_eq!(clipboard(cx), "---\ntitle: hi\n---\n");
+
+    cx.update(|_, app| {
+        editor.update(app, |view, _| {
+            let block = view.state.doc.text_leaves()[1];
+            let offset = view.state.doc.text(block).unwrap_or("").len();
+            view.place_cursor(Cursor { block, offset }, CursorMotion::Move);
+        })
+    });
+    cx.simulate_keystrokes("secondary-v");
+    cx.update(|_, app| {
+        let view = editor.read(app);
+        let leaves = view.state.doc.text_leaves();
+        let kinds: Vec<BlockKind> = leaves
+            .iter()
+            .filter_map(|&b| view.state.doc.kind(b))
+            .collect();
+        assert_eq!(
+            kinds
+                .iter()
+                .filter(|k| **k == BlockKind::MetadataBlock)
+                .count(),
+            1,
+            "a paste must not open a second front matter: {kinds:?}"
+        );
+        assert_eq!(
+            view.state.doc.document.to_markdown(),
+            "---\ntitle: hi\n---\n\nbody\n\n---\n\ntitle: hi\n\n---\n"
+        );
+    });
+}
+
+#[gpui::test]
 fn well_copy_check_mark_fades_and_a_second_click_resets_it(cx: &mut TestAppContext) {
     let (editor, cx) = editor_with_doc("```rust\nfn a() {}\n```\n\n```python\nprint(1)\n```\n", cx);
     focus_editor(&editor, cx);
@@ -389,6 +428,7 @@ fn select_all_backspace_clears_a_single_block_document(cx: &mut TestAppContext) 
         "# heading\n",
         "> quote\n",
         "```\ncode\n```\n",
+        "```\n```\n",
         "> - item\n",
         "> | a | b |\n> | --- | --- |\n> | c | d |\n",
         "> > ---\n",
@@ -397,6 +437,7 @@ fn select_all_backspace_clears_a_single_block_document(cx: &mut TestAppContext) 
         "> #\n",
         "-\n",
         "[^1]:\n",
+        "---\n\n---\n",
     ] {
         let (editor, cx) = editor_with_doc(md, cx);
         focus_editor(&editor, cx);
@@ -419,6 +460,49 @@ fn select_all_backspace_clears_a_single_block_document(cx: &mut TestAppContext) 
             );
         });
     }
+}
+
+#[gpui::test]
+fn select_all_backspace_clears_a_front_matter_opened_by_the_keyboard(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc("", cx);
+    focus_editor(&editor, cx);
+    cx.simulate_input("---");
+    cx.simulate_keystrokes("enter");
+    cx.update(|_, app| {
+        let view = editor.read(app);
+        assert_eq!(
+            view.state.doc.kind(view.state.doc.text_leaves()[0]),
+            Some(BlockKind::MetadataBlock),
+            "the dash rule on the first line must open a front matter"
+        );
+    });
+
+    cx.simulate_keystrokes("secondary-a");
+    cx.update(|_, app| {
+        let view = editor.read(app);
+        let (anchor, head) = view
+            .state
+            .selection
+            .expect("select all must keep a selection on a front matter");
+        assert_ne!(
+            anchor, head,
+            "select all must not collapse onto a caret inside the front matter"
+        );
+    });
+
+    cx.simulate_keystrokes("backspace");
+    cx.update(|_, app| {
+        let view = editor.read(app);
+        let leaves = view.state.doc.text_leaves();
+        assert_eq!(leaves.len(), 1);
+        assert_eq!(view.state.doc.kind(leaves[0]), Some(BlockKind::Paragraph));
+        assert_eq!(view.state.doc.text(leaves[0]), Some(""));
+        assert_eq!(
+            view.state.doc.document.to_markdown(),
+            "",
+            "select all must not leave the front matter behind"
+        );
+    });
 }
 
 #[gpui::test]
@@ -489,4 +573,24 @@ fn paste_host_reads_through_a_select_all_that_reaches_a_break(cx: &mut TestAppCo
             );
         });
     }
+}
+
+#[test]
+fn plain_text_paste_hosts_cover_the_front_matter() {
+    for kind in [
+        BlockKind::CodeBlock,
+        BlockKind::MetadataBlock,
+        BlockKind::Mermaid,
+        BlockKind::Math,
+        BlockKind::TableCell,
+        BlockKind::Image,
+    ] {
+        assert!(
+            hosts_plain_text_paste(Some(kind)),
+            "{kind:?} must take a literal paste"
+        );
+    }
+    assert!(!hosts_plain_text_paste(Some(BlockKind::Paragraph)));
+    assert!(!hosts_plain_text_paste(Some(BlockKind::Heading(2))));
+    assert!(!hosts_plain_text_paste(None));
 }

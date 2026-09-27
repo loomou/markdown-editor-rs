@@ -4,7 +4,7 @@ use super::inline::{
 use super::{
     MarkdownExport, MarkdownWriter, Prefix, blank_line, push_first_and_rest, write_prefixed,
 };
-use crate::block::{BlockKind, CodeFenceMarker, ListMarker, NodeExtra};
+use crate::block::{BlockKind, CodeFenceMarker, FrontMatterMarker, ListMarker, NodeExtra};
 use crate::document::arena::NodeId;
 use std::fmt;
 use std::fmt::Write;
@@ -159,7 +159,7 @@ where
             write_prefixed(out, prefix, &body)
         }
         BlockKind::Heading(n) => write_prefixed(out, prefix, &heading_line(doc, id, n)),
-        BlockKind::MetadataBlock => write_prefixed(out, prefix, doc.leaf_source(id)),
+        BlockKind::MetadataBlock => write_front_matter(doc, id, out, prefix),
         BlockKind::CodeBlock | BlockKind::Mermaid => write_fence(doc, id, out, prefix),
         BlockKind::Math => write_math(doc, id, out, prefix),
         BlockKind::BlockQuote => {
@@ -265,7 +265,7 @@ where
     let mut previous = None;
     for (i, id) in kids.into_iter().enumerate() {
         let trailing_blank = i == last && i > 0 && is_blank_paragraph(doc, id);
-        if i > 0 && previous != Some(BlockKind::MetadataBlock) {
+        if i > 0 && !glues_to_next(doc, previous) {
             steps.push(Step::BlankLine {
                 prefix: prefix.clone(),
             });
@@ -276,10 +276,17 @@ where
                 prefix: prefix.clone(),
             });
         }
-        previous = doc.kind(id);
+        previous = Some(id);
     }
     push_rev(stack, steps);
     Ok(())
+}
+
+fn glues_to_next<D: MarkdownExport>(doc: &D, previous: Option<NodeId>) -> bool {
+    let Some(id) = previous else {
+        return false;
+    };
+    doc.kind(id) == Some(BlockKind::MetadataBlock) && !doc.extra(id).front_matter_blank_after()
 }
 
 fn write_list_step(
@@ -532,6 +539,26 @@ fn encode_fence_info(info: &str, marker: char) -> String {
         }
     }
     out
+}
+
+fn write_front_matter<D, W>(
+    doc: &D,
+    id: NodeId,
+    out: &mut MarkdownWriter<W>,
+    prefix: &Prefix,
+) -> fmt::Result
+where
+    D: MarkdownExport,
+    W: fmt::Write,
+{
+    let (marker, len) = doc
+        .extra(id)
+        .front_matter_fence()
+        .unwrap_or((FrontMatterMarker::Dash, 3));
+    let fence = (marker.byte() as char).to_string().repeat(len.max(3));
+    let body = doc.display(id);
+    write_prefixed(out, prefix, &format!("{fence}\n{body}\n{fence}"))?;
+    out.write_str("\n")
 }
 
 fn write_math<D, W>(

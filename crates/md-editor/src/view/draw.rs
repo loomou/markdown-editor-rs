@@ -260,7 +260,11 @@ pub(super) fn is_scroll_well(kind: BlockKind, edit_source: bool) -> bool {
     edit_source
         || matches!(
             kind,
-            BlockKind::CodeBlock | BlockKind::Math | BlockKind::Mermaid | BlockKind::Image
+            BlockKind::CodeBlock
+                | BlockKind::MetadataBlock
+                | BlockKind::Math
+                | BlockKind::Mermaid
+                | BlockKind::Image
         )
 }
 
@@ -571,7 +575,7 @@ pub(super) fn paint_fail_box(
 pub(super) fn well_lang_for(kind: BlockKind, fence_lang: Option<&str>) -> Option<&str> {
     match kind {
         BlockKind::CodeBlock => Some(fence_lang.filter(|s| !s.is_empty()).unwrap_or("text")),
-        BlockKind::MetadataBlock => Some("yaml"),
+        BlockKind::MetadataBlock => Some(fence_lang.filter(|s| !s.is_empty()).unwrap_or("yaml")),
         BlockKind::Math => Some("math"),
         BlockKind::Mermaid => Some("mermaid"),
         _ => None,
@@ -1171,7 +1175,7 @@ fn paint_drop_dot(window: &mut Window, x: f32, y: f32, accent: Hsla) {
 
 #[cfg(test)]
 mod tests {
-    use super::{WELL_COPY_HIT_W, placeholder_name, well_head_geom, well_lang_for};
+    use super::{WELL_COPY_HIT_W, is_scroll_well, placeholder_name, well_head_geom, well_lang_for};
     use md_core::block::BlockKind;
     use md_theme::DocumentTheme;
 
@@ -1184,10 +1188,26 @@ mod tests {
             Some("rust")
         );
         assert_eq!(well_lang_for(BlockKind::MetadataBlock, None), Some("yaml"));
+        assert_eq!(
+            well_lang_for(BlockKind::MetadataBlock, Some("toml")),
+            Some("toml"),
+            "a +++ front matter is TOML and must not be labelled yaml"
+        );
         assert_eq!(well_lang_for(BlockKind::Math, None), Some("math"));
         assert_eq!(well_lang_for(BlockKind::Mermaid, None), Some("mermaid"));
         assert_eq!(well_lang_for(BlockKind::Image, None), None);
         assert_eq!(well_lang_for(BlockKind::Paragraph, Some("rust")), None);
+    }
+
+    #[test]
+    fn a_front_matter_is_a_scroll_well_like_a_code_block() {
+        assert_eq!(
+            is_scroll_well(BlockKind::MetadataBlock, false),
+            is_scroll_well(BlockKind::CodeBlock, false),
+            "the front matter paints a well head, so it must also scroll like one"
+        );
+        assert!(is_scroll_well(BlockKind::MetadataBlock, false));
+        assert!(!is_scroll_well(BlockKind::Paragraph, false));
     }
 
     #[test]

@@ -327,3 +327,20 @@ fn for_each_extra_visits_in_preorder() {
     doc.for_each_extra(|index, _| got.push(index));
     assert_eq!(got, expect);
 }
+
+#[test]
+fn a_front_matter_registers_the_lang_its_marker_implies() {
+    for (src, lang) in [
+        ("---\ntitle: hi\n---\n", "yaml"),
+        ("+++\ntitle = \"hi\"\n+++\n", "toml"),
+    ] {
+        let (doc, maps) = synced(src);
+        let front = first_of(&doc, BlockKind::MetadataBlock);
+        assert_eq!(
+            maps.block_code_lang.get(&front).map(String::as_str),
+            Some(lang),
+            "{src:?} must highlight as {lang}"
+        );
+        assert_eq!(*maps.block_code_lang, rebuilt(&doc).1, "{src:?}");
+    }
+}

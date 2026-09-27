@@ -1,7 +1,7 @@
 use super::{DisplayJob, ImagePopover, ImageSchedule, MathPopover};
 use md_content::shaper::ShapePart;
 use md_content::{images, math};
-use md_core::block::{BlockId, BlockKind};
+use md_core::block::{BlockId, BlockKind, FrontMatterMarker};
 use md_theme::DocumentTheme;
 use std::collections::HashMap;
 
@@ -46,10 +46,20 @@ pub(crate) fn extra_snapshots(
                 .unwrap_or("")
                 .to_ascii_lowercase();
             block_code_lang.insert(index, lang);
+        } else if let Some(marker) = extra.front_matter_marker() {
+            block_code_lang.insert(index, front_matter_lang(marker).to_string());
         }
     });
     (block_image_dest, block_code_lang)
 }
+
+fn front_matter_lang(marker: FrontMatterMarker) -> &'static str {
+    match marker {
+        FrontMatterMarker::Dash => "yaml",
+        FrontMatterMarker::Plus => "toml",
+    }
+}
+
 pub(super) fn collect_image_jobs(
     art: &md_content::shaper::ShapeArtifact,
     block: BlockId,

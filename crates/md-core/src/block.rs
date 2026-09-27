@@ -119,6 +119,22 @@ pub enum CodeFenceMarker {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FrontMatterMarker {
+    #[default]
+    Dash,
+    Plus,
+}
+
+impl FrontMatterMarker {
+    pub fn byte(self) -> u8 {
+        match self {
+            FrontMatterMarker::Dash => b'-',
+            FrontMatterMarker::Plus => b'+',
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TableCellAlign {
     #[default]
     Start,
@@ -198,6 +214,11 @@ pub enum NodeExtra {
     IndentedCode,
     FootnoteLabel {
         label: u32,
+    },
+    FrontMatter {
+        marker: FrontMatterMarker,
+        len: u16,
+        blank_after: bool,
     },
 }
 
@@ -290,10 +311,31 @@ impl NodeExtra {
         }
     }
 
+    pub fn front_matter_marker(self) -> Option<FrontMatterMarker> {
+        match self {
+            NodeExtra::FrontMatter { marker, .. } => Some(marker),
+            _ => None,
+        }
+    }
+
     pub(crate) fn code_fence_style(self) -> Option<(CodeFenceMarker, usize)> {
         match self {
             NodeExtra::CodeFence { marker, len, .. } => Some((marker, usize::from(len))),
             _ => None,
+        }
+    }
+
+    pub(crate) fn front_matter_fence(self) -> Option<(FrontMatterMarker, usize)> {
+        match self {
+            NodeExtra::FrontMatter { marker, len, .. } => Some((marker, usize::from(len))),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn front_matter_blank_after(self) -> bool {
+        match self {
+            NodeExtra::FrontMatter { blank_after, .. } => blank_after,
+            _ => false,
         }
     }
 

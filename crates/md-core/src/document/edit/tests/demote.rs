@@ -1,4 +1,4 @@
-use super::support::{caret, fence_open, type_chars};
+use super::support::{caret, fence_open};
 use crate::block::BlockKind;
 use crate::document::edit::{Command, Sel, apply};
 use crate::document::{editor_options, load_markdown};
@@ -61,10 +61,10 @@ fn empty_math_backspace_demotes() {
 
 #[test]
 fn thematic_break_backspace_demotes() {
-    let mut doc = load_markdown("", editor_options());
-    let leaf = doc.text_leaves()[0];
-    let at = type_chars(&mut doc, caret(leaf, 0), "---");
-    let _ = apply(&mut doc, Sel::collapsed(at), Command::Break);
+    let mut doc = load_markdown("above\n\nscratch\n", editor_options());
+    let leaf = doc.text_leaves()[1];
+    let _ = doc.replace_text(leaf, 0.."scratch".len(), "---");
+    let _ = apply(&mut doc, Sel::collapsed(caret(leaf, 3)), Command::Break);
     assert_eq!(doc.kind(leaf), Some(BlockKind::ThematicBreak));
     let out = apply(
         &mut doc,

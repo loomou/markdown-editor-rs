@@ -43,6 +43,20 @@ fn dump_shape(doc: &Document) -> String {
     out
 }
 
+fn tree_with_sources(doc: &Document) -> Vec<String> {
+    doc.preorder()
+        .into_iter()
+        .map(|id| {
+            format!(
+                "{:?}\t{}\t{}",
+                doc.arena.get(id).map(|node| node.kind),
+                escape_field(doc.display(id)),
+                escape_field(doc.leaf_source(id))
+            )
+        })
+        .collect()
+}
+
 fn extra_tag(doc: &Document, id: NodeId) -> String {
     match doc.extra(id) {
         NodeExtra::List { start, loose, .. } => format!(" list:{start:?}:{loose}"),
@@ -636,6 +650,115 @@ fn html_blocks_keep_their_original_source() {
 }
 
 #[test]
+fn typing_a_dash_rule_on_the_first_line_opens_front_matter() {
+    let mut doc = load_markdown("", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let at = type_chars(&mut doc, caret(leaf, 0), "---");
+    let out = apply(&mut doc, Sel::collapsed(at), Command::Break);
+
+    assert_eq!(doc.kind(leaf), Some(BlockKind::MetadataBlock));
+    assert_eq!(out.block, leaf);
+    assert_eq!(out.offset, 0);
+    assert_eq!(doc.display(doc.live_id(leaf).unwrap()), "");
+    assert_eq!(doc.to_markdown(), "---\n\n---\n");
+
+    let again = load_markdown(&doc.to_markdown(), editor_options());
+    assert_eq!(
+        tree_with_sources(&doc),
+        tree_with_sources(&again),
+        "a freshly opened front matter must reload as the same tree"
+    );
+}
+
+#[test]
+fn a_five_dash_rule_on_the_first_line_opens_front_matter() {
+    let mut doc = load_markdown("", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let at = type_chars(&mut doc, caret(leaf, 0), "-----");
+    let out = apply(&mut doc, Sel::collapsed(at), Command::Break);
+
+    assert_eq!(doc.kind(leaf), Some(BlockKind::MetadataBlock));
+    assert_eq!(out.offset, 0);
+    assert_eq!(doc.to_markdown(), "-----\n\n-----\n");
+
+    let again = load_markdown(&doc.to_markdown(), editor_options());
+    assert_eq!(tree_with_sources(&doc), tree_with_sources(&again));
+}
+
+#[test]
+fn the_front_matter_body_is_typed_where_the_caret_lands() {
+    let mut doc = load_markdown("", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let at = type_chars(&mut doc, caret(leaf, 0), "---");
+    let out = apply(&mut doc, Sel::collapsed(at), Command::Break);
+    let typed = type_chars(&mut doc, out, "title: hi");
+
+    assert_eq!(typed.offset, 9);
+    assert_eq!(doc.to_markdown(), "---\ntitle: hi\n---\n");
+
+    let again = load_markdown(&doc.to_markdown(), editor_options());
+    assert_eq!(tree_with_sources(&doc), tree_with_sources(&again));
+}
+
+#[test]
+fn front_matter_hides_its_delimiters_like_a_code_fence() {
+    for (source, body) in [
+        ("---\ntitle: hi\n---\n", "title: hi"),
+        (
+            "---\ntitle: hi\ntags:\n  - rust\n---\n",
+            "title: hi\ntags:\n  - rust",
+        ),
+        ("+++\ntitle = \"hi\"\n+++\n", "title = \"hi\""),
+    ] {
+        let doc = load_markdown(source, editor_options());
+        let id = doc.live_id(doc.text_leaves()[0]).expect("leaf");
+        assert_eq!(doc.kind(id.index), Some(BlockKind::MetadataBlock));
+        assert_eq!(doc.display(id), body, "{source:?}");
+        assert_eq!(
+            doc.leaf_source(id),
+            body,
+            "{source:?} must keep the delimiters out of the leaf, like a code block"
+        );
+        assert_eq!(doc.to_markdown(), source, "{source:?}");
+    }
+}
+
+#[test]
+fn a_star_rule_on_the_first_line_stays_a_thematic_break() {
+    let mut doc = load_markdown("", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let at = type_chars(&mut doc, caret(leaf, 0), "***");
+    let _ = apply(&mut doc, Sel::collapsed(at), Command::Break);
+
+    assert_eq!(doc.kind(leaf), Some(BlockKind::ThematicBreak));
+    assert_eq!(doc.to_markdown(), "---\n");
+}
+
+#[test]
+fn enter_inside_front_matter_adds_a_line_instead_of_splitting_it() {
+    let mut doc = load_markdown("", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let at = type_chars(&mut doc, caret(leaf, 0), "---");
+    let out = apply(&mut doc, Sel::collapsed(at), Command::Break);
+    let typed = type_chars(&mut doc, out, "title: hi");
+    let after = apply(&mut doc, Sel::collapsed(typed), Command::Break);
+
+    assert_eq!(after.block, leaf);
+    assert_eq!(
+        doc.preorder()
+            .into_iter()
+            .filter(|&id| doc.arena.get(id).map(|node| node.kind) == Some(BlockKind::MetadataBlock))
+            .count(),
+        1,
+        "Enter must not spawn a second front matter"
+    );
+    assert_eq!(doc.to_markdown(), "---\ntitle: hi\n\n---\n");
+
+    let again = load_markdown(&doc.to_markdown(), editor_options());
+    assert_eq!(tree_with_sources(&doc), tree_with_sources(&again));
+}
+
+#[test]
 fn metadata_blocks_keep_delimiters_and_content() {
     for source in [
         "---\ntitle: hello\ntags:\n  - rust\n---\n",
@@ -769,10 +892,10 @@ fn typed_heading_quote_fence_and_rule_reload() {
     let lang = f2.extra(code).code_fence_lang().expect("lang");
     assert_eq!(f2.lang(lang), Some("rust"));
 
-    let mut r = load_markdown("", editor_options());
-    let rleaf = r.text_leaves()[0];
-    let rat = type_chars(&mut r, caret(rleaf, 0), "---");
-    let _ = apply(&mut r, Sel::collapsed(rat), Command::Break);
+    let mut r = load_markdown("above\n\nscratch\n", editor_options());
+    let rleaf = r.text_leaves()[1];
+    let _ = r.replace_text(rleaf, 0.."scratch".len(), "---");
+    let _ = apply(&mut r, Sel::collapsed(caret(rleaf, 3)), Command::Break);
     let rmd = r.to_markdown();
     let r2 = load_markdown(&rmd, editor_options());
     assert!(

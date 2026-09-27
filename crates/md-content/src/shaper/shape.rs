@@ -255,7 +255,7 @@ impl GpuiShaper {
         }
 
         let styled = self.text_runs(text, runs, role, block_kind);
-        let line_colors = if block_kind == BlockKind::CodeBlock {
+        let line_colors = if matches!(block_kind, BlockKind::CodeBlock | BlockKind::MetadataBlock) {
             let colors = self.code_line_colors(text, ident);
             super::tabs::expand_line_colors(text, colors)
         } else {

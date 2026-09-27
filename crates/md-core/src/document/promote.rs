@@ -4,7 +4,7 @@ use super::chars::floor_char_boundary;
 use super::edit::Caret;
 use super::focus::RawConstruct;
 use super::{Document, bind, editor_options, load_markdown, syntax};
-use crate::block::{BlockKind, NodeExtra};
+use crate::block::{BlockKind, FrontMatterMarker, NodeExtra};
 use crate::inline::InlineRun;
 
 struct LeafTransition {
@@ -161,6 +161,48 @@ impl Document {
         })
     }
 
+    pub(crate) fn try_commit_metadata_block(&mut self, id: NodeId) -> Option<Caret> {
+        let transition = self.leaf_transition(id)?;
+        if transition.old_kind != BlockKind::Paragraph {
+            return None;
+        }
+        if !self.is_document_first_child(id) {
+            return None;
+        }
+        let fence = syntax::normalize_source(&transition.old_source);
+        if !syntax::is_front_matter_fence_line(fence) {
+            return None;
+        }
+        let len = fence.len().min(u16::MAX as usize) as u16;
+        let frag = load_markdown(&format!("{fence}\n\n{fence}\n"), editor_options());
+        let (_, next) = bind::unique_root(&frag)?;
+        if next != BlockKind::MetadataBlock {
+            return None;
+        }
+        self.set_leaf_shape(
+            &transition,
+            BlockKind::MetadataBlock,
+            NodeExtra::FrontMatter {
+                marker: FrontMatterMarker::Dash,
+                len,
+                blank_after: false,
+            },
+        );
+        let text_change = self.replace_leaf_projection(
+            &transition,
+            String::new(),
+            String::new(),
+            Vec::new(),
+            Some(bind::identity_map(0)),
+            Some(Vec::new()),
+        );
+        self.finish_leaf_transition(transition, text_change, Vec::new());
+        Some(Caret {
+            block: id.index,
+            offset: 0,
+        })
+    }
+
     pub(crate) fn try_commit_thematic_break(&mut self, id: NodeId) -> Option<Caret> {
         let transition = self.leaf_transition(id)?;
         if transition.old_kind != BlockKind::Paragraph {
@@ -207,6 +249,13 @@ impl Document {
             block: caret.index,
             offset: 0,
         })
+    }
+
+    pub(crate) fn is_document_first_child(&self, id: NodeId) -> bool {
+        let Some(node) = self.arena.get(id) else {
+            return false;
+        };
+        node.prev_sibling.is_none() && node.parent == Some(self.root)
     }
 
     pub(crate) fn is_list_item_first_child(&self, id: NodeId) -> bool {
@@ -314,13 +363,18 @@ impl Document {
                 | BlockKind::CodeBlock
                 | BlockKind::Mermaid
                 | BlockKind::Math
+                | BlockKind::MetadataBlock
                 | BlockKind::Image
         ) {
             return None;
         }
         if matches!(
             transition.old_kind,
-            BlockKind::CodeBlock | BlockKind::Mermaid | BlockKind::Math | BlockKind::Image
+            BlockKind::CodeBlock
+                | BlockKind::Mermaid
+                | BlockKind::Math
+                | BlockKind::MetadataBlock
+                | BlockKind::Image
         ) && !empty
         {
             return None;

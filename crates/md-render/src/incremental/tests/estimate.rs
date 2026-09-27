@@ -65,3 +65,56 @@ fn paragraph_leaf(doc: &md_core::document::Document) -> LayoutBoxId {
     });
     found.expect("paragraph leaf")
 }
+
+fn leaf_of(doc: &md_core::document::Document, kind: BlockKind) -> LayoutBoxId {
+    let mut found = None;
+    doc.for_each_text_leaf(|id, _| {
+        if doc.kind(id) == Some(kind) {
+            found = Some(LayoutBoxId::for_kind(kind, id));
+            false
+        } else {
+            true
+        }
+    });
+    found.expect("leaf")
+}
+
+#[test]
+fn a_tall_front_matter_estimate_caps_like_a_code_block() {
+    let body = |lines: usize| {
+        (0..lines)
+            .map(|i| format!("key{i}: value"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let short = load_markdown(&format!("---\n{}\n---\n", body(400)), editor_options());
+    let tall = load_markdown(&format!("---\n{}\n---\n", body(800)), editor_options());
+    let code = load_markdown(&format!("```yaml\n{}\n```\n", body(400)), editor_options());
+    let layout = dummy_layout();
+    let estimate = estimator();
+
+    let short_h = estimate.estimate(
+        &compose(&short, &layout),
+        leaf_of(&short, BlockKind::MetadataBlock),
+        400.0,
+    );
+    let tall_h = estimate.estimate(
+        &compose(&tall, &layout),
+        leaf_of(&tall, BlockKind::MetadataBlock),
+        400.0,
+    );
+    let code_h = estimate.estimate(
+        &compose(&code, &layout),
+        leaf_of(&code, BlockKind::CodeBlock),
+        400.0,
+    );
+
+    assert_eq!(
+        short_h, code_h,
+        "a front matter must be capped at the code max height, like a code block"
+    );
+    assert_eq!(
+        tall_h, short_h,
+        "the front matter estimate must saturate at the cap instead of growing with the body"
+    );
+}

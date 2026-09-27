@@ -1,3 +1,4 @@
+use md_core::block::BlockKind;
 use md_core::document::{editor_options, load_markdown};
 use pulldown_cmark::{CodeBlockKind, Event, Parser, Tag, TagEnd};
 
@@ -302,4 +303,111 @@ fn html_projection_does_not_touch_serialized_source() {
         saved.contains("<div data-note=\"1 > 2\">Hello</div>"),
         "saved={saved:?}"
     );
+}
+
+fn has_kind(doc: &md_core::document::Document, kind: BlockKind) -> bool {
+    doc.preorder()
+        .into_iter()
+        .any(|id| doc.kind(id.index) == Some(kind))
+}
+
+fn shape(doc: &md_core::document::Document) -> Vec<String> {
+    doc.preorder()
+        .into_iter()
+        .map(|id| format!("{:?}|{:?}", doc.kind(id.index), doc.display(id)))
+        .collect()
+}
+
+#[test]
+fn an_empty_front_matter_at_the_top_loads_as_a_metadata_block() {
+    for source in [
+        "---\n\n---\n",
+        "---\n\n\n---\n",
+        "---\n \n---\n",
+        "-----\n\n-----\n",
+        "---\n\n---\n\nbody\n",
+    ] {
+        let doc = load_markdown(source, editor_options());
+        assert!(
+            has_kind(&doc, BlockKind::MetadataBlock),
+            "{source:?} must open an empty front matter"
+        );
+        assert_eq!(
+            doc.text_leaves().len(),
+            1 + source.contains("body") as usize,
+            "{source:?} must not invent blocks"
+        );
+        assert_eq!(doc.to_markdown(), source, "{source:?} must survive a save");
+        let again = load_markdown(&doc.to_markdown(), editor_options());
+        assert_eq!(
+            again.to_markdown(),
+            source,
+            "{source:?} must be a fixed point"
+        );
+        assert_eq!(
+            shape(&doc),
+            shape(&again),
+            "{source:?} must reload as the same tree"
+        );
+        assert!(has_kind(&again, BlockKind::MetadataBlock), "{source:?}");
+    }
+}
+
+#[test]
+fn two_adjacent_dash_rules_gain_the_line_that_a_front_matter_needs() {
+    for (source, saved) in [
+        ("---\n---\n", "---\n\n---\n"),
+        ("---\n---\nbody\n", "---\n\n---\nbody\n"),
+    ] {
+        let doc = load_markdown(source, editor_options());
+        assert!(
+            has_kind(&doc, BlockKind::MetadataBlock),
+            "{source:?} must open an empty front matter"
+        );
+        assert_eq!(doc.to_markdown(), saved, "{source:?}");
+        let again = load_markdown(saved, editor_options());
+        assert_eq!(
+            again.to_markdown(),
+            saved,
+            "{source:?} must be a fixed point"
+        );
+        assert_eq!(shape(&doc), shape(&again), "{source:?}");
+    }
+}
+
+#[test]
+fn a_non_empty_front_matter_is_untouched_by_the_empty_rule() {
+    for source in [
+        "---\ntitle: hello\n---\n",
+        "---\ntitle: hello\n---\n# Body\n",
+        "+++\ntitle = \"hello\"\n+++\n",
+    ] {
+        let doc = load_markdown(source, editor_options());
+        assert_eq!(
+            doc.kind(doc.text_leaves()[0]),
+            Some(BlockKind::MetadataBlock),
+            "{source:?}"
+        );
+        assert_eq!(doc.to_markdown(), source, "{source:?}");
+    }
+}
+
+#[test]
+fn only_dash_delimiters_that_open_the_document_make_front_matter() {
+    for source in [
+        "***\n\n***\n",
+        "___\n___\n",
+        "- - -\n\n- - -\n",
+        "  ---\n\n  ---\n",
+        "body\n\n---\n\n---\n",
+        "---\n",
+        "***\n",
+        "---\n\n***\n",
+    ] {
+        let doc = load_markdown(source, editor_options());
+        assert!(
+            !has_kind(&doc, BlockKind::MetadataBlock),
+            "{source:?} must not open a front matter"
+        );
+    }
 }
