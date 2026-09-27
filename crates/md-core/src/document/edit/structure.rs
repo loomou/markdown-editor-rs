@@ -8,7 +8,9 @@ use crate::document::{Document, PasteIntent};
 fn is_fence_leaf(kind: Option<BlockKind>) -> bool {
     matches!(
         kind,
-        Some(BlockKind::CodeBlock | BlockKind::Mermaid | BlockKind::Math)
+        Some(
+            BlockKind::CodeBlock | BlockKind::Mermaid | BlockKind::Math | BlockKind::MetadataBlock
+        )
     )
 }
 

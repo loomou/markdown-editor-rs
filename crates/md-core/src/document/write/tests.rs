@@ -658,7 +658,8 @@ fn typing_a_dash_rule_on_the_first_line_opens_front_matter() {
 
     assert_eq!(doc.kind(leaf), Some(BlockKind::MetadataBlock));
     assert_eq!(out.block, leaf);
-    assert_eq!(out.offset, 4);
+    assert_eq!(out.offset, 0);
+    assert_eq!(doc.display(doc.live_id(leaf).unwrap()), "");
     assert_eq!(doc.to_markdown(), "---\n\n---\n");
 
     let again = load_markdown(&doc.to_markdown(), editor_options());
@@ -677,7 +678,7 @@ fn a_five_dash_rule_on_the_first_line_opens_front_matter() {
     let out = apply(&mut doc, Sel::collapsed(at), Command::Break);
 
     assert_eq!(doc.kind(leaf), Some(BlockKind::MetadataBlock));
-    assert_eq!(out.offset, 6);
+    assert_eq!(out.offset, 0);
     assert_eq!(doc.to_markdown(), "-----\n\n-----\n");
 
     let again = load_markdown(&doc.to_markdown(), editor_options());
@@ -692,11 +693,34 @@ fn the_front_matter_body_is_typed_where_the_caret_lands() {
     let out = apply(&mut doc, Sel::collapsed(at), Command::Break);
     let typed = type_chars(&mut doc, out, "title: hi");
 
-    assert_eq!(typed.offset, 13);
+    assert_eq!(typed.offset, 9);
     assert_eq!(doc.to_markdown(), "---\ntitle: hi\n---\n");
 
     let again = load_markdown(&doc.to_markdown(), editor_options());
     assert_eq!(tree_with_sources(&doc), tree_with_sources(&again));
+}
+
+#[test]
+fn front_matter_hides_its_delimiters_like_a_code_fence() {
+    for (source, body) in [
+        ("---\ntitle: hi\n---\n", "title: hi"),
+        (
+            "---\ntitle: hi\ntags:\n  - rust\n---\n",
+            "title: hi\ntags:\n  - rust",
+        ),
+        ("+++\ntitle = \"hi\"\n+++\n", "title = \"hi\""),
+    ] {
+        let doc = load_markdown(source, editor_options());
+        let id = doc.live_id(doc.text_leaves()[0]).expect("leaf");
+        assert_eq!(doc.kind(id.index), Some(BlockKind::MetadataBlock));
+        assert_eq!(doc.display(id), body, "{source:?}");
+        assert_eq!(
+            doc.leaf_source(id),
+            body,
+            "{source:?} must keep the delimiters out of the leaf, like a code block"
+        );
+        assert_eq!(doc.to_markdown(), source, "{source:?}");
+    }
 }
 
 #[test]
@@ -708,6 +732,30 @@ fn a_star_rule_on_the_first_line_stays_a_thematic_break() {
 
     assert_eq!(doc.kind(leaf), Some(BlockKind::ThematicBreak));
     assert_eq!(doc.to_markdown(), "---\n");
+}
+
+#[test]
+fn enter_inside_front_matter_adds_a_line_instead_of_splitting_it() {
+    let mut doc = load_markdown("", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let at = type_chars(&mut doc, caret(leaf, 0), "---");
+    let out = apply(&mut doc, Sel::collapsed(at), Command::Break);
+    let typed = type_chars(&mut doc, out, "title: hi");
+    let after = apply(&mut doc, Sel::collapsed(typed), Command::Break);
+
+    assert_eq!(after.block, leaf);
+    assert_eq!(
+        doc.preorder()
+            .into_iter()
+            .filter(|&id| doc.arena.get(id).map(|node| node.kind) == Some(BlockKind::MetadataBlock))
+            .count(),
+        1,
+        "Enter must not spawn a second front matter"
+    );
+    assert_eq!(doc.to_markdown(), "---\ntitle: hi\n\n---\n");
+
+    let again = load_markdown(&doc.to_markdown(), editor_options());
+    assert_eq!(tree_with_sources(&doc), tree_with_sources(&again));
 }
 
 #[test]

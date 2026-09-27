@@ -3,6 +3,7 @@ use super::walk::{LeafCtx, LeafSink};
 use crate::block::{BlockKind, NodeExtra, alignment_at};
 use crate::document::Document;
 use crate::document::arena::{DocumentArena, NodeId};
+use crate::document::bind;
 use crate::document::change::ChangeSet;
 use crate::document::focus::ConstructRecorder;
 use crate::document::text::{LeafSource, TextStore};
@@ -302,26 +303,45 @@ impl Builder {
         let Some(tail) = self.front_matter_fence_span(source, second) else {
             return;
         };
+        let Some(body_start) = source
+            .get(head.start..)
+            .and_then(|rest| rest.find('\n'))
+            .map(|newline| head.start + newline + 1)
+        else {
+            return;
+        };
+        if body_start > tail.start {
+            return;
+        }
+        let body = body_start..tail.start;
         if !source
-            .get(head.end..tail.start)
-            .is_some_and(|gap| gap.trim().is_empty())
+            .get(body.clone())
+            .is_some_and(|text| text.trim().is_empty())
         {
             return;
         }
+        let Some(extra) = super::front_matter_extra(source, &(head.start..tail.end)) else {
+            return;
+        };
         let merged = head.start..tail.end;
         let mut leaf = LeafCtx {
             id: first,
             kind: BlockKind::MetadataBlock,
-            node_span: merged.clone(),
-            sink: LeafSink::Raw,
+            node_span: merged,
+            sink: LeafSink::Text,
             html: String::new(),
-            source_ranges: vec![merged],
+            source_ranges: vec![body],
             constructs: Vec::new(),
             log: Vec::new(),
         };
         self.leave_raw_leaf(source, &mut leaf);
         if let Some(node) = self.arena.get_mut(first) {
-            node.extra = NodeExtra::None;
+            node.extra = extra;
+        }
+        if let Some(l) = self.texts.get_mut(first.text_id()) {
+            l.trim_trailing_newline();
+            l.source = LeafSource::SameAsDisplay;
+            l.s2d = bind::identity_map(l.display().len());
         }
         self.arena.detach(second);
         self.texts.clear_slot(second.index);

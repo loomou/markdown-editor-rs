@@ -321,12 +321,10 @@ fn shape(doc: &md_core::document::Document) -> Vec<String> {
 #[test]
 fn an_empty_front_matter_at_the_top_loads_as_a_metadata_block() {
     for source in [
-        "---\n---\n",
         "---\n\n---\n",
         "---\n\n\n---\n",
         "---\n \n---\n",
         "-----\n\n-----\n",
-        "---\n---\nbody\n",
         "---\n\n---\n\nbody\n",
     ] {
         let doc = load_markdown(source, editor_options());
@@ -352,6 +350,28 @@ fn an_empty_front_matter_at_the_top_loads_as_a_metadata_block() {
             "{source:?} must reload as the same tree"
         );
         assert!(has_kind(&again, BlockKind::MetadataBlock), "{source:?}");
+    }
+}
+
+#[test]
+fn two_adjacent_dash_rules_gain_the_line_that_a_front_matter_needs() {
+    for (source, saved) in [
+        ("---\n---\n", "---\n\n---\n"),
+        ("---\n---\nbody\n", "---\n\n---\nbody\n"),
+    ] {
+        let doc = load_markdown(source, editor_options());
+        assert!(
+            has_kind(&doc, BlockKind::MetadataBlock),
+            "{source:?} must open an empty front matter"
+        );
+        assert_eq!(doc.to_markdown(), saved, "{source:?}");
+        let again = load_markdown(saved, editor_options());
+        assert_eq!(
+            again.to_markdown(),
+            saved,
+            "{source:?} must be a fixed point"
+        );
+        assert_eq!(shape(&doc), shape(&again), "{source:?}");
     }
 }
 

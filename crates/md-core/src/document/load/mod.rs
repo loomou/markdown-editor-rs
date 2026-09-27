@@ -1,7 +1,7 @@
 use super::Document;
 #[cfg(test)]
 use super::text::{LeafText, TextPiece};
-use crate::block::{AlertKind, CodeFenceMarker, ListMarker, NodeExtra};
+use crate::block::{AlertKind, CodeFenceMarker, FrontMatterMarker, ListMarker, NodeExtra};
 use pulldown_cmark::{Alignment, BlockQuoteKind, HeadingLevel, Options};
 use std::ops::Range;
 
@@ -125,6 +125,40 @@ fn code_fence_style(source: &str, range: &Range<usize>) -> (CodeFenceMarker, u16
         .max(3)
         .min(u16::MAX as usize) as u16;
     (marker, len)
+}
+
+pub(super) fn front_matter_fence(line: &str) -> Option<(FrontMatterMarker, u16)> {
+    let line = line.trim_end_matches(['\n', '\r', ' ', '\t']);
+    let marker = match line.as_bytes().first().copied()? {
+        b'-' => FrontMatterMarker::Dash,
+        b'+' => FrontMatterMarker::Plus,
+        _ => return None,
+    };
+    let byte = marker.byte();
+    if line.len() < 3 || !line.bytes().all(|candidate| candidate == byte) {
+        return None;
+    }
+    Some((marker, line.len().min(u16::MAX as usize) as u16))
+}
+
+pub(super) fn front_matter_extra(source: &str, span: &Range<usize>) -> Option<NodeExtra> {
+    let open = source.get(span.start..)?.split('\n').next()?;
+    let (marker, len) = front_matter_fence(open)?;
+    let blank_after = source
+        .get(line_end(source, span.end)..)
+        .is_some_and(|rest| rest.starts_with('\n'));
+    Some(NodeExtra::FrontMatter {
+        marker,
+        len,
+        blank_after,
+    })
+}
+
+fn line_end(source: &str, at: usize) -> usize {
+    source
+        .get(at..)
+        .and_then(|rest| rest.find('\n'))
+        .map_or(source.len(), |newline| at + newline + 1)
 }
 
 fn quote_alert(source: &str, range: &Range<usize>, kind: BlockQuoteKind) -> NodeExtra {
