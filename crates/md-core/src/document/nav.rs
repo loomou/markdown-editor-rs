@@ -64,15 +64,24 @@ impl Document {
     }
 
     pub fn whole_document_sel(&self) -> Option<Sel> {
-        let mut leaves = self.text_leaves();
-        if leaves.len() > 1
+        let leaves = self.text_leaves();
+        let trailing_blank = leaves.len() > 1
             && self.kind(leaves[leaves.len() - 1]) == Some(BlockKind::Paragraph)
             && self
                 .live_id(leaves[leaves.len() - 1])
-                .is_some_and(|id| self.caret_text(id).is_empty())
-        {
-            leaves.pop();
+                .is_some_and(|id| self.caret_text(id).is_empty());
+        if trailing_blank {
+            let kept = &leaves[..leaves.len() - 1];
+            if let Some(sel) = self.sel_over_leaves(kept)
+                && sel.anchor != sel.head
+            {
+                return Some(sel);
+            }
         }
+        self.sel_over_leaves(&leaves)
+    }
+
+    fn sel_over_leaves(&self, leaves: &[BlockId]) -> Option<Sel> {
         let first = *leaves.first()?;
         let last = *leaves.last()?;
         let mut anchor = self

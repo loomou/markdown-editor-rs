@@ -87,6 +87,10 @@ fn whole_leaf_copies_block_syntax() {
     let img = load_markdown("![alt](u.png)\n", editor_options());
     assert_eq!(img.kind(img.text_leaves()[0]), Some(BlockKind::Image));
     assert_eq!(copy_all(&img, 0), "![alt](u.png)");
+
+    let front = load_markdown("---\ntitle: hi\n---\n", editor_options());
+    assert_eq!(copy_all(&front, 0), "---\ntitle: hi\n---\n");
+    assert_eq!(front.copy_markdown(sel(&front, 0, 0, 0, 5)), "title");
 }
 
 #[test]
@@ -97,6 +101,7 @@ fn whole_leaf_copy_round_trips_through_load() {
         "$$a+b$$\n",
         "![alt](u.png)\n",
         "hello **bold** `code`\n",
+        "---\ntitle: hi\n---\n",
     ] {
         let doc = load_markdown(src, editor_options());
         let md = copy_all(&doc, 0);

@@ -8,7 +8,9 @@ use crate::document::{Document, PasteIntent};
 fn is_fence_leaf(kind: Option<BlockKind>) -> bool {
     matches!(
         kind,
-        Some(BlockKind::CodeBlock | BlockKind::Mermaid | BlockKind::Math)
+        Some(
+            BlockKind::CodeBlock | BlockKind::Mermaid | BlockKind::Math | BlockKind::MetadataBlock
+        )
     )
 }
 
@@ -40,6 +42,11 @@ pub(super) fn break_block(doc: &mut Document, sel: Sel) -> Caret {
     }
     if let Some(id) = doc.live_id(at.block)
         && let Some(caret) = doc.try_commit_math_fence(id)
+    {
+        return caret;
+    }
+    if let Some(id) = doc.live_id(at.block)
+        && let Some(caret) = doc.try_commit_metadata_block(id)
     {
         return caret;
     }

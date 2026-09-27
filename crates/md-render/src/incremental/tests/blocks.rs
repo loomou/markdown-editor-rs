@@ -261,19 +261,19 @@ fn rule_enter_splices_without_clear_or_flatten() {
     let solver = FallbackSolver;
     engine.assemble_incremental(ScrollAnchor::top(), 600.0, &measure, &solver);
     assert_eq!(engine.flatten_gens, 1);
-    let first = doc.text_leaves()[0];
-    let n = doc.text_of(first).unwrap().len();
-    let _ = doc.replace_text(first, 0..n, "---");
+    let rule = doc.text_leaves()[1];
+    let n = doc.text_of(rule).unwrap().len();
+    let _ = doc.replace_text(rule, 0..n, "---");
     let changes = doc.take_changes();
     let settle = engine.apply_changes(&doc, &changes);
     assert!(!settle.structural_full_clear);
-    let id = doc.live_id(first).expect("live");
+    let id = doc.live_id(rule).expect("live");
     let parent = doc.arena.get(id).and_then(|n| n.parent).expect("parent");
-    let off = doc.text_of(first).unwrap().len();
+    let off = doc.text_of(rule).unwrap().len();
     let _ = apply(
         &mut doc,
         Sel::collapsed(Caret {
-            block: first,
+            block: rule,
             offset: off,
         }),
         Command::Break,
@@ -288,8 +288,59 @@ fn rule_enter_splices_without_clear_or_flatten() {
     assert!(!settle.structural_full_clear);
     assert_eq!(engine.flatten_gens, 1);
     assert!(doc.arena.get(parent).is_some());
-    assert_eq!(doc.kind(first), Some(BlockKind::ThematicBreak));
+    assert_eq!(doc.kind(rule), Some(BlockKind::ThematicBreak));
+    assert_eq!(doc.text_of(rule).unwrap(), "");
+    assert_tree_matches_cold(&engine, &doc);
+    let cold = compose(&doc, &dummy_layout());
+    assert_eq!(engine.tree.nodes().len(), cold.nodes().len());
+    for (id, node) in cold.nodes() {
+        assert_eq!(engine.tree.get(*id).kind(), node.kind());
+    }
+}
+
+#[test]
+fn front_matter_enter_splices_without_clear_or_flatten() {
+    let mut doc = long_doc();
+    let env = BoxLayoutEnvironment::default();
+    let mut engine = IncrementalEngine::new(&doc, env, estimator(), dummy_layout());
+    let measure = CountingMeasure {
+        calls: Cell::new(0),
+    };
+    let solver = FallbackSolver;
+    engine.assemble_incremental(ScrollAnchor::top(), 600.0, &measure, &solver);
+    assert_eq!(engine.flatten_gens, 1);
+    let first = doc.text_leaves()[0];
+    let n = doc.text_of(first).unwrap().len();
+    let _ = doc.replace_text(first, 0..n, "---");
+    let changes = doc.take_changes();
+    let settle = engine.apply_changes(&doc, &changes);
+    assert!(!settle.structural_full_clear);
+    let id = doc.live_id(first).expect("live");
+    let parent = doc.arena.get(id).and_then(|n| n.parent).expect("parent");
+    let off = doc.text_of(first).unwrap().len();
+    let caret = apply(
+        &mut doc,
+        Sel::collapsed(Caret {
+            block: first,
+            offset: off,
+        }),
+        Command::Break,
+    );
+    assert_eq!(caret.block, first);
+    assert_eq!(caret.offset, 0);
+    let changes = doc.take_changes();
+    assert!(changes.is_structural());
+    assert!(changes.changes.iter().all(|c| match c {
+        DocChange::TreeSpliced { parent: p, .. } => doc.arena.get(*p).is_some(),
+        _ => true,
+    }));
+    let settle = engine.apply_changes(&doc, &changes);
+    assert!(!settle.structural_full_clear);
+    assert_eq!(engine.flatten_gens, 1);
+    assert!(doc.arena.get(parent).is_some());
+    assert_eq!(doc.kind(first), Some(BlockKind::MetadataBlock));
     assert_eq!(doc.text_of(first).unwrap(), "");
+    assert_eq!(doc.text_leaves().len(), 200);
     assert_tree_matches_cold(&engine, &doc);
     let cold = compose(&doc, &dummy_layout());
     assert_eq!(engine.tree.nodes().len(), cold.nodes().len());

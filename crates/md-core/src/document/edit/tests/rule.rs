@@ -14,25 +14,38 @@ fn rule_line_stays_paragraph_until_enter() {
 
 #[test]
 fn rule_enter_becomes_thematic_break() {
-    let mut doc = load_markdown("", editor_options());
-    let leaf = doc.text_leaves()[0];
+    let mut doc = load_markdown("intro\n\nscratch\n", editor_options());
+    let leaf = doc.text_leaves()[1];
     let id = doc.live_id(leaf).expect("live");
     let nodes = doc.preorder().len();
-    let at = type_chars(&mut doc, caret(leaf, 0), "---");
-    let out = apply(&mut doc, Sel::collapsed(at), Command::Break);
+    let _ = doc.replace_text(leaf, 0.."scratch".len(), "---");
+    let out = apply(&mut doc, Sel::collapsed(caret(leaf, 3)), Command::Break);
     assert_ne!(out.block, leaf);
     assert_eq!(out.offset, 0);
     assert_eq!(doc.kind(leaf), Some(BlockKind::ThematicBreak));
     assert_eq!(doc.live_id(leaf), Some(id));
     assert_eq!(doc.text_of(leaf).unwrap(), "");
     assert_eq!(doc.preorder().len(), nodes + 1);
-    assert_eq!(doc.text_leaves(), vec![out.block]);
+    assert_eq!(doc.text_leaves().last(), Some(&out.block));
     assert_eq!(
         doc.preorder()
             .into_iter()
             .filter(|&n| doc.arena.get(n).map(|n| n.kind) == Some(BlockKind::Paragraph))
             .count(),
-        1
+        2
+    );
+}
+
+#[test]
+fn only_the_first_line_opens_front_matter() {
+    let mut doc = load_markdown("intro\n\nscratch\n", editor_options());
+    let leaf = doc.text_leaves()[1];
+    let _ = doc.replace_text(leaf, 0.."scratch".len(), "---");
+    let _ = apply(&mut doc, Sel::collapsed(caret(leaf, 3)), Command::Break);
+    assert!(
+        doc.preorder()
+            .into_iter()
+            .all(|id| doc.arena.get(id).map(|node| node.kind) != Some(BlockKind::MetadataBlock))
     );
 }
 

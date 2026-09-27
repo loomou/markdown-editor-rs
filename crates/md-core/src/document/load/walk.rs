@@ -361,9 +361,11 @@ fn visit<'a, 'i>(
         NodeKind::MetadataBlock(_) => {
             builder.mark_list_loose_before(source, span.start);
             let id = builder.alloc(BlockKind::MetadataBlock);
-            builder.enter_leaf(id, BlockKind::MetadataBlock, LeafSink::Raw, span.clone());
+            if let Some(extra) = super::front_matter_extra(source, &span) {
+                builder.set_extra(id, extra);
+            }
+            builder.enter_leaf(id, BlockKind::MetadataBlock, LeafSink::Text, span);
             builder.image_only = false;
-            builder.cover_source(source, span);
             stack.push(Item::CloseLeaf {
                 allow_standalone: false,
             });
@@ -851,7 +853,7 @@ impl Builder {
         }
         if matches!(
             kind,
-            BlockKind::CodeBlock | BlockKind::Mermaid | BlockKind::Math
+            BlockKind::CodeBlock | BlockKind::Mermaid | BlockKind::Math | BlockKind::MetadataBlock
         ) && let Some(l) = self.texts.get_mut(leaf.id.text_id())
         {
             l.trim_trailing_newline();

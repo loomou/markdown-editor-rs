@@ -92,7 +92,7 @@ impl Builder {
     pub(super) fn leave_leaf_ranges(&mut self, source: &str, leaf: &mut LeafCtx) {
         if matches!(
             leaf.kind,
-            BlockKind::CodeBlock | BlockKind::Mermaid | BlockKind::Math
+            BlockKind::CodeBlock | BlockKind::Mermaid | BlockKind::Math | BlockKind::MetadataBlock
         ) {
             if let Some(l) = self.texts.get_mut(leaf.id.text_id()) {
                 l.source = crate::document::text::LeafSource::SameAsDisplay;
