@@ -170,6 +170,13 @@ fn plan(ctx: &Ctx<'_>, atoms: &[Atom]) -> Option<Vec<Planned>> {
 
 fn raw_lines(ctx: &Ctx<'_>, atoms: &[Atom]) -> Option<Vec<RawLine>> {
     let covered = covering_runs(ctx.text.len() as u32, ctx.runs);
+    let mut footnote_starts: Vec<u32> = covered
+        .iter()
+        .filter(|run| run.marks.contains(InlineMarks::FOOTNOTE))
+        .map(|run| run.display_range.start)
+        .collect();
+    footnote_starts.sort_unstable();
+    footnote_starts.dedup();
     let mut buf = Buf {
         lines: Vec::new(),
         pieces: Vec::new(),
@@ -186,7 +193,7 @@ fn raw_lines(ctx: &Ctx<'_>, atoms: &[Atom]) -> Option<Vec<RawLine>> {
                 last_break = false;
                 push_spans(
                     ctx,
-                    &covered,
+                    &footnote_starts,
                     &mut buf,
                     *start..*end,
                     ctx.font_size,
@@ -206,7 +213,15 @@ fn raw_lines(ctx: &Ctx<'_>, atoms: &[Atom]) -> Option<Vec<RawLine>> {
                 } else {
                     ctx.font_size * SUB_DROP
                 };
-                push_spans(ctx, &covered, &mut buf, *start..*end, size, dy, true)?;
+                push_spans(
+                    ctx,
+                    &footnote_starts,
+                    &mut buf,
+                    *start..*end,
+                    size,
+                    dy,
+                    true,
+                )?;
             }
             Atom::Math {
                 start,
@@ -258,7 +273,7 @@ fn raw_lines(ctx: &Ctx<'_>, atoms: &[Atom]) -> Option<Vec<RawLine>> {
 
 fn push_spans(
     ctx: &Ctx<'_>,
-    covered: &[InlineRun],
+    footnote_starts: &[u32],
     buf: &mut Buf,
     range: Range<usize>,
     font_size: f32,
@@ -279,7 +294,7 @@ fn push_spans(
                 font_size,
                 dy,
                 atomic,
-                sticky: starts_footnote(covered, cursor),
+                sticky: starts_footnote(footnote_starts, cursor),
             });
         }
         buf.cut(at);
@@ -292,16 +307,14 @@ fn push_spans(
             font_size,
             dy,
             atomic,
-            sticky: starts_footnote(covered, cursor),
+            sticky: starts_footnote(footnote_starts, cursor),
         });
     }
     Some(())
 }
 
-fn starts_footnote(covered: &[InlineRun], at: usize) -> bool {
-    covered.iter().any(|run| {
-        run.display_range.start as usize == at && run.marks.contains(InlineMarks::FOOTNOTE)
-    })
+fn starts_footnote(footnote_starts: &[u32], at: usize) -> bool {
+    footnote_starts.binary_search(&(at as u32)).is_ok()
 }
 
 fn planned_line(ctx: &Ctx<'_>, line: RawLine) -> Option<Planned> {
