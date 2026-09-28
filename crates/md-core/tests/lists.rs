@@ -584,3 +584,32 @@ fn undo_restores_span_external_empty_paragraph_after_unwrap() {
     println!("restored={restored:?}");
     assert_eq!(restored, before);
 }
+
+#[test]
+fn an_empty_nested_item_takes_the_caret_and_can_be_selected_and_deleted() {
+    let mut doc = Doc::new(load_markdown("- -\n", editor_options()));
+    doc.enable_trailing_blank();
+
+    let leaf = doc
+        .first_text_leaf()
+        .expect("the nested item must hold a text leaf");
+    let caret = doc.apply(
+        Sel::collapsed(Caret {
+            block: leaf,
+            offset: 0,
+        }),
+        Command::Insert {
+            text: "x".to_owned(),
+        },
+    );
+    assert_eq!(doc.text(caret.block), Some("x"));
+    assert_eq!(doc.document.to_markdown(), "- \n  - x\n");
+
+    let mut doc = Doc::new(load_markdown("- -\n", editor_options()));
+    doc.enable_trailing_blank();
+    let sel = doc
+        .whole_document_sel()
+        .expect("a nested empty item must still be selectable");
+    let _ = doc.apply(sel, Command::DeleteBackward);
+    assert_eq!(doc.document.to_markdown(), "");
+}

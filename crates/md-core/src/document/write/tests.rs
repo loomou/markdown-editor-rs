@@ -1020,24 +1020,36 @@ fn footnote_list_first_block_gets_the_indented_form() {
     );
 }
 
+fn quote_children(doc: &Document) -> Vec<BlockKind> {
+    doc.preorder()
+        .into_iter()
+        .find(|&id| {
+            doc.arena
+                .get(id)
+                .is_some_and(|n| n.kind == BlockKind::BlockQuote)
+        })
+        .map(|id| {
+            doc.arena
+                .children(id)
+                .filter_map(|c| doc.arena.get(c).map(|n| n.kind))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 #[test]
 fn empty_quotes_keep_their_marker_across_a_reload() {
     let doc = load_markdown("# h\n\n>\n\ntail\n", editor_options());
+    assert_eq!(quote_children(&doc), vec![BlockKind::Paragraph]);
 
     let markdown = doc.to_markdown();
     assert!(markdown.contains('\n'), "{markdown:?}");
     assert!(markdown.contains('>'), "{markdown:?}");
 
     let again = load_markdown(&markdown, editor_options());
-    let kept_empty_quote = again.preorder().into_iter().any(|id| {
-        again
-            .arena
-            .get(id)
-            .is_some_and(|n| n.kind == BlockKind::BlockQuote)
-            && again.arena.children(id).next().is_none()
-    });
-    assert!(
-        kept_empty_quote,
+    assert_eq!(
+        quote_children(&again),
+        vec![BlockKind::Paragraph],
         "reloaded document lost its empty quote: {markdown:?}"
     );
     assert_eq!(again.to_markdown(), markdown, "not idempotent");
@@ -1048,20 +1060,15 @@ fn quotes_emptied_by_editing_keep_their_marker_too() {
     let mut doc = load_markdown("> text\n", editor_options());
     let leaf = doc.text_leaves()[0];
     let _ = doc.replace_text(leaf, 0..4, "");
+    assert_eq!(quote_children(&doc), vec![BlockKind::Paragraph]);
 
     let markdown = doc.to_markdown();
     assert!(markdown.contains('>'), "{markdown:?}");
 
     let again = load_markdown(&markdown, editor_options());
-    let kept_empty_quote = again.preorder().into_iter().any(|id| {
-        again
-            .arena
-            .get(id)
-            .is_some_and(|n| n.kind == BlockKind::BlockQuote)
-            && again.arena.children(id).next().is_none()
-    });
-    assert!(
-        kept_empty_quote,
+    assert_eq!(
+        quote_children(&again),
+        quote_children(&doc),
         "reloaded document lost its emptied quote: {markdown:?}"
     );
 }

@@ -8,6 +8,7 @@ mod diag;
 mod display_math;
 mod doc_maps;
 mod drop;
+mod empty_container;
 mod geometry;
 mod input;
 mod insert_table;
