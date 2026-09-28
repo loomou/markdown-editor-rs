@@ -80,10 +80,34 @@ pub(super) fn after_paragraph_insert(doc: &mut Document, caret: Caret) -> Caret 
 }
 
 pub(super) fn split_marker_line(doc: &mut Document, caret: Caret, line: &str) -> Option<Caret> {
+    split_caret_line_where(doc, caret, &|text| text == line)
+}
+
+pub(super) fn split_promotable_line(doc: &mut Document, caret: Caret) -> Option<Caret> {
+    if doc.kind(caret.block) != Some(BlockKind::Paragraph) {
+        return None;
+    }
+    split_caret_line_where(doc, caret, &promotes_to_a_block)
+}
+
+fn promotes_to_a_block(line: &str) -> bool {
+    if !crate::document::syntax::is_open_fence_line(line) {
+        return false;
+    }
+    let frag = load_markdown(&format!("{line}\n"), editor_options());
+    bind::unique_root(&frag)
+        .is_some_and(|(_, kind)| matches!(kind, BlockKind::CodeBlock | BlockKind::Mermaid))
+}
+
+fn split_caret_line_where(
+    doc: &mut Document,
+    caret: Caret,
+    accepts: &dyn Fn(&str) -> bool,
+) -> Option<Caret> {
     let id = doc.live_id(caret.block)?;
     let text = doc.caret_text(id);
     let (a, b) = crate::document::syntax::line_range(text, caret.offset);
-    if text.get(a..b)? != line {
+    if !accepts(text.get(a..b)?) {
         return None;
     }
     if a == 0 || text.as_bytes().get(a - 1) != Some(&b'\n') {
