@@ -613,3 +613,41 @@ fn an_empty_nested_item_takes_the_caret_and_can_be_selected_and_deleted() {
     let _ = doc.apply(sel, Command::DeleteBackward);
     assert_eq!(doc.document.to_markdown(), "");
 }
+
+#[test]
+fn backspacing_an_empty_item_that_follows_a_nested_list_removes_the_line() {
+    let mut doc = Doc::new(load_markdown("- -\n- - \n", editor_options()));
+    doc.enable_trailing_blank();
+    let nested = doc.text_leaves()[1];
+
+    let caret = doc.apply(
+        Sel::collapsed(Caret {
+            block: nested,
+            offset: 0,
+        }),
+        Command::DeleteBackward,
+    );
+    assert_eq!(doc.document.to_markdown(), "- \n  - \n- \n");
+
+    let caret = doc.apply(Sel::collapsed(caret), Command::DeleteBackward);
+    assert_eq!(
+        doc.document.to_markdown(),
+        "- \n  - \n",
+        "the emptied item must go, not linger as an indented blank line"
+    );
+    let text = doc
+        .caret_text(caret.block)
+        .expect("the caret must not be left on the removed block");
+    assert_eq!(
+        caret.offset,
+        text.len(),
+        "the caret must sit at the end of the line above"
+    );
+
+    let caret = doc.apply(Sel::collapsed(caret), Command::DeleteBackward);
+    assert_eq!(doc.document.to_markdown(), "- \n");
+
+    let caret = doc.apply(Sel::collapsed(caret), Command::DeleteBackward);
+    assert_eq!(doc.document.to_markdown(), "");
+    assert_eq!(doc.text(caret.block), Some(""));
+}

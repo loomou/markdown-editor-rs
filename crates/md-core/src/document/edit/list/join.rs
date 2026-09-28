@@ -74,6 +74,17 @@ fn join_prev(doc: &mut Document, path: &Path, prev_item: NodeId) -> Caret {
             block: prev_leaf.index,
             offset: join_at,
         };
+    } else if path.simple_empty_item(doc)
+        && normalize::is_blank_paragraph(doc, leaf)
+        && let Some(prev_leaf) = doc.prev_text_leaf(leaf)
+    {
+        let end = doc.caret_text(prev_leaf).len();
+        doc.arena.snapshot(leaf);
+        doc.arena.tombstone(leaf);
+        caret = Caret {
+            block: prev_leaf.index,
+            offset: end,
+        };
     }
     let moved: Vec<NodeId> = kids
         .iter()
