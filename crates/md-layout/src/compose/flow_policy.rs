@@ -30,11 +30,6 @@ pub(super) fn apply_list_metrics(
     } else {
         theme.list_tight_gap
     };
-    let nested = doc.arena.get(id).and_then(|n| n.parent).is_some_and(|p| {
-        doc.arena
-            .get(p)
-            .is_some_and(|pn| pn.kind == BlockKind::ListItem)
-    });
     let Some(current_style_id) = nodes.get(&box_id).map(|node| node.style_id) else {
         return;
     };
@@ -42,8 +37,8 @@ pub(super) fn apply_list_metrics(
     let mut style = original;
     style.padding.left = pad;
     style.gap = gap;
-    if nested {
-        style.margin.top = theme.list_nested_top;
+    if let Some(top) = nested_list_margin_top(theme, doc, id) {
+        style.margin.top = top;
         if theme.list_nested_indent > 0.0 {
             style.padding.left = theme.list_nested_indent.max(pad);
         }
@@ -61,6 +56,27 @@ pub(super) fn apply_list_metrics(
 
 fn is_list_item_lead(doc: &Document, id: NodeId) -> bool {
     is_kind_lead(doc, id, BlockKind::ListItem)
+}
+
+pub(super) fn nested_list_margin_top(
+    theme: &LayoutTheme,
+    doc: &Document,
+    id: NodeId,
+) -> Option<md_core::Px> {
+    let item = doc.arena.get(id).and_then(|n| n.parent).filter(|p| {
+        doc.arena
+            .get(*p)
+            .is_some_and(|pn| pn.kind == BlockKind::ListItem)
+    })?;
+    let on_the_item_line = doc
+        .arena
+        .get(item)
+        .is_some_and(|pn| pn.first_child == Some(id));
+    Some(if on_the_item_line {
+        0.0
+    } else {
+        theme.list_nested_top
+    })
 }
 
 fn is_kind_lead(doc: &Document, id: NodeId, parent_kind: BlockKind) -> bool {

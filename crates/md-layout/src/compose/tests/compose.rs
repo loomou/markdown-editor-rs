@@ -302,6 +302,44 @@ fn compose_nested_list_uses_nested_top() {
 }
 
 #[test]
+fn a_nested_list_that_takes_the_item_line_drops_its_top_margin() {
+    let layout = layout();
+    let doc = load_markdown("- - x\n", editor_options());
+    let nested = doc
+        .preorder()
+        .into_iter()
+        .find(|&id| {
+            doc.kind(id.index) == Some(BlockKind::List)
+                && doc
+                    .arena
+                    .get(id)
+                    .and_then(|n| n.parent)
+                    .is_some_and(|p| doc.kind(p.index) == Some(BlockKind::ListItem))
+        })
+        .expect("a list nested in an item");
+    assert!(
+        doc.arena
+            .get(nested)
+            .and_then(|n| n.parent)
+            .and_then(|p| doc.arena.get(p))
+            .is_some_and(|item| item.first_child == Some(nested)),
+        "the nested list must be the whole item"
+    );
+    assert!(
+        layout.list_nested_top > 0.0,
+        "the assertion below is only meaningful when the margin is visible"
+    );
+    let tree = compose(&doc, &layout);
+    let box_id = crate::box_tree::LayoutBoxId::for_kind(BlockKind::List, nested.index);
+    let node = tree.nodes.get(&box_id).expect("the nested list box");
+    assert_eq!(
+        tree.style_of(node).margin.top,
+        0.0,
+        "the nested list is the item's own line, so nothing can be pushed away from it"
+    );
+}
+
+#[test]
 fn equal_final_styles_share_one_interned_entry() {
     let tree = compose(
         &load_markdown("first\n\nsecond\n\nthird\n", editor_options()),
