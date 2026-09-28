@@ -403,11 +403,14 @@ fn live_markers_still_promote_on_typing() {
             block: id,
             offset: 0,
         }),
-        Command::Insert { text: "- ".into() },
+        Command::Insert { text: "> ".into() },
     );
-    println!("live list saved={:?}", d.document.to_markdown());
-    assert_eq!(d.document.to_markdown(), "- hi\n");
+    println!("live quote saved={:?}", d.document.to_markdown());
+    assert_eq!(d.document.to_markdown(), "> hi\n");
+}
 
+#[test]
+fn a_marker_insert_that_stays_text_is_escaped_on_save() {
     let mut d = Doc::new(doc("hi\n"));
     let id = d.first_text_leaf().unwrap();
     d.apply(
@@ -415,10 +418,24 @@ fn live_markers_still_promote_on_typing() {
             block: id,
             offset: 0,
         }),
-        Command::Insert { text: "> ".into() },
+        Command::Insert { text: "- ".into() },
     );
-    println!("live quote saved={:?}", d.document.to_markdown());
-    assert_eq!(d.document.to_markdown(), "> hi\n");
+    let saved = d.document.to_markdown();
+    println!("live list saved={saved:?}");
+    assert!(
+        d.document
+            .preorder()
+            .into_iter()
+            .all(|id| d.document.arena.get(id).map(|node| node.kind)
+                != Some(md_core::block::BlockKind::List)),
+        "the marker stays literal text, so nothing was promoted"
+    );
+    assert_eq!(saved, "\\- hi\n");
+    assert_eq!(
+        doc(&saved).to_markdown(),
+        saved,
+        "the literal marker must survive the save"
+    );
 }
 
 #[test]
@@ -566,4 +583,71 @@ fn undo_restores_span_external_empty_paragraph_after_unwrap() {
     let restored = d.document.to_markdown();
     println!("restored={restored:?}");
     assert_eq!(restored, before);
+}
+
+#[test]
+fn an_empty_nested_item_takes_the_caret_and_can_be_selected_and_deleted() {
+    let mut doc = Doc::new(load_markdown("- -\n", editor_options()));
+    doc.enable_trailing_blank();
+
+    let leaf = doc
+        .first_text_leaf()
+        .expect("the nested item must hold a text leaf");
+    let caret = doc.apply(
+        Sel::collapsed(Caret {
+            block: leaf,
+            offset: 0,
+        }),
+        Command::Insert {
+            text: "x".to_owned(),
+        },
+    );
+    assert_eq!(doc.text(caret.block), Some("x"));
+    assert_eq!(doc.document.to_markdown(), "- \n  - x\n");
+
+    let mut doc = Doc::new(load_markdown("- -\n", editor_options()));
+    doc.enable_trailing_blank();
+    let sel = doc
+        .whole_document_sel()
+        .expect("a nested empty item must still be selectable");
+    let _ = doc.apply(sel, Command::DeleteBackward);
+    assert_eq!(doc.document.to_markdown(), "");
+}
+
+#[test]
+fn backspacing_an_empty_item_that_follows_a_nested_list_removes_the_line() {
+    let mut doc = Doc::new(load_markdown("- -\n- - \n", editor_options()));
+    doc.enable_trailing_blank();
+    let nested = doc.text_leaves()[1];
+
+    let caret = doc.apply(
+        Sel::collapsed(Caret {
+            block: nested,
+            offset: 0,
+        }),
+        Command::DeleteBackward,
+    );
+    assert_eq!(doc.document.to_markdown(), "- \n  - \n- \n");
+
+    let caret = doc.apply(Sel::collapsed(caret), Command::DeleteBackward);
+    assert_eq!(
+        doc.document.to_markdown(),
+        "- \n  - \n",
+        "the emptied item must go, not linger as an indented blank line"
+    );
+    let text = doc
+        .caret_text(caret.block)
+        .expect("the caret must not be left on the removed block");
+    assert_eq!(
+        caret.offset,
+        text.len(),
+        "the caret must sit at the end of the line above"
+    );
+
+    let caret = doc.apply(Sel::collapsed(caret), Command::DeleteBackward);
+    assert_eq!(doc.document.to_markdown(), "- \n");
+
+    let caret = doc.apply(Sel::collapsed(caret), Command::DeleteBackward);
+    assert_eq!(doc.document.to_markdown(), "");
+    assert_eq!(doc.text(caret.block), Some(""));
 }

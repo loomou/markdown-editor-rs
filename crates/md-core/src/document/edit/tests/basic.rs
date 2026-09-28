@@ -1,4 +1,4 @@
-use super::support::caret;
+use super::support::{caret, type_chars};
 use crate::block::BlockKind;
 use crate::document::edit::{Command, Sel, apply};
 use crate::document::{PasteIntent, editor_options, load_markdown};
@@ -118,6 +118,52 @@ fn line_breaks_are_noop_in_image_blocks() {
         assert_eq!(doc.leaf_source(id), "![alt](https://example.com/image.png)");
         assert_eq!(doc.to_markdown(), "![alt](https://example.com/image.png)\n");
     }
+}
+
+#[test]
+fn enter_at_the_end_of_an_image_starts_a_new_paragraph() {
+    let mut doc = load_markdown("> ![a](u)\n", editor_options());
+    let image = doc.text_leaves()[0];
+    assert_eq!(doc.kind(image), Some(BlockKind::Image));
+    let end = doc
+        .leaf_source(doc.live_id(image).expect("live image"))
+        .len();
+
+    let out = apply(&mut doc, Sel::collapsed(caret(image, end)), Command::Break);
+
+    assert_ne!(out.block, image);
+    assert_eq!(out.offset, 0);
+    assert_eq!(doc.kind(out.block), Some(BlockKind::Paragraph));
+    assert_eq!(doc.text_of(out.block), Some(""));
+    assert_eq!(doc.to_markdown(), "> ![a](u)\n> \n");
+}
+
+#[test]
+fn enter_after_an_image_matches_enter_after_a_typed_image() {
+    let mut typed = load_markdown("", editor_options());
+    let leaf = typed.text_leaves()[0];
+    let at = type_chars(&mut typed, caret(leaf, 0), "> ![a](u)");
+    assert_eq!(typed.kind(at.block), Some(BlockKind::Paragraph));
+    let typed_out = apply(&mut typed, Sel::collapsed(at), Command::Break);
+
+    let mut loaded = load_markdown("> ![a](u)\n", editor_options());
+    let image = loaded.text_leaves()[0];
+    let end = loaded
+        .leaf_source(loaded.live_id(image).expect("live image"))
+        .len();
+    let loaded_out = apply(
+        &mut loaded,
+        Sel::collapsed(caret(image, end)),
+        Command::Break,
+    );
+
+    assert_eq!(typed.kind(typed_out.block), Some(BlockKind::Paragraph));
+    assert_eq!(loaded.kind(loaded_out.block), Some(BlockKind::Paragraph));
+    assert_eq!(
+        typed.to_markdown(),
+        loaded.to_markdown(),
+        "typing the image and loading it must behave the same on Enter"
+    );
 }
 
 #[test]

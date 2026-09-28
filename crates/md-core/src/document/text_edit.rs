@@ -713,7 +713,8 @@ impl Document {
     pub(crate) fn break_literal_leaf(&mut self, id: NodeId, offset: usize) -> Caret {
         let text = self.caret_text(id).to_string();
         let off = floor_char_boundary(&text, offset.min(text.len()));
-        if matches!(self.arena.get(id).map(|n| n.kind), Some(BlockKind::Math))
+        let kind = self.arena.get(id).map(|n| n.kind);
+        if matches!(kind, Some(BlockKind::Math | BlockKind::Image))
             && (off == 0 || off == text.len())
         {
             let parent = self.arena.get(id).and_then(|n| n.parent).expect("parent");
@@ -738,6 +739,12 @@ impl Document {
             return Caret {
                 block: para.index,
                 offset: 0,
+            };
+        }
+        if kind == Some(BlockKind::Image) {
+            return Caret {
+                block: id.index,
+                offset: off,
             };
         }
         let can_exit_fence = self

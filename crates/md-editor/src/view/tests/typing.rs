@@ -389,3 +389,37 @@ fn tab_advances_rendered_width_and_caret(cx: &mut TestAppContext) {
     assert!(second_caret > first_caret);
     assert!((second_caret - first_caret) > 1.0);
 }
+
+#[gpui::test]
+fn a_dash_typed_inside_a_list_item_is_saved_as_text(cx: &mut TestAppContext) {
+    use md_core::block::BlockKind;
+    use md_core::document::{editor_options, load_markdown};
+
+    fn kinds(markdown: &str) -> Vec<BlockKind> {
+        let doc = load_markdown(markdown, editor_options());
+        doc.preorder()
+            .into_iter()
+            .filter_map(|id| doc.arena.get(id).map(|node| node.kind))
+            .filter(|kind| matches!(kind, BlockKind::List | BlockKind::ListItem))
+            .collect()
+    }
+
+    let (editor, cx) = editor_with_doc("", cx);
+    let focus = cx.update(|_, app| editor.read(app).focus.clone());
+    cx.update(|window, app| focus.focus(window, app));
+
+    cx.simulate_input("- ");
+    cx.simulate_input("-");
+
+    let (text, saved) = cx.update(|_, app| {
+        let view = editor.read(app);
+        let leaf = view.state.doc.text_leaves()[0];
+        (
+            view.state.doc.text(leaf).unwrap_or("").to_string(),
+            view.state.doc.document.write_snapshot().to_markdown(),
+        )
+    });
+    assert_eq!(text, "-");
+    assert_eq!(saved, "- \\-\n");
+    assert_eq!(kinds(&saved), vec![BlockKind::List, BlockKind::ListItem]);
+}

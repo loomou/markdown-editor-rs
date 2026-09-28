@@ -110,6 +110,7 @@ fn walk_all(builder: &mut Builder, source: &str, parsed: &Parsed<'_>) {
     while let Some(item) = stack.pop() {
         match item {
             Item::CloseBlock { host, end_row } => {
+                builder.close_container(source);
                 builder.parents.pop();
                 if host {
                     builder.hosts.pop();
@@ -786,7 +787,26 @@ fn display_math_fenced(t: &str) -> bool {
     t.starts_with('\n') || t.starts_with("\r\n")
 }
 
+fn hosts_a_caret(kind: BlockKind) -> bool {
+    matches!(kind, BlockKind::ListItem | BlockKind::BlockQuote)
+}
+
 impl Builder {
+    pub(super) fn close_container(&mut self, source: &str) {
+        let Some(closed) = self.parents.last().copied() else {
+            return;
+        };
+        let Some(node) = self.arena.get(closed) else {
+            return;
+        };
+        if node.first_child.is_some() || !hosts_a_caret(node.kind) {
+            return;
+        }
+        let id = self.alloc(BlockKind::Paragraph);
+        self.enter_leaf(id, BlockKind::Paragraph, LeafSink::Text, 0..0);
+        self.leave_text_leaf(source, false);
+    }
+
     pub(super) fn enter_leaf(
         &mut self,
         id: crate::document::arena::NodeId,

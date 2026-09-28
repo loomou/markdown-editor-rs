@@ -1,6 +1,6 @@
 use super::block_edit::{emit_preview, wants_preview};
 use super::emit;
-use super::flow_policy::flow_top_margin;
+use super::flow_policy::{flow_top_margin, nested_list_margin_top};
 use super::theme::LayoutTheme;
 use crate::box_tree::{
     BoxChildren, BoxIntern, BoxNode, BoxStore, BoxStyleStore, BoxTree, DeferredBox, LayoutBoxId,
@@ -418,13 +418,8 @@ fn container_style(
     let mut style = theme.style_for(kind);
     if kind == BlockKind::List {
         style.gap = container_gap(theme, doc, id, kind);
-        let nested = doc.arena.get(id).and_then(|n| n.parent).is_some_and(|p| {
-            doc.arena
-                .get(p)
-                .is_some_and(|pn| pn.kind == BlockKind::ListItem)
-        });
-        if nested {
-            style.margin.top = theme.list_nested_top;
+        if let Some(top) = nested_list_margin_top(theme, doc, id) {
+            style.margin.top = top;
         }
     }
     if kind == BlockKind::BlockQuote && doc.extra(id).quote_alert().is_some() {
@@ -446,15 +441,10 @@ fn container_gap(theme: &LayoutTheme, doc: &Document, id: NodeId, kind: BlockKin
 }
 
 fn node_margin_top(theme: &LayoutTheme, doc: &Document, id: NodeId, kind: BlockKind) -> Px {
-    if kind == BlockKind::List {
-        let nested = doc.arena.get(id).and_then(|n| n.parent).is_some_and(|p| {
-            doc.arena
-                .get(p)
-                .is_some_and(|pn| pn.kind == BlockKind::ListItem)
-        });
-        if nested {
-            return theme.list_nested_top;
-        }
+    if kind == BlockKind::List
+        && let Some(top) = nested_list_margin_top(theme, doc, id)
+    {
+        return top;
     }
     flow_top_margin(theme, doc, id, kind)
 }

@@ -960,3 +960,98 @@ fn nested_list_inline_code_preserves_content_spaces_on_save() {
         .to_string();
     assert_eq!(after, before, "saved={markdown:?}");
 }
+
+#[test]
+fn a_container_that_holds_the_caret_loads_with_an_empty_paragraph() {
+    use crate::block::BlockKind;
+    let cases: &[(&str, &[BlockKind], &str)] = &[
+        (
+            "-\n",
+            &[BlockKind::List, BlockKind::ListItem, BlockKind::Paragraph],
+            "- \n",
+        ),
+        (
+            "- \n",
+            &[BlockKind::List, BlockKind::ListItem, BlockKind::Paragraph],
+            "- \n",
+        ),
+        (
+            "1. \n",
+            &[BlockKind::List, BlockKind::ListItem, BlockKind::Paragraph],
+            "1. \n",
+        ),
+        (
+            "- [ ] \n",
+            &[BlockKind::List, BlockKind::ListItem, BlockKind::Paragraph],
+            "- [ ] \n",
+        ),
+        (
+            "- -\n",
+            &[
+                BlockKind::List,
+                BlockKind::ListItem,
+                BlockKind::List,
+                BlockKind::ListItem,
+                BlockKind::Paragraph,
+            ],
+            "- \n  - \n",
+        ),
+        (
+            "- a\n- \n",
+            &[
+                BlockKind::List,
+                BlockKind::ListItem,
+                BlockKind::Paragraph,
+                BlockKind::ListItem,
+                BlockKind::Paragraph,
+            ],
+            "- a\n- \n",
+        ),
+        (
+            "- \n- b\n",
+            &[
+                BlockKind::List,
+                BlockKind::ListItem,
+                BlockKind::Paragraph,
+                BlockKind::ListItem,
+                BlockKind::Paragraph,
+            ],
+            "- \n- b\n",
+        ),
+        (
+            "> \n",
+            &[BlockKind::BlockQuote, BlockKind::Paragraph],
+            "> \n",
+        ),
+        (
+            ">\n",
+            &[BlockKind::BlockQuote, BlockKind::Paragraph],
+            "> \n",
+        ),
+        (
+            "> - \n",
+            &[
+                BlockKind::BlockQuote,
+                BlockKind::List,
+                BlockKind::ListItem,
+                BlockKind::Paragraph,
+            ],
+            "> - \n",
+        ),
+    ];
+    for (source, want, markdown) in cases {
+        let doc = load_markdown(source, editor_options());
+        let kinds: Vec<BlockKind> = doc
+            .preorder()
+            .into_iter()
+            .filter(|&id| id != doc.root)
+            .filter_map(|id| doc.arena.get(id).map(|n| n.kind))
+            .collect();
+        assert_eq!(&kinds, want, "{source:?}");
+        assert_eq!(&doc.to_markdown(), markdown, "{source:?}");
+        assert!(
+            !doc.text_leaves().is_empty(),
+            "{source:?} left the caret with nowhere to sit"
+        );
+    }
+}
