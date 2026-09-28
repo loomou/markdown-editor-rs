@@ -50,6 +50,46 @@ fn ragged(text: &str, width: f32) -> (Vec<Placed>, Plan) {
     layout(text, width, Mode::Ragged, &params())
 }
 
+fn frontier_visits(text: &str, width: f32) -> u64 {
+    let clusters = mono_clusters(text);
+    let code_ranges = no_ranges();
+    let opps = opportunities(text, &OppCtx { glue_before: &[] });
+    let params = params();
+    let items = build_items(
+        text,
+        &clusters,
+        &opps,
+        &ItemCtx {
+            mode: Mode::Ragged,
+            em: EM,
+            width,
+            params: &params,
+            code_ranges: &code_ranges,
+            tab_ranges: &[],
+        },
+    );
+    let _ = super::kp::visits::take();
+    let _ = break_lines(text, &items, width, EM, Mode::Ragged, &params);
+    super::kp::visits::take()
+}
+
+#[test]
+fn the_active_frontier_does_not_grow_with_the_paragraph() {
+    let width = 300.0;
+    let small = frontier_visits(&"word ".repeat(1000), width);
+    let large = frontier_visits(&"word ".repeat(4000), width);
+    assert!(
+        small > 0 && large > 0,
+        "premise: the optimal path really ran (small={small}, large={large})"
+    );
+    let ratio = large as f64 / small as f64;
+    assert!(
+        ratio < 8.0,
+        "4x the words cost {ratio:.1}x the work, so the active set is not being pruned \
+         (small={small}, large={large})"
+    );
+}
+
 fn widths(
     text: &str,
     items: &[Placed],

@@ -332,6 +332,8 @@ pub fn break_lines(
         let mut alive: Vec<u32> = Vec::with_capacity(active.len());
 
         for &index in &active {
+            #[cfg(test)]
+            visits::bump();
             let node = nodes[index as usize];
             let ratio = calc.ratio_at(node.pos, break_item, final_break);
             let runt = final_break && calc.runt_at(calc.byte_at(node.pos), calc.byte_at(end_item));
@@ -385,7 +387,8 @@ pub fn break_lines(
         if is_forced(calc.item(break_item)) {
             active = pushed;
         } else {
-            active.extend(pushed);
+            alive.extend(pushed);
+            active = alive;
         }
         if final_break {
             final_node = chosen.map_or_else(|| nodes.len() as u32 - 1, |(_, index)| index);
@@ -513,4 +516,21 @@ pub(crate) fn plan_demerits(
         hyphen = line.hyphen;
     }
     total
+}
+
+#[cfg(test)]
+pub(crate) mod visits {
+    use std::cell::Cell;
+
+    thread_local! {
+        static COUNT: Cell<u64> = const { Cell::new(0) };
+    }
+
+    pub(crate) fn bump() {
+        COUNT.with(|count| count.set(count.get() + 1));
+    }
+
+    pub(crate) fn take() -> u64 {
+        COUNT.with(|count| count.replace(0))
+    }
 }
