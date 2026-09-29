@@ -22,7 +22,7 @@ fn empty_document_inserts_into_seeded_paragraph() {
 
 #[test]
 fn blank_document_inserts_into_seeded_paragraph() {
-    let mut doc = load_markdown("\n\n", editor_options());
+    let mut doc = load_markdown("", editor_options());
     let leaves = doc.text_leaves();
     assert_eq!(leaves.len(), 1);
     let out = apply(
@@ -32,6 +32,25 @@ fn blank_document_inserts_into_seeded_paragraph() {
     );
     assert_eq!(out.offset, 1);
     assert_eq!(doc.text_of(leaves[0]).unwrap(), "x");
+}
+
+#[test]
+fn a_document_of_blank_lines_keeps_one_paragraph_per_line() {
+    for (source, want) in [("\n", 1), ("\n\n", 2), ("\n\n\n", 3)] {
+        let mut doc = load_markdown(source, editor_options());
+        let leaves = doc.text_leaves();
+        assert_eq!(leaves.len(), want, "source={source:?}");
+        let out = apply(
+            &mut doc,
+            Sel::collapsed(caret(leaves[0], 0)),
+            Command::Insert { text: "x".into() },
+        );
+        assert_eq!(out.offset, 1, "source={source:?}");
+        assert_eq!(doc.text_of(leaves[0]).unwrap(), "x", "source={source:?}");
+        for rest in &leaves[1..] {
+            assert_eq!(doc.text_of(*rest).unwrap(), "", "source={source:?}");
+        }
+    }
 }
 
 #[test]
@@ -613,7 +632,7 @@ fn delete_spanning_a_table_endpoint_removes_the_rules_between() {
     );
     assert_eq!(
         doc.to_markdown(),
-        "|  | y |\n| --- | --- |\n",
+        "\n|  | y |\n| --- | --- |\n",
         "partial tail table keeps the last cell, drops the rule"
     );
 
