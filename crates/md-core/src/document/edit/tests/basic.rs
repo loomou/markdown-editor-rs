@@ -69,6 +69,28 @@ fn apply_soft_break_inserts_newline() {
 }
 
 #[test]
+fn each_soft_break_in_an_empty_paragraph_adds_one_line() {
+    let mut doc = load_markdown("", editor_options());
+    let leaf = doc.text_leaves()[0];
+    for want in ["\n", "\n\n", "\n\n\n"] {
+        apply(&mut doc, Sel::collapsed(caret(leaf, 0)), Command::SoftBreak);
+        let id = doc.live_id(leaf).expect("live");
+        assert_eq!(doc.display(id), want);
+    }
+}
+
+#[test]
+fn an_empty_paragraph_in_a_container_adds_one_line_per_soft_break() {
+    for src in ["> ", "- ", "1. ", "> - "] {
+        let mut doc = load_markdown(src, editor_options());
+        let leaf = doc.text_leaves()[0];
+        apply(&mut doc, Sel::collapsed(caret(leaf, 0)), Command::SoftBreak);
+        let id = doc.live_id(leaf).expect("live");
+        assert_eq!(doc.display(id), "\n", "src={src:?}");
+    }
+}
+
+#[test]
 fn apply_break_is_noop_in_table_cell() {
     let mut doc = load_markdown("| a | b |\n| --- | --- |\n| cd | e |\n", editor_options());
     let cell = doc
