@@ -91,6 +91,9 @@ pub(super) fn split_promotable_line(doc: &mut Document, caret: Caret) -> Option<
 }
 
 fn promotes_to_a_block(line: &str) -> bool {
+    if crate::document::syntax::is_math_fence_line(line) {
+        return true;
+    }
     if !crate::document::syntax::is_open_fence_line(line) {
         return false;
     }

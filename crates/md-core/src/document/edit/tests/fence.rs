@@ -422,9 +422,9 @@ fn enter_inside_an_empty_list_code_block_stays_inside_the_code() {
     );
 }
 
-fn soft_break_then_fence(doc: &mut Document, caret: Caret) -> Caret {
+fn soft_break_then(doc: &mut Document, caret: Caret, text: &str) -> Caret {
     let at = apply(doc, Sel::collapsed(caret), Command::SoftBreak);
-    type_chars(doc, at, "```")
+    type_chars(doc, at, text)
 }
 
 #[test]
@@ -432,7 +432,7 @@ fn a_fence_after_a_soft_break_commits_at_the_root() {
     let mut doc = load_markdown("", editor_options());
     let leaf = doc.text_leaves()[0];
     let at = type_chars(&mut doc, caret(leaf, 0), "hi");
-    let at = soft_break_then_fence(&mut doc, at);
+    let at = soft_break_then(&mut doc, at, "```");
     let out = apply(&mut doc, Sel::collapsed(at), Command::Break);
 
     assert_eq!(doc.kind(out.block), Some(BlockKind::CodeBlock));
@@ -446,7 +446,7 @@ fn a_fence_after_a_soft_break_commits_inside_a_quote() {
     let leaf = doc.text_leaves()[0];
     let at = type_chars(&mut doc, caret(leaf, 0), "> ");
     let at = type_chars(&mut doc, at, "hi");
-    let at = soft_break_then_fence(&mut doc, at);
+    let at = soft_break_then(&mut doc, at, "```");
     let out = apply(&mut doc, Sel::collapsed(at), Command::Break);
 
     assert_eq!(doc.kind(out.block), Some(BlockKind::CodeBlock));
@@ -459,7 +459,7 @@ fn a_fence_after_a_soft_break_commits_inside_a_list_item() {
     let leaf = doc.text_leaves()[0];
     let at = type_chars(&mut doc, caret(leaf, 0), "- ");
     let at = type_chars(&mut doc, at, "hi");
-    let at = soft_break_then_fence(&mut doc, at);
+    let at = soft_break_then(&mut doc, at, "```");
     let out = apply(&mut doc, Sel::collapsed(at), Command::Break);
 
     assert_eq!(doc.kind(out.block), Some(BlockKind::CodeBlock));
@@ -497,7 +497,7 @@ fn a_fence_after_a_soft_break_undoes_to_one_paragraph() {
     let mut d = Doc::new(load_markdown("", editor_options()));
     let leaf = d.text_leaves()[0];
     let at = type_chars(&mut d.document, caret(leaf, 0), "hi");
-    let at = soft_break_then_fence(&mut d.document, at);
+    let at = soft_break_then(&mut d.document, at, "```");
     let out = d.apply(Sel::collapsed(at), Command::Break);
 
     assert_eq!(d.document.kind(out.block), Some(BlockKind::CodeBlock));
@@ -505,5 +505,91 @@ fn a_fence_after_a_soft_break_undoes_to_one_paragraph() {
 
     assert_eq!(d.document.kind(leaf), Some(BlockKind::Paragraph));
     assert_eq!(d.document.text_of(leaf), Some("hi\n```"));
+    assert_eq!(d.document.text_leaves().len(), 1);
+}
+
+#[test]
+fn a_math_fence_after_a_soft_break_commits_at_the_root() {
+    let mut doc = load_markdown("", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let at = type_chars(&mut doc, caret(leaf, 0), "hi");
+    let at = soft_break_then(&mut doc, at, "$$");
+    let out = apply(&mut doc, Sel::collapsed(at), Command::Break);
+
+    assert_eq!(doc.kind(out.block), Some(BlockKind::Math));
+    assert_eq!(doc.text_of(leaf), Some("hi"));
+    assert_eq!(doc.to_markdown(), "hi\n\n$$\n$$\n");
+}
+
+#[test]
+fn a_math_fence_after_a_soft_break_commits_inside_a_quote() {
+    let mut doc = load_markdown("", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let at = type_chars(&mut doc, caret(leaf, 0), "> ");
+    let at = type_chars(&mut doc, at, "hi");
+    let at = soft_break_then(&mut doc, at, "$$");
+    let out = apply(&mut doc, Sel::collapsed(at), Command::Break);
+
+    assert_eq!(doc.kind(out.block), Some(BlockKind::Math));
+    assert_eq!(doc.to_markdown(), "> hi\n> \n> $$\n> $$\n");
+}
+
+#[test]
+fn a_math_fence_after_a_soft_break_commits_inside_a_list_item() {
+    let mut doc = load_markdown("", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let at = type_chars(&mut doc, caret(leaf, 0), "- ");
+    let at = type_chars(&mut doc, at, "hi");
+    let at = soft_break_then(&mut doc, at, "$$");
+    let out = apply(&mut doc, Sel::collapsed(at), Command::Break);
+
+    assert_eq!(doc.kind(out.block), Some(BlockKind::Math));
+    assert_eq!(doc.to_markdown(), "- hi\n  $$\n  $$\n");
+}
+
+#[test]
+fn a_math_fence_above_the_caret_line_is_left_alone() {
+    let mut doc = load_markdown("", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let at = type_chars(&mut doc, caret(leaf, 0), "$$");
+    let at = apply(&mut doc, Sel::collapsed(at), Command::SoftBreak);
+    let at = type_chars(&mut doc, at, "there");
+    let _ = apply(&mut doc, Sel::collapsed(at), Command::Break);
+
+    assert_eq!(doc.kind(leaf), Some(BlockKind::Paragraph));
+    assert_eq!(doc.text_of(leaf), Some("$$\nthere"));
+}
+
+#[test]
+fn a_line_that_is_not_a_math_fence_stays_in_the_same_paragraph() {
+    for marker in ["$", "$$x", "x$$", "$$$"] {
+        let mut doc = load_markdown("", editor_options());
+        let leaf = doc.text_leaves()[0];
+        let at = type_chars(&mut doc, caret(leaf, 0), "hi");
+        let at = soft_break_then(&mut doc, at, marker);
+        let _ = apply(&mut doc, Sel::collapsed(at), Command::Break);
+
+        assert_eq!(doc.kind(leaf), Some(BlockKind::Paragraph), "{marker:?}");
+        assert_eq!(
+            doc.text_of(leaf),
+            Some(&*format!("hi\n{marker}")),
+            "{marker:?}"
+        );
+    }
+}
+
+#[test]
+fn a_math_fence_after_a_soft_break_undoes_to_one_paragraph() {
+    let mut d = Doc::new(load_markdown("", editor_options()));
+    let leaf = d.text_leaves()[0];
+    let at = type_chars(&mut d.document, caret(leaf, 0), "hi");
+    let at = soft_break_then(&mut d.document, at, "$$");
+    let out = d.apply(Sel::collapsed(at), Command::Break);
+
+    assert_eq!(d.document.kind(out.block), Some(BlockKind::Math));
+    let _ = d.undo().expect("undo");
+
+    assert_eq!(d.document.kind(leaf), Some(BlockKind::Paragraph));
+    assert_eq!(d.document.text_of(leaf), Some("hi\n$$"));
     assert_eq!(d.document.text_leaves().len(), 1);
 }
