@@ -229,8 +229,8 @@ pub(crate) fn restore_visible_ws(
         source
     };
     let want_spaces = trailing_char(content.trim_end_matches(['\n', '\r']), ' ');
-    let want_nls = trailing_char(source, '\n');
     let want_lead = source.chars().take_while(|&c| c == '\n').count();
+    let want_nls = trailing_char(&source[want_lead..], '\n');
     let have_lead = display.chars().take_while(|&c| c == '\n').count();
     let add_lead = want_lead.saturating_sub(have_lead);
     let core_end = display.trim_end_matches([' ', '\n', '\r']).len();
@@ -897,6 +897,22 @@ mod tests {
         );
         assert_eq!(d, "\nabc");
         assert_eq!(s2d, vec![0, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn restore_visible_ws_does_not_double_a_blank_paragraph_newline() {
+        for (src, want) in [("\n", "\n"), ("\n\n", "\n\n"), ("\n\n\n", "\n\n\n")] {
+            let s2d = source_to_display_map(src, &[]);
+            let (d, m, _) =
+                restore_visible_ws(BlockKind::Paragraph, src, String::new(), s2d, Vec::new());
+            assert_eq!(d, want, "src={src:?}");
+            assert_eq!(m.len(), src.len() + 1, "src={src:?} map={m:?}");
+            assert_eq!(*m.last().unwrap(), d.len(), "src={src:?} map={m:?}");
+            assert!(
+                m.windows(2).all(|pair| pair[0] <= pair[1]),
+                "src={src:?} map={m:?}"
+            );
+        }
     }
 
     #[test]
