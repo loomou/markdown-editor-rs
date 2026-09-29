@@ -137,9 +137,6 @@ impl Document {
         if !syntax::is_math_fence_line(source) {
             return None;
         }
-        if self.is_list_item_first_child(id) {
-            return None;
-        }
         let frag = load_markdown("$$$$\n", editor_options());
         let (_, next) = bind::unique_root(&frag)?;
         if next != BlockKind::Math {
@@ -256,19 +253,6 @@ impl Document {
             return false;
         };
         node.prev_sibling.is_none() && node.parent == Some(self.root)
-    }
-
-    pub(crate) fn is_list_item_first_child(&self, id: NodeId) -> bool {
-        let Some(node) = self.arena.get(id) else {
-            return false;
-        };
-        if node.prev_sibling.is_some() {
-            return false;
-        }
-        node.parent
-            .and_then(|p| self.arena.get(p))
-            .map(|p| p.kind == BlockKind::ListItem)
-            .unwrap_or(false)
     }
 
     pub(crate) fn enclosed_by(&self, id: NodeId, kind: BlockKind) -> bool {

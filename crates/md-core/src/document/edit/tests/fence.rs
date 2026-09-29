@@ -306,7 +306,7 @@ fn math_fence_needs_the_whole_line() {
 }
 
 #[test]
-fn math_fence_skips_a_list_items_first_block() {
+fn math_fence_commits_in_a_list_items_first_block() {
     let mut doc = load_markdown("- x\n", editor_options());
     let leaf = doc.text_leaves()[0];
     let empty = apply(
@@ -320,11 +320,28 @@ fn math_fence_skips_a_list_items_first_block() {
         Command::Insert { text: "$$".into() },
     );
 
-    let _ = apply(&mut doc, Sel::collapsed(at), Command::Break);
+    let out = apply(&mut doc, Sel::collapsed(at), Command::Break);
 
-    assert_ne!(doc.kind(leaf), Some(BlockKind::Math));
+    assert_eq!(doc.kind(out.block), Some(BlockKind::Math));
+    let typed = apply(
+        &mut doc,
+        Sel::collapsed(out),
+        Command::Insert { text: "a+b".into() },
+    );
+    assert_eq!(typed.offset, 3);
+    assert_eq!(doc.text_of(out.block), Some("a+b"));
     let markdown = doc.to_markdown();
-    assert!(markdown.contains("$$"), "{markdown:?}");
+    let again = load_markdown(&markdown, editor_options());
+    assert_eq!(
+        again
+            .preorder()
+            .into_iter()
+            .filter(|&id| again.arena.get(id).map(|node| node.kind) == Some(BlockKind::Math))
+            .count(),
+        1,
+        "{markdown:?}"
+    );
+    assert_eq!(again.to_markdown(), markdown);
 }
 
 #[test]
