@@ -1,7 +1,8 @@
-use super::support::editor_with_doc;
+use super::support::{draw_editor, editor_with_doc, place_caret};
 use crate::view::EditorElement;
 use gpui::TestAppContext;
 use gpui::{point, px, size};
+use md_core::document::Command;
 
 #[gpui::test]
 fn typing_inline_spaces_keeps_source_display_caret_and_shape_in_sync(cx: &mut TestAppContext) {
@@ -422,4 +423,41 @@ fn a_dash_typed_inside_a_list_item_is_saved_as_text(cx: &mut TestAppContext) {
     assert_eq!(text, "-");
     assert_eq!(saved, "- \\-\n");
     assert_eq!(kinds(&saved), vec![BlockKind::List, BlockKind::ListItem]);
+}
+
+#[gpui::test]
+fn undoing_a_code_block_built_after_a_soft_break_still_repaints(cx: &mut TestAppContext) {
+    use md_core::block::BlockKind;
+
+    for (markdown, leaf, offset) in [("> hi\n", 0, 2), ("- hi\n", 0, 2), ("hi\n", 0, 2)] {
+        let (editor, cx) = editor_with_doc(markdown, cx);
+        place_caret(&editor, cx, leaf, offset);
+        draw_editor(&editor, cx);
+
+        cx.update(|_, app| {
+            editor.update(app, |view, _| {
+                view.apply_cmd(Command::SoftBreak);
+                view.apply_cmd(Command::Insert { text: "```".into() });
+                view.apply_cmd(Command::Break);
+            })
+        });
+        draw_editor(&editor, cx);
+
+        cx.update(|_, app| editor.update(app, |view, _| view.undo()));
+        draw_editor(&editor, cx);
+
+        let (fences, text) = cx.update(|_, app| {
+            let view = editor.read(app);
+            let document = &view.state.doc.document;
+            let fences = document
+                .preorder()
+                .into_iter()
+                .filter(|&id| document.kind(id.index) == Some(BlockKind::CodeBlock))
+                .count();
+            let leaf = document.text_leaves()[0];
+            (fences, document.text_of(leaf).unwrap_or("").to_string())
+        });
+        assert_eq!(fences, 0, "undo must drop the fence for {markdown:?}");
+        assert_eq!(text, "hi\n```", "for {markdown:?}");
+    }
 }
