@@ -25,6 +25,10 @@ pub use nav::{TableLoc, in_table, table_loc, table_step};
 #[cfg(test)]
 pub(crate) use create::parse_pipe_header;
 pub(super) use create::{try_commit_pipe_table, try_delete_empty_table};
+
+pub(super) fn line_is_a_pipe_header(line: &str) -> bool {
+    create::parse_pipe_header(line).is_some_and(|cells| cells.len() <= TABLE_INSERT_MAX_COLS)
+}
 pub(super) use lifecycle::{
     cell_table, detach_table, replace_table_with_paragraph, table_end_cells,
 };
