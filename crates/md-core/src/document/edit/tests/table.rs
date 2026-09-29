@@ -1786,3 +1786,98 @@ fn inserting_space_preserves_cell_line_break() {
         "saved={saved:?}"
     );
 }
+
+fn soft_break_then(doc: &mut Document, caret: Caret, text: &str) -> Caret {
+    let at = apply(doc, Sel::collapsed(caret), Command::SoftBreak);
+    type_chars(doc, at, text)
+}
+
+fn assert_soft_break_pipe_header_builds_a_table(prefix: &str, container: BlockKind) {
+    let mut doc = load_markdown("", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let at = type_chars(&mut doc, caret(leaf, 0), prefix);
+    let at = type_chars(&mut doc, at, "hi");
+    let at = soft_break_then(&mut doc, at, "|a|b|");
+    let out = apply(&mut doc, Sel::collapsed(at), Command::Break);
+
+    assert_eq!(
+        doc.kind(out.block),
+        Some(BlockKind::TableCell),
+        "{prefix:?}"
+    );
+    assert_eq!(doc.text_of(leaf), Some("hi"), "{prefix:?}");
+    assert_eq!(kind_count(&doc, BlockKind::Table), 1, "{prefix:?}");
+    let table = first_table(&doc);
+    let parent_kind = doc
+        .arena
+        .get(table)
+        .and_then(|node| node.parent)
+        .and_then(|id| doc.arena.get(id).map(|node| node.kind));
+    assert_eq!(parent_kind, Some(container), "{prefix:?}");
+    assert_eq!(dims(&doc), (2, 2), "{prefix:?}");
+    let written = doc.to_markdown();
+    let reloaded = load_markdown(&written, editor_options());
+    assert_eq!(reloaded.to_markdown(), written, "{prefix:?}");
+}
+
+#[test]
+fn a_pipe_header_after_a_soft_break_creates_a_table_at_the_root() {
+    assert_soft_break_pipe_header_builds_a_table("", BlockKind::DocRoot);
+}
+
+#[test]
+fn a_pipe_header_after_a_soft_break_creates_a_table_inside_a_quote() {
+    assert_soft_break_pipe_header_builds_a_table("> ", BlockKind::BlockQuote);
+}
+
+#[test]
+fn a_pipe_header_after_a_soft_break_creates_a_table_inside_a_list_item() {
+    assert_soft_break_pipe_header_builds_a_table("- ", BlockKind::ListItem);
+}
+
+#[test]
+fn a_line_that_is_not_a_pipe_header_after_a_soft_break_stays_in_one_paragraph() {
+    for marker in ["|---|", "| --- | --- |", "|", "| |", "a|b"] {
+        let mut doc = load_markdown("", editor_options());
+        let leaf = doc.text_leaves()[0];
+        let at = type_chars(&mut doc, caret(leaf, 0), "hi");
+        let at = soft_break_then(&mut doc, at, marker);
+        let _ = apply(&mut doc, Sel::collapsed(at), Command::Break);
+
+        assert_eq!(doc.kind(leaf), Some(BlockKind::Paragraph), "{marker:?}");
+        assert_eq!(
+            doc.text_of(leaf),
+            Some(&*format!("hi\n{marker}")),
+            "{marker:?}"
+        );
+        assert_eq!(kind_count(&doc, BlockKind::Table), 0, "{marker:?}");
+    }
+}
+
+#[test]
+fn an_escaped_pipe_line_stays_in_one_paragraph() {
+    let mut doc = load_markdown("hi\n\\|a\\|b\\|\n", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let n = doc.text_of(leaf).unwrap().len();
+    let _ = apply(&mut doc, Sel::collapsed(caret(leaf, n)), Command::Break);
+
+    assert_eq!(doc.text_of(leaf), Some("hi\n|a|b|"));
+    assert_eq!(kind_count(&doc, BlockKind::Table), 0);
+    assert_eq!(doc.text_leaves().len(), 2);
+}
+
+#[test]
+fn a_pipe_header_after_a_soft_break_undoes_to_one_paragraph() {
+    let mut d = Doc::new(load_markdown("", editor_options()));
+    let leaf = d.text_leaves()[0];
+    let at = type_chars(&mut d.document, caret(leaf, 0), "hi");
+    let at = soft_break_then(&mut d.document, at, "|a|b|");
+    let out = d.apply(Sel::collapsed(at), Command::Break);
+
+    assert_eq!(d.document.kind(out.block), Some(BlockKind::TableCell));
+    let _ = d.undo().expect("undo");
+
+    assert_eq!(d.document.kind(leaf), Some(BlockKind::Paragraph));
+    assert_eq!(d.document.text_of(leaf), Some("hi\n|a|b|"));
+    assert_eq!(d.document.text_leaves().len(), 1);
+}

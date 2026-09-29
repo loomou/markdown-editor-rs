@@ -80,7 +80,7 @@ pub(super) fn after_paragraph_insert(doc: &mut Document, caret: Caret) -> Caret 
 }
 
 pub(super) fn split_marker_line(doc: &mut Document, caret: Caret, line: &str) -> Option<Caret> {
-    split_caret_line_where(doc, caret, &|text| text == line)
+    split_caret_line_where(doc, caret, &|display, _source| display == line)
 }
 
 pub(super) fn split_promotable_line(doc: &mut Document, caret: Caret) -> Option<Caret> {
@@ -90,14 +90,17 @@ pub(super) fn split_promotable_line(doc: &mut Document, caret: Caret) -> Option<
     split_caret_line_where(doc, caret, &promotes_to_a_block)
 }
 
-fn promotes_to_a_block(line: &str) -> bool {
-    if crate::document::syntax::is_math_fence_line(line) {
+fn promotes_to_a_block(_display: &str, source: &str) -> bool {
+    if crate::document::syntax::is_math_fence_line(source) {
         return true;
     }
-    if !crate::document::syntax::is_open_fence_line(line) {
+    if super::table::line_is_a_pipe_header(source) {
+        return true;
+    }
+    if !crate::document::syntax::is_open_fence_line(source) {
         return false;
     }
-    let frag = load_markdown(&format!("{line}\n"), editor_options());
+    let frag = load_markdown(&format!("{source}\n"), editor_options());
     bind::unique_root(&frag)
         .is_some_and(|(_, kind)| matches!(kind, BlockKind::CodeBlock | BlockKind::Mermaid))
 }
@@ -105,17 +108,11 @@ fn promotes_to_a_block(line: &str) -> bool {
 fn split_caret_line_where(
     doc: &mut Document,
     caret: Caret,
-    accepts: &dyn Fn(&str) -> bool,
+    accepts: &dyn Fn(&str, &str) -> bool,
 ) -> Option<Caret> {
     let id = doc.live_id(caret.block)?;
     let text = doc.caret_text(id);
     let (a, b) = crate::document::syntax::line_range(text, caret.offset);
-    if !accepts(text.get(a..b)?) {
-        return None;
-    }
-    if a == 0 || text.as_bytes().get(a - 1) != Some(&b'\n') {
-        return None;
-    }
     let source = doc.leaf_source(id);
     let s2d = doc.visual_s2d(id);
     let source_a = bind::display_to_source_first(&s2d, a);
@@ -123,6 +120,12 @@ fn split_caret_line_where(
     let source_a = floor_char_boundary(source, source_a.min(source.len()));
     let source_b = floor_char_boundary(source, source_b.min(source.len())).max(source_a);
     let source_line = source.get(source_a..source_b)?.to_string();
+    if !accepts(text.get(a..b)?, &source_line) {
+        return None;
+    }
+    if a == 0 || text.as_bytes().get(a - 1) != Some(&b'\n') {
+        return None;
+    }
     let block = caret.block;
     let marker_block = if a == 0 {
         block
