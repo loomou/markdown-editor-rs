@@ -1,5 +1,5 @@
 use super::span::{clear_same_block_span, same_block_span};
-use super::typing::insert;
+use super::typing::{insert, split_promotable_line};
 use super::{Caret, Sel, list, path};
 use crate::block::BlockKind;
 use crate::document::syntax::line_range;
@@ -33,6 +33,7 @@ pub(super) fn break_block(doc: &mut Document, sel: Sel) -> Caret {
     {
         return list::lift_item(doc, &path);
     }
+    let at = split_promotable_line(doc, at).unwrap_or(at);
     if let Some(id) = doc.live_id(at.block)
         && let Some(caret) = doc.try_commit_open_fence(id)
     {
