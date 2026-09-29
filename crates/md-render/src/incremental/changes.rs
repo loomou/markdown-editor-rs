@@ -65,6 +65,7 @@ impl IncrementalEngine {
         let mut drop_ids: Vec<LayoutBoxId> = Vec::new();
         let mut splices: Vec<PendingSpineSplice> = Vec::new();
         let mut cold_parents: Vec<NodeId> = Vec::new();
+        let mut spliced_in: HashSet<LayoutBoxId> = HashSet::new();
         if changes.is_structural() {
             for c in &changes.changes {
                 let DocChange::TreeSpliced {
@@ -105,6 +106,14 @@ impl IncrementalEngine {
                             .map(|node| LayoutBoxId::for_kind(node.kind, n.index))
                     })
                     .collect();
+                let reemit = !removed.is_empty()
+                    && removed_boxes.is_empty()
+                    && !inserted_boxes.is_empty()
+                    && inserted_boxes.iter().all(|id| spliced_in.contains(id));
+                spliced_in.extend(inserted_boxes.iter().copied());
+                if reemit {
+                    continue;
+                }
                 splices.push(PendingSpineSplice {
                     parent: parent_box,
                     before: before_box,
