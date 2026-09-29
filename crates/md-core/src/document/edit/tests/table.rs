@@ -1227,15 +1227,38 @@ fn pipe_header_without_leading_pipe_stays_paragraph() {
     assert_eq!(kind_count(&doc, BlockKind::Table), 0);
 }
 
+fn commit_pipe_header(md: &str) -> Document {
+    let mut doc = load_markdown(md, editor_options());
+    let leaf = doc.text_leaves()[0];
+    let n = doc.text_of(leaf).unwrap().len();
+    let _ = apply(&mut doc, Sel::collapsed(caret(leaf, n)), Command::Break);
+    doc
+}
+
+fn assert_pipe_header_builds_a_table(md: &str, container: BlockKind) {
+    let doc = commit_pipe_header(md);
+    assert_eq!(kind_count(&doc, BlockKind::Table), 1, "{md:?}");
+    let table = first_table(&doc);
+    let parent_kind = doc
+        .arena
+        .get(table)
+        .and_then(|node| node.parent)
+        .and_then(|id| doc.arena.get(id).map(|node| node.kind));
+    assert_eq!(parent_kind, Some(container), "{md:?}");
+    assert_eq!(dims(&doc), (2, 2), "{md:?}");
+    let written = doc.to_markdown();
+    let reloaded = load_markdown(&written, editor_options());
+    assert_eq!(reloaded.to_markdown(), written, "{md:?}");
+}
+
 #[test]
-fn pipe_header_in_list_or_quote_does_not_create_table() {
-    for md in ["- |a|b|\n", "> |a|b|\n"] {
-        let mut doc = load_markdown(md, editor_options());
-        let leaf = doc.text_leaves()[0];
-        let n = doc.text_of(leaf).unwrap().len();
-        let _ = apply(&mut doc, Sel::collapsed(caret(leaf, n)), Command::Break);
-        assert_eq!(kind_count(&doc, BlockKind::Table), 0, "{md:?}");
-    }
+fn pipe_header_in_a_quote_creates_table() {
+    assert_pipe_header_builds_a_table("> |a|b|\n", BlockKind::BlockQuote);
+}
+
+#[test]
+fn pipe_header_in_a_list_item_creates_table() {
+    assert_pipe_header_builds_a_table("- |a|b|\n", BlockKind::ListItem);
 }
 
 #[test]

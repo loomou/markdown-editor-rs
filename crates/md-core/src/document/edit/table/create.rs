@@ -42,9 +42,6 @@ pub(crate) fn try_commit_pipe_table(doc: &mut Document, caret: Caret) -> Option<
     if doc.arena.get(id).map(|n| n.kind) != Some(BlockKind::Paragraph) {
         return None;
     }
-    if doc.enclosed_by(id, BlockKind::ListItem) || doc.enclosed_by(id, BlockKind::BlockQuote) {
-        return None;
-    }
     let source = doc.leaf_source(id);
     if source.contains('\n') {
         return None;
