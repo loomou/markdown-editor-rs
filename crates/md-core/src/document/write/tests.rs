@@ -1697,6 +1697,10 @@ fn a_leading_blank_paragraph_writes_exactly_one_line() {
 #[test]
 fn edge_blank_lines_round_trip_byte_for_byte() {
     for source in [
+        "",
+        "\n",
+        "\n\n",
+        "\n\n\n",
         "> \n",
         "> \n> \n",
         "> \n> \n> \n",
@@ -1719,8 +1723,60 @@ fn edge_blank_lines_round_trip_byte_for_byte() {
 }
 
 #[test]
+fn trailing_blank_lines_at_the_root_round_trip_byte_for_byte() {
+    for source in ["hi\n", "hi\n\n", "hi\n\n\n", "a\n\n\n", "a\n\n\n\n"] {
+        let doc = load_markdown(source, editor_options());
+        let saved = doc.to_markdown();
+        assert_eq!(saved, source, "source={source:?}");
+        let reloaded = load_markdown(&saved, editor_options());
+        assert_eq!(reloaded.to_markdown(), saved, "source={source:?}");
+    }
+}
+
+#[test]
+fn blank_runs_between_blocks_keep_their_length() {
+    for source in [
+        "a\n\n\nb\n",
+        "a\n\n\n\nb\n",
+        "a\n\n\n\n\nb\n",
+        "# h\n\n\np\n",
+        "```\nx\n```\n\n\np\n",
+        "> a\n> \n> b\n",
+        "> a\n> \n> \n> b\n",
+        "a\n\n\n> q\n",
+    ] {
+        let doc = load_markdown(source, editor_options());
+        let saved = doc.to_markdown();
+        assert_eq!(saved, source, "source={source:?}");
+        let reloaded = load_markdown(&saved, editor_options());
+        assert_eq!(reloaded.to_markdown(), saved, "source={source:?}");
+    }
+}
+
+#[test]
+fn a_blank_line_after_a_list_inside_a_quote_survives() {
+    for source in ["> - \n> \n", "> - a\n> \n", "- a\n\n"] {
+        let doc = load_markdown(source, editor_options());
+        let saved = doc.to_markdown();
+        assert_eq!(saved, source, "source={source:?}");
+        let reloaded = load_markdown(&saved, editor_options());
+        assert_eq!(reloaded.to_markdown(), saved, "source={source:?}");
+    }
+}
+
+#[test]
 fn an_editor_snapshot_keeps_edge_blank_lines() {
     for source in [
+        "",
+        "\n",
+        "\n\n",
+        "hi\n",
+        "hi\n\n",
+        "hi\n\n\n",
+        "a\n\n\nb\n",
+        "a\n\n\n\nb\n",
+        "> - \n> \n",
+        "# h\n\n\np\n",
         "> \n> \n",
         "> \n> abc\n",
         "> abc\n> \n",
@@ -1734,4 +1790,53 @@ fn an_editor_snapshot_keeps_edge_blank_lines() {
         let saved = doc.document.write_snapshot().to_markdown();
         assert_eq!(saved, source, "source={source:?}");
     }
+}
+
+#[test]
+fn an_editor_snapshot_drops_the_spare_line_it_appended() {
+    for source in ["hi\n", "# h\n", "> q\n", "- a\n"] {
+        let mut doc = Doc::new(load_markdown(source, editor_options()));
+        let before = doc.text_leaves().len();
+        doc.enable_trailing_blank();
+        assert_eq!(
+            doc.text_leaves().len(),
+            before + 1,
+            "the editor needs a line below the content: {source:?}"
+        );
+        assert_eq!(
+            doc.document.write_snapshot().to_markdown(),
+            source,
+            "the spare line must not reach the file: {source:?}"
+        );
+    }
+}
+
+#[test]
+fn replacing_a_whole_document_drops_the_trailing_blank_the_source_had() {
+    let mut doc = Doc::new(load_markdown("para\n\n", editor_options()));
+    doc.enable_trailing_blank();
+    assert_eq!(doc.document.to_markdown(), "para\n\n");
+    let leaves = doc.text_leaves();
+    let last = leaves[leaves.len() - 1];
+    let end = doc.text(last).unwrap_or("").len();
+    doc.apply(
+        Sel {
+            anchor: Caret {
+                block: leaves[0],
+                offset: 0,
+            },
+            head: Caret {
+                block: last,
+                offset: end,
+            },
+        },
+        Command::DeleteBackward,
+    );
+    assert_eq!(doc.document.to_markdown(), "");
+    let block = doc.text_leaves()[0];
+    doc.apply(
+        Sel::collapsed(Caret { block, offset: 0 }),
+        Command::Insert { text: "z".into() },
+    );
+    assert_eq!(doc.document.to_markdown(), "z\n");
 }

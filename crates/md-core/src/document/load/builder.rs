@@ -264,6 +264,7 @@ impl Builder {
 
     pub(super) fn finish(mut self, source: String, reference_definitions: Vec<String>) -> Document {
         let root = self.parents[0];
+        let (source_tail_blanks, source_tail_blank) = self.root_tail(root);
         if self.arena.get(root).and_then(|n| n.first_child).is_none() {
             let id = self.alloc(BlockKind::Paragraph);
             self.enter_leaf(id, BlockKind::Paragraph, LeafSink::Text, 0..0);
@@ -282,6 +283,8 @@ impl Builder {
             reference_definitions: std::sync::Arc::new(reference_definitions),
             table_alignment_overflow: self.table_alignment_overflow,
             root,
+            source_tail_blanks,
+            source_tail_blank,
             revision: 1,
             max_content_revision: 1,
             changes: ChangeSet::document_replaced(1),
@@ -290,13 +293,49 @@ impl Builder {
         }
     }
 
+    fn blank_paragraph(&self, id: NodeId) -> bool {
+        self.arena.get(id).is_some_and(|node| {
+            node.kind == BlockKind::Paragraph
+                && matches!(node.extra, NodeExtra::None)
+                && self
+                    .texts
+                    .get(id.text_id())
+                    .is_some_and(|leaf| leaf.display().is_empty())
+        })
+    }
+
+    fn root_tail(&self, root: NodeId) -> (usize, Option<NodeId>) {
+        let mut count = 0usize;
+        let mut first = None;
+        let mut cur = self.arena.get(root).and_then(|n| n.last_child);
+        while let Some(id) = cur {
+            if !self.blank_paragraph(id) {
+                break;
+            }
+            count += 1;
+            first = Some(id);
+            cur = self.arena.get(id).and_then(|n| n.prev_sibling);
+        }
+        (count, first)
+    }
+
     fn merge_leading_front_matter(&mut self, source: &str) {
         let root = self.parents[0];
-        let kids: Vec<NodeId> = self.arena.children(root).take(2).collect();
-        if kids.len() < 2 {
+        let kids: Vec<NodeId> = self.arena.children(root).collect();
+        let mut fences = Vec::with_capacity(2);
+        for &id in &kids {
+            if self.blank_paragraph(id) {
+                continue;
+            }
+            fences.push(id);
+            if fences.len() == 2 {
+                break;
+            }
+        }
+        if fences.len() < 2 {
             return;
         }
-        let (first, second) = (kids[0], kids[1]);
+        let (first, second) = (fences[0], fences[1]);
         let Some(head) = self.front_matter_fence_span(source, first) else {
             return;
         };
@@ -346,6 +385,21 @@ impl Builder {
         self.arena.detach(second);
         self.texts.clear_slot(second.index);
         self.arena.tombstone(second);
+        let mut inside = false;
+        for &id in &kids {
+            if id == first {
+                inside = true;
+                continue;
+            }
+            if id == second {
+                break;
+            }
+            if inside {
+                self.arena.detach(id);
+                self.texts.clear_slot(id.index);
+                self.arena.tombstone(id);
+            }
+        }
     }
 
     fn front_matter_fence_span(&self, source: &str, id: NodeId) -> Option<Range<usize>> {

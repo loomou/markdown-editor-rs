@@ -40,18 +40,15 @@ enum Item<'a, 'input> {
     CloseBlock {
         host: bool,
         end_row: bool,
-        edge: Edge,
+        gaps: Vec<usize>,
+    },
+    CloseRoot {
+        gaps: Vec<usize>,
     },
     CloseLeaf {
         allow_standalone: bool,
     },
     Inline(InlineEnd),
-}
-
-#[derive(Clone, Copy, Default)]
-pub(super) struct Edge {
-    lead: usize,
-    trail: usize,
 }
 
 struct InlineEnd {
@@ -116,27 +113,20 @@ pub(super) fn document_of(parsed: &Parsed<'_>, source: String) -> Document {
 
 fn walk_all(builder: &mut Builder, source: &str, parsed: &Parsed<'_>) {
     let mut stack: Vec<Item<'_, '_>> = Vec::new();
-    match parsed.root().first_child() {
-        Some(first) => {
-            builder.synthesize_leading_blanks(
-                source,
-                leading_blanks(source, 0..first.span().start, false),
-            );
-            stack.push(Item::Node(first, InlineCtx::default()));
-        }
-        None => {
-            builder
-                .synthesize_leading_blanks(source, leading_blanks(source, 0..source.len(), false));
-        }
+    stack.push(Item::CloseRoot {
+        gaps: root_gaps(source, &parsed.root()),
+    });
+    if let Some(first) = parsed.root().first_child() {
+        stack.push(Item::Node(first, InlineCtx::default()));
     }
     while let Some(item) = stack.pop() {
         match item {
             Item::CloseBlock {
                 host,
                 end_row,
-                edge,
+                gaps,
             } => {
-                builder.close_container(source, edge);
+                builder.close_gaps(source, &gaps, false);
                 builder.parents.pop();
                 if host {
                     builder.hosts.pop();
@@ -144,6 +134,9 @@ fn walk_all(builder: &mut Builder, source: &str, parsed: &Parsed<'_>) {
                 if end_row {
                     builder.header_row = false;
                 }
+            }
+            Item::CloseRoot { gaps } => {
+                builder.close_gaps(source, &gaps, true);
             }
             Item::CloseLeaf { allow_standalone } => {
                 builder.leave_text_leaf(source, allow_standalone);
@@ -207,7 +200,7 @@ fn visit<'a, 'i>(
             stack.push(Item::CloseBlock {
                 host: false,
                 end_row: false,
-                edge: Edge::default(),
+                gaps: Vec::new(),
             });
             push_children(stack, node, ctx);
         }
@@ -227,7 +220,7 @@ fn visit<'a, 'i>(
             stack.push(Item::CloseBlock {
                 host: true,
                 end_row: false,
-                edge: Edge::default(),
+                gaps: Vec::new(),
             });
             push_children(stack, node, ctx);
         }
@@ -242,7 +235,7 @@ fn visit<'a, 'i>(
             stack.push(Item::CloseBlock {
                 host: false,
                 end_row: false,
-                edge: quote_edge(source, &node, kind.is_some()),
+                gaps: container_gaps(source, &node, kind.is_some()),
             });
             push_children(stack, node, ctx);
         }
@@ -256,7 +249,7 @@ fn visit<'a, 'i>(
             stack.push(Item::CloseBlock {
                 host: true,
                 end_row: false,
-                edge: Edge::default(),
+                gaps: Vec::new(),
             });
             push_children(stack, node, ctx);
         }
@@ -281,7 +274,7 @@ fn visit<'a, 'i>(
             stack.push(Item::CloseBlock {
                 host: false,
                 end_row: false,
-                edge: Edge::default(),
+                gaps: Vec::new(),
             });
             push_children(stack, node, ctx);
         }
@@ -298,7 +291,7 @@ fn visit<'a, 'i>(
             stack.push(Item::CloseBlock {
                 host: false,
                 end_row: true,
-                edge: Edge::default(),
+                gaps: Vec::new(),
             });
             push_children(stack, node, ctx);
         }
@@ -842,15 +835,18 @@ fn leading_blanks(source: &str, range: Range<usize>, alert: bool) -> usize {
         .count()
 }
 
-fn trailing_blanks(source: &str, range: Range<usize>) -> usize {
+fn trailing_blanks(source: &str, range: Range<usize>, previous_terminated: bool) -> usize {
     let Some(region) = source.get(range) else {
         return 0;
     };
+    if region.is_empty() {
+        return 0;
+    }
     let mut lines: Vec<&str> = region.split('\n').collect();
     if region.ends_with('\n') {
         lines.pop();
     }
-    if lines.first().is_some_and(|line| line.is_empty()) {
+    if !previous_terminated && lines.first().is_some_and(|line| line.is_empty()) {
         lines.remove(0);
     }
     lines
@@ -860,57 +856,115 @@ fn trailing_blanks(source: &str, range: Range<usize>) -> usize {
         .count()
 }
 
-fn quote_edge(source: &str, node: &NodeRef<'_, '_>, alert: bool) -> Edge {
-    let span = node.span();
-    let first = node.first_child().map(|child| child.span().start);
-    let last = node.children().last().map(|child| child.span().end);
-    match (first, last) {
-        (Some(first), Some(last)) => Edge {
-            lead: leading_blanks(source, span.start..first, alert),
-            trail: trailing_blanks(source, last..span.end),
-        },
-        _ => Edge {
-            lead: leading_blanks(source, span, alert).max(1),
-            trail: 0,
-        },
+fn gap_blanks(source: &str, range: Range<usize>, previous_terminated: bool) -> usize {
+    let Some(region) = source.get(range) else {
+        return 0;
+    };
+    if region.is_empty() {
+        return 0;
     }
+    let mut lines: Vec<&str> = region.split('\n').collect();
+    lines.pop();
+    if !previous_terminated && lines.first().is_some_and(|line| line.is_empty()) {
+        lines.remove(0);
+    }
+    lines
+        .into_iter()
+        .take_while(|line| blank_in_container(line))
+        .count()
+}
+
+fn ends_with_newline(source: &str, end: usize) -> bool {
+    end > 0 && source.as_bytes().get(end - 1) == Some(&b'\n')
+}
+
+fn list_content_end(source: &str, child: &NodeRef<'_, '_>) -> Option<usize> {
+    if !matches!(child.kind(), NodeKind::List(_)) {
+        return None;
+    }
+    let span = child.span();
+    let region = source.get(span.clone())?;
+    let mut at = span.start;
+    let mut end = span.start;
+    for line in region.split('\n') {
+        let line_end = at + line.len();
+        if !blank_in_container(line) {
+            end = line_end;
+        }
+        at = line_end + 1;
+    }
+    Some(end)
+}
+
+fn container_gaps(source: &str, node: &NodeRef<'_, '_>, alert: bool) -> Vec<usize> {
+    gaps_for(source, node, node.span(), alert)
+}
+
+fn root_gaps(source: &str, root: &NodeRef<'_, '_>) -> Vec<usize> {
+    let span = root.span();
+    let span = if span.end == source.len() {
+        span
+    } else {
+        0..source.len()
+    };
+    gaps_for(source, root, span, false)
+}
+
+fn gaps_for(source: &str, node: &NodeRef<'_, '_>, span: Range<usize>, alert: bool) -> Vec<usize> {
+    let children: Vec<NodeRef<'_, '_>> = node.children().collect();
+    if children.is_empty() {
+        return vec![leading_blanks(source, span, alert)];
+    }
+    let kids: Vec<Range<usize>> = children.iter().map(|child| child.span()).collect();
+    let mut gaps = Vec::with_capacity(kids.len() + 1);
+    gaps.push(leading_blanks(source, span.start..kids[0].start, alert));
+    for pair in kids.windows(2) {
+        let end = pair[0].end;
+        let count = gap_blanks(source, end..pair[1].start, ends_with_newline(source, end));
+        gaps.push(count.saturating_sub(1));
+    }
+    let last = kids[kids.len() - 1].end;
+    let last = list_content_end(source, &children[children.len() - 1]).unwrap_or(last);
+    gaps.push(trailing_blanks(
+        source,
+        last..span.end,
+        ends_with_newline(source, last),
+    ));
+    gaps
 }
 
 impl Builder {
-    pub(super) fn close_container(&mut self, source: &str, edge: Edge) {
+    pub(super) fn close_gaps(&mut self, source: &str, gaps: &[usize], is_root: bool) {
         let Some(closed) = self.parents.last().copied() else {
             return;
         };
         let Some(node) = self.arena.get(closed) else {
             return;
         };
-        if node.first_child.is_some() {
+        let kids: Vec<crate::document::arena::NodeId> = self.arena.children(closed).collect();
+        if kids.is_empty() {
+            if !is_root && !hosts_a_caret(node.kind) {
+                return;
+            }
+            let count = gaps.first().copied().unwrap_or(0);
+            let count = if is_root { count } else { count.max(1) };
             let mut anchor = None;
-            for _ in 0..edge.lead {
-                anchor = Some(self.synthesize_blank_paragraph(source, closed, anchor));
-            }
-            let mut anchor = self.arena.get(closed).and_then(|n| n.last_child);
-            for _ in 0..edge.trail {
+            for _ in 0..count {
                 anchor = Some(self.synthesize_blank_paragraph(source, closed, anchor));
             }
             return;
         }
-        if !hosts_a_caret(node.kind) {
-            return;
-        }
         let mut anchor = None;
-        for _ in 0..edge.lead.max(edge.trail).max(1) {
-            anchor = Some(self.synthesize_blank_paragraph(source, closed, anchor));
+        for (index, kid) in kids.iter().enumerate() {
+            let count = gaps.get(index).copied().unwrap_or(0);
+            for _ in 0..count {
+                anchor = Some(self.synthesize_blank_paragraph(source, closed, anchor));
+            }
+            anchor = Some(*kid);
         }
-    }
-
-    pub(super) fn synthesize_leading_blanks(&mut self, source: &str, count: usize) {
-        let Some(root) = self.parents.first().copied() else {
-            return;
-        };
-        let mut anchor = None;
+        let count = gaps.get(kids.len()).copied().unwrap_or(0);
         for _ in 0..count {
-            anchor = Some(self.synthesize_blank_paragraph(source, root, anchor));
+            anchor = Some(self.synthesize_blank_paragraph(source, closed, anchor));
         }
     }
 

@@ -40,6 +40,9 @@ enum Step {
     BlankLine {
         prefix: Prefix,
     },
+    HardBlank {
+        prefix: Prefix,
+    },
     Newline,
 }
 
@@ -101,6 +104,12 @@ where
         match step {
             Step::Newline => out.write_str("\n")?,
             Step::BlankLine { prefix } => blank_line(out, &prefix)?,
+            Step::HardBlank { prefix } => {
+                if !prefix.is_plain() {
+                    prefix.write_open(out)?;
+                }
+                out.write_str("\n")?;
+            }
             Step::Block { id, prefix } => write_block_step(doc, id, &prefix, out, &mut stack)?,
             Step::Flow { kids, prefix } => write_flow_step(doc, kids, &prefix, out, &mut stack)?,
             Step::List {
@@ -142,11 +151,27 @@ where
     };
     match kind {
         BlockKind::DocRoot => {
-            let kids: Vec<NodeId> = doc.children(id).collect();
-            let kids = match kids.last().copied().filter(|&k| is_blank_paragraph(doc, k)) {
-                Some(_) => kids[..kids.len() - 1].to_vec(),
-                None => kids,
+            let mut kids: Vec<NodeId> = doc.children(id).collect();
+            let mut blanks = 0usize;
+            while kids
+                .len()
+                .checked_sub(blanks + 1)
+                .is_some_and(|i| is_blank_paragraph(doc, kids[i]))
+            {
+                blanks += 1;
+            }
+            let first_blank = kids
+                .len()
+                .checked_sub(blanks)
+                .and_then(|i| kids.get(i).copied());
+            let drop = if first_blank == doc.source_tail_blank() {
+                blanks.saturating_sub(doc.source_tail_blanks())
+            } else {
+                usize::from(blanks > 0)
             };
+            for _ in 0..drop {
+                kids.pop();
+            }
             stack.push(Step::Flow {
                 kids,
                 prefix: prefix.clone(),
@@ -263,29 +288,50 @@ where
     W: fmt::Write,
 {
     let mut steps = Vec::with_capacity(kids.len() * 2);
+    let count = kids.len();
+    let mut index = 0usize;
     let mut previous: Option<NodeId> = None;
-    for id in kids {
-        let blank = is_blank_paragraph(doc, id);
-        if let Some(prev) = previous {
-            let prev_blank = is_blank_paragraph(doc, prev);
-            if !prev_blank && !glues_to_next(doc, Some(prev)) {
-                steps.push(if blank {
-                    Step::Newline
-                } else {
-                    Step::BlankLine {
-                        prefix: prefix.clone(),
-                    }
+    let mut previous_blank = false;
+    while index < count {
+        let id = kids[index];
+        if !is_blank_paragraph(doc, id) {
+            if previous.is_some() && !previous_blank && !glues_to_next(doc, previous) {
+                steps.push(Step::BlankLine {
+                    prefix: prefix.clone(),
                 });
             }
+            steps.push(Step::Block {
+                id,
+                prefix: prefix.clone(),
+            });
+            previous = Some(id);
+            previous_blank = false;
+            index += 1;
+            continue;
         }
-        steps.push(Step::Block {
-            id,
-            prefix: prefix.clone(),
-        });
-        if blank {
+        let start = index;
+        while index < count && is_blank_paragraph(doc, kids[index]) {
+            index += 1;
+        }
+        if let Some(prev) = previous
+            && !glues_to_next(doc, Some(prev))
+        {
             steps.push(Step::Newline);
         }
-        previous = Some(id);
+        for &blank in &kids[start..index] {
+            steps.push(Step::Block {
+                id: blank,
+                prefix: prefix.clone(),
+            });
+            steps.push(Step::Newline);
+        }
+        if start > 0 && index < count {
+            steps.push(Step::HardBlank {
+                prefix: prefix.clone(),
+            });
+        }
+        previous = Some(kids[index - 1]);
+        previous_blank = true;
     }
     push_rev(stack, steps);
     Ok(())

@@ -218,6 +218,7 @@ impl Document {
         } else {
             self.display(id).len()
         };
+        let consumes_blank = off == 0 && normalize::is_blank_paragraph(self, id);
         let splice_before;
         let caret_src;
         let mut inserted;
@@ -234,6 +235,17 @@ impl Document {
             let grafted = self.graft_roots(&fragment, &roots, parent, splice_before);
             inserted = grafted.0;
             caret_src = grafted.1;
+            if consumes_blank {
+                self.arena.detach(id);
+                self.texts.clear_slot(id.index);
+                self.arena.tombstone(id);
+                changes.push(DocChange::TreeSpliced {
+                    parent,
+                    before: splice_before,
+                    removed: vec![id],
+                    inserted: Vec::new(),
+                });
+            }
         } else {
             splice_before = Some(id);
             let grafted = self.graft_roots(&fragment, &roots, parent, Some(id));

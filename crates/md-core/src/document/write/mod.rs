@@ -28,6 +28,8 @@ pub(crate) trait MarkdownExport {
     fn link_dest(&self, id: u32) -> Option<&str>;
     fn raw_block(&self, id: NodeId) -> Option<&str>;
     fn reference_definitions(&self) -> &[String];
+    fn source_tail_blanks(&self) -> usize;
+    fn source_tail_blank(&self) -> Option<NodeId>;
 }
 
 struct MarkdownWriter<W> {
@@ -133,6 +135,14 @@ impl MarkdownExport for Document {
 
     fn reference_definitions(&self) -> &[String] {
         &self.reference_definitions
+    }
+
+    fn source_tail_blanks(&self) -> usize {
+        self.source_tail_blanks
+    }
+
+    fn source_tail_blank(&self) -> Option<NodeId> {
+        self.source_tail_blank
     }
 }
 
