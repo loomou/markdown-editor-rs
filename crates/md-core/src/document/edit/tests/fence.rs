@@ -94,6 +94,87 @@ fn closing_fence_enter_exits_to_paragraph() {
 }
 
 #[test]
+fn closing_fence_enter_starts_a_new_item_in_a_list() {
+    let mut doc = load_markdown("", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let at = type_chars(&mut doc, caret(leaf, 0), "- hi");
+    let at = soft_break_then(&mut doc, at, "```");
+    let at = apply(&mut doc, Sel::collapsed(at), Command::Break);
+    let at = type_chars(&mut doc, at, "abc");
+    let at = apply(&mut doc, Sel::collapsed(at), Command::Break);
+    let at = type_chars(&mut doc, at, "```");
+    let out = apply(&mut doc, Sel::collapsed(at), Command::Break);
+
+    assert_eq!(doc.kind(out.block), Some(BlockKind::Paragraph));
+    assert_eq!(doc.text_of(out.block).unwrap(), "");
+    assert_eq!(doc.to_markdown(), "- hi\n  ```\n  abc\n  ```\n- \n");
+    let para = doc.live_id(out.block).expect("live");
+    let item = doc.arena.get(para).and_then(|n| n.parent).expect("item");
+    assert_eq!(
+        doc.arena.get(item).map(|n| n.kind),
+        Some(BlockKind::ListItem)
+    );
+    let list = doc.arena.get(item).and_then(|n| n.parent).expect("list");
+    assert_eq!(doc.arena.get(list).map(|n| n.kind), Some(BlockKind::List));
+    let items: Vec<u32> = doc.arena.children(list).map(|id| id.index).collect();
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[1], item.index);
+    assert!(!doc.extra(list).list_loose());
+    let reloaded = load_markdown(&doc.to_markdown(), editor_options());
+    assert_eq!(reloaded.to_markdown(), doc.to_markdown());
+}
+
+#[test]
+fn closing_fence_enter_keeps_a_following_block_in_the_same_item() {
+    let mut doc = load_markdown("- hi\n  ```\n  abc\n  ```\n  z\n", editor_options());
+    let code = doc
+        .text_leaves()
+        .into_iter()
+        .find(|&block| doc.kind(block) == Some(BlockKind::CodeBlock))
+        .expect("code block");
+    let at = apply(&mut doc, Sel::collapsed(caret(code, 3)), Command::Break);
+    let at = type_chars(&mut doc, at, "```");
+    let out = apply(&mut doc, Sel::collapsed(at), Command::Break);
+
+    assert_eq!(doc.kind(out.block), Some(BlockKind::Paragraph));
+    let para = doc.live_id(out.block).expect("live");
+    let code_id = doc.live_id(code).expect("live");
+    assert_eq!(
+        doc.arena.get(para).and_then(|n| n.parent),
+        doc.arena.get(code_id).and_then(|n| n.parent)
+    );
+    assert_eq!(
+        doc.arena.get(code_id).and_then(|n| n.next_sibling),
+        doc.live_id(out.block)
+    );
+}
+
+#[test]
+fn closing_fence_enter_keeps_the_quote_shape() {
+    let mut doc = load_markdown("", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let at = type_chars(&mut doc, caret(leaf, 0), "> hi");
+    let at = soft_break_then(&mut doc, at, "```");
+    let at = apply(&mut doc, Sel::collapsed(at), Command::Break);
+    let at = type_chars(&mut doc, at, "abc");
+    let at = apply(&mut doc, Sel::collapsed(at), Command::Break);
+    let at = type_chars(&mut doc, at, "```");
+    let out = apply(&mut doc, Sel::collapsed(at), Command::Break);
+
+    assert_eq!(doc.kind(out.block), Some(BlockKind::Paragraph));
+    assert_eq!(doc.to_markdown(), "> hi\n> \n> ```\n> abc\n> ```\n> \n");
+    let para = doc.live_id(out.block).expect("live");
+    assert_eq!(
+        doc.arena
+            .get(para)
+            .and_then(|n| n.parent)
+            .and_then(|p| doc.arena.get(p))
+            .map(|n| n.kind),
+        Some(BlockKind::BlockQuote)
+    );
+}
+
+#[test]
 fn math_breaks_insert_newlines_without_splitting_the_block() {
     for command in [Command::Break, Command::SoftBreak] {
         let mut doc = load_markdown("$$a+b$$\n", editor_options());

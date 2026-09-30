@@ -63,7 +63,7 @@ fn indent_sinks_second_item_keeping_id() {
     assert_eq!(out.block, leaf.index);
     assert_eq!(out.offset, 0);
     assert!(doc.extra(nested).ordered_start().is_none());
-    assert!(doc.extra(list).list_loose());
+    assert!(!doc.extra(list).list_loose());
     assert!(!doc.extra(nested).list_loose());
 }
 
@@ -234,7 +234,7 @@ fn indent_then_outdent_restores_tight() {
         Sel::collapsed(caret(leaf.index, 0)),
         Command::Indent,
     );
-    assert!(doc.extra(list).list_loose());
+    assert!(!doc.extra(list).list_loose());
     let _ = apply(
         &mut doc,
         Sel::collapsed(caret(leaf.index, 0)),

@@ -258,7 +258,27 @@ fn fenced_code_marker_styles_round_trip() {
 }
 
 #[test]
-fn tight_list_table_after_a_paragraph_keeps_a_blank_line() {
+fn a_fenced_block_needs_no_blank_line_before_the_next_block() {
+    for source in [
+        "- hi\n  ```\n  abc\n  ```\n  z\n",
+        "- hi\n  ```\n  abc\n  ```\n  # h\n",
+        "- hi\n  ```\n  abc\n  ```\n- w\n",
+        "- hi\n  ```\n  abc\n  ```\n  | a |\n  | --- |\n",
+        "- hi\n  ```mermaid\n  graph\n  ```\n  z\n",
+    ] {
+        let doc = load_markdown(source, editor_options());
+        assert_eq!(doc.to_markdown(), source, "source={source:?}");
+        let again = load_markdown(&doc.to_markdown(), editor_options());
+        assert_eq!(
+            again.to_markdown(),
+            source,
+            "source={source:?} must be a fixed point"
+        );
+    }
+}
+
+#[test]
+fn tight_list_table_after_a_paragraph_needs_no_blank_line() {
     use crate::document::TableOp;
     let mut doc = load_markdown("- para\n", editor_options());
     let leaf = doc.text_leaves()[0];
@@ -271,15 +291,6 @@ fn tight_list_table_after_a_paragraph_keeps_a_blank_line() {
         Command::Table(TableOp::Insert { rows: 2, cols: 2 }),
     );
     let md = doc.to_markdown();
-    let lines: Vec<&str> = md.lines().collect();
-    let table_line = lines
-        .iter()
-        .position(|l| l.trim_start().starts_with('|'))
-        .expect("table row");
-    assert!(
-        table_line > 0 && lines[table_line - 1].trim().is_empty(),
-        "table needs a blank line before it: {md:?}"
-    );
     let reloaded = load_markdown(&md, editor_options());
     let tables = reloaded
         .preorder()
@@ -287,6 +298,20 @@ fn tight_list_table_after_a_paragraph_keeps_a_blank_line() {
         .filter(|&id| reloaded.arena.get(id).map(|n| n.kind) == Some(BlockKind::Table))
         .count();
     assert_eq!(tables, 1, "the table must survive a reload: {md:?}");
+    let list = reloaded
+        .arena
+        .children(reloaded.root)
+        .find(|&id| reloaded.arena.get(id).map(|n| n.kind) == Some(BlockKind::List))
+        .expect("list");
+    assert!(
+        !reloaded.extra(list).list_loose(),
+        "a table needs no separator line inside a tight item: {md:?}"
+    );
+    assert_eq!(
+        reloaded.to_markdown(),
+        md,
+        "a table after a paragraph in a tight item must be a fixed point"
+    );
 }
 
 #[test]

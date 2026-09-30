@@ -228,13 +228,13 @@ fn outdenting_a_middle_nested_item_keeps_tail_order() {
 #[test]
 fn joining_items_redo_keeps_the_migrated_children() {
     for (source, at_leaf, joined) in [
-        ("- a\n- b\n  - c\n- d\n", 1usize, "- ab\n  \n  - c\n\n- d\n"),
+        ("- a\n- b\n  - c\n- d\n", 1usize, "- ab\n  - c\n- d\n"),
         (
             "- parent\n  - a\n  - b\n  - c\n- tail\n",
             4,
             "- parent\n  \n  - a\n  - b\n  - c\n  \n  tail\n",
         ),
-        ("- a\n- b\n  - c\n  - d\n", 1, "- ab\n  \n  - c\n  - d\n"),
+        ("- a\n- b\n  - c\n  - d\n", 1, "- ab\n  - c\n  - d\n"),
     ] {
         let mut d = Doc::new(load_markdown(source, editor_options()));
         let before = d.document.to_markdown();

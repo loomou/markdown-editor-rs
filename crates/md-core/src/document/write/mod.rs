@@ -12,6 +12,8 @@ mod tests;
 
 use block::{run, run_item};
 
+pub(crate) use block::needs_blank_between;
+
 pub(super) use inline::phrasing_source;
 
 pub(crate) trait MarkdownExport {

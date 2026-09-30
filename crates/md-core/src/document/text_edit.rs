@@ -781,14 +781,49 @@ impl Document {
         let before = self.revision;
         let (mut changes, _) = self.rewrite_text(id, range, "");
         let para = self.alloc_leaf(BlockKind::Paragraph);
-        self.arena.insert_after(parent, Some(id), para);
-        self.bump_structure(parent);
-        changes.push(DocChange::TreeSpliced {
-            parent,
-            before: Some(id),
-            removed: Vec::new(),
-            inserted: vec![para],
+        let list = self.arena.get(parent).and_then(|node| {
+            if node.kind != BlockKind::ListItem || node.last_child != Some(id) {
+                return None;
+            }
+            node.parent
         });
+        let list = list.filter(|&id| {
+            self.arena
+                .get(id)
+                .is_some_and(|node| node.kind == BlockKind::List)
+        });
+        if let Some(list) = list {
+            let item = self.alloc_container(BlockKind::ListItem);
+            if self.extra(parent).task_checked().is_some() {
+                self.set_extra(item, NodeExtra::TaskItem { checked: false });
+            }
+            self.arena.append_child(item, para);
+            self.arena.insert_after(list, Some(parent), item);
+            self.bump_structure(item);
+            self.bump_structure(list);
+            changes.push(DocChange::TreeSpliced {
+                parent: list,
+                before: Some(parent),
+                removed: Vec::new(),
+                inserted: vec![item],
+            });
+            changes.push(DocChange::TreeSpliced {
+                parent: item,
+                before: None,
+                removed: Vec::new(),
+                inserted: vec![para],
+            });
+            super::edit::normalize::sync_loose_up(self, list, &mut changes);
+        } else {
+            self.arena.insert_after(parent, Some(id), para);
+            self.bump_structure(parent);
+            changes.push(DocChange::TreeSpliced {
+                parent,
+                before: Some(id),
+                removed: Vec::new(),
+                inserted: vec![para],
+            });
+        }
         let _ = self.commit(before, changes);
         Caret {
             block: para.index,

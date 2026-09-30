@@ -255,11 +255,11 @@ fn r4_list_looseness_refreshes_existing_flow_gaps(cx: &mut TestAppContext) {
         let theme = DocumentTheme::one_dark();
         let shaper = shaper(window, app, &theme);
         let env = BoxLayoutEnvironment::default();
-        let mut doc = load_markdown("- a\n- b\n- c\n- d\n", editor_options());
+        let mut doc = load_markdown("- a\n- b\n- c\n  > q\n- d\n", editor_options());
         let _ = doc.take_changes();
         let leaves = doc.text_leaves();
         let b = leaves[1];
-        let d = leaves[3];
+        let d = leaves[4];
         let list = doc
             .arena
             .children(doc.root)
@@ -280,7 +280,7 @@ fn r4_list_looseness_refreshes_existing_flow_gaps(cx: &mut TestAppContext) {
                 block: d,
                 offset: 0,
             }),
-            Command::Indent,
+            Command::DeleteBackward,
         );
         let changes = doc.take_changes();
         assert!(doc.extra(list).list_loose());
