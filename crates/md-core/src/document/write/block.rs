@@ -281,31 +281,61 @@ pub(crate) fn needs_blank_between<D: MarkdownExport>(
     previous: NodeId,
     next: NodeId,
 ) -> bool {
-    if doc.kind(previous) == Some(BlockKind::Math)
-        || matches!(doc.extra(previous), NodeExtra::CodeFence { .. })
-    {
-        return false;
-    }
-    let Some(kind) = doc.kind(next) else {
-        return false;
-    };
-    if !matches!(
-        kind,
-        BlockKind::Table
-            | BlockKind::Paragraph
-            | BlockKind::Heading(_)
-            | BlockKind::ThematicBreak
-            | BlockKind::Image
-    ) {
-        return false;
-    }
-    if doc.kind(previous) != Some(BlockKind::Paragraph) {
+    let previous_kind = doc.kind(previous);
+    let next_kind = doc.kind(next);
+    if previous_kind == Some(BlockKind::Image) || next_kind == Some(BlockKind::Image) {
         return true;
     }
+    match previous_kind {
+        Some(BlockKind::Paragraph) => match next_kind {
+            Some(BlockKind::Paragraph) => true,
+            Some(BlockKind::ThematicBreak) => doc.leaf_source(next).starts_with('-'),
+            _ => false,
+        },
+        Some(BlockKind::BlockQuote) => matches!(
+            next_kind,
+            Some(BlockKind::Paragraph | BlockKind::BlockQuote | BlockKind::Table | BlockKind::Math)
+        ),
+        Some(BlockKind::List | BlockKind::Table) => matches!(
+            next_kind,
+            Some(BlockKind::Paragraph | BlockKind::Table | BlockKind::Math)
+        ),
+        _ => false,
+    }
+}
+
+fn shares_the_marker_line(kind: Option<BlockKind>) -> bool {
     matches!(
         kind,
-        BlockKind::Paragraph | BlockKind::ThematicBreak | BlockKind::Image
+        Some(
+            BlockKind::CodeBlock
+                | BlockKind::Mermaid
+                | BlockKind::Table
+                | BlockKind::BlockQuote
+                | BlockKind::List
+                | BlockKind::Math
+        )
     )
+}
+
+fn block_text<D>(doc: &D, id: NodeId) -> String
+where
+    D: MarkdownExport,
+{
+    let mut out = MarkdownWriter {
+        inner: String::new(),
+        written: true,
+        nl_run: 1,
+    };
+    let _ = run_stack(
+        doc,
+        vec![Step::Block {
+            id,
+            prefix: Prefix::default(),
+        }],
+        &mut out,
+    );
+    out.inner
 }
 
 fn write_flow_step<D, W>(
@@ -486,11 +516,16 @@ where
         _ => {
             prefix.write_open(out)?;
             out.write_str(&marker)?;
-            out.write_str("\n")?;
-            steps.push(Step::Block {
-                id: first,
-                prefix: rest.clone(),
-            });
+            if task.is_none() && shares_the_marker_line(first_kind) {
+                let text = block_text(doc, first);
+                push_first_and_rest(out, &rest, &text)?;
+            } else {
+                out.write_str("\n")?;
+                steps.push(Step::Block {
+                    id: first,
+                    prefix: rest.clone(),
+                });
+            }
         }
     }
     let loose = doc
@@ -700,9 +735,6 @@ where
     D: MarkdownExport,
     W: fmt::Write,
 {
-    if let Some(raw) = doc.raw_block(id) {
-        return out.write_str(raw);
-    }
     let rows: Vec<NodeId> = doc.children(id).collect();
     let cols = rows
         .first()

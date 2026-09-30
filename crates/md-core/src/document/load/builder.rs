@@ -45,6 +45,7 @@ pub(super) struct Builder {
     pub(super) table_col: u32,
     pub(super) header_row: bool,
     pub(super) math_continuation: bool,
+    pub(super) math_seam_lead: bool,
     pub(super) math_extract_at: Option<usize>,
     pub(super) cover_floor: Option<usize>,
     pub(super) in_image: u32,
@@ -75,6 +76,7 @@ impl Builder {
             table_col: 0,
             header_row: false,
             math_continuation: false,
+            math_seam_lead: false,
             math_extract_at: None,
             cover_floor: None,
             in_image: 0,
@@ -134,6 +136,31 @@ impl Builder {
     }
 
     #[allow(clippy::too_many_arguments)]
+    pub(super) fn at_math_seam(&self) -> bool {
+        self.math_seam_lead && self.leaf_disp() == 0
+    }
+
+    fn without_the_math_seam<'a>(
+        &self,
+        s: &'a str,
+        range: Range<usize>,
+    ) -> (&'a str, Range<usize>) {
+        if !self.at_math_seam() {
+            return (s, range);
+        }
+        let Some(floor) = self.math_extract_at.filter(|floor| *floor > range.start) else {
+            return (s, range);
+        };
+        let cut = (floor - range.start).min(s.len());
+        let Some(head) = s.get(..cut) else {
+            return (s, range);
+        };
+        if !head.chars().all(|c| matches!(c, ' ' | '\t' | '\n' | '\r')) {
+            return (s, range);
+        }
+        (&s[cut..], range.start + cut..range.end)
+    }
+
     pub(super) fn push_span(
         &mut self,
         source: &str,
@@ -142,6 +169,7 @@ impl Builder {
         ctx: InlineCtx,
         note: bool,
     ) {
+        let (s, range) = self.without_the_math_seam(s, range);
         let Some(leaf) = self.current_leaf.as_ref() else {
             return;
         };

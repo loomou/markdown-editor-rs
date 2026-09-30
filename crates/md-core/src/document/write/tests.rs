@@ -278,6 +278,123 @@ fn a_fenced_block_needs_no_blank_line_before_the_next_block() {
 }
 
 #[test]
+fn a_first_block_that_fits_after_the_marker_shares_its_line() {
+    for source in [
+        "- ```\n  abc\n  ```\n",
+        "- ```rust\n  fn a() {}\n  fn b() {}\n  ```\n",
+        "-     abc\n",
+        "- ```mermaid\n  graph\n  ```\n",
+        "- | a |\n  | --- |\n",
+        "- > q\n",
+        "- - a\n  - b\n",
+        "- $$\n  x\n  $$\n",
+        "1. ```\n   abc\n   ```\n",
+        "1. > q\n",
+        "1. | a |\n   | --- |\n",
+        "> - ```\n>   abc\n>   ```\n",
+    ] {
+        let doc = load_markdown(source, editor_options());
+        assert_eq!(doc.to_markdown(), source, "source={source:?}");
+        let again = load_markdown(&doc.to_markdown(), editor_options());
+        assert_eq!(
+            again.to_markdown(),
+            source,
+            "source={source:?} must be a fixed point"
+        );
+    }
+}
+
+#[test]
+fn a_thematic_break_and_a_task_item_keep_the_marker_line_to_themselves() {
+    for source in [
+        "- \n  ---\n",
+        "- \n  ***\n",
+        "- [ ] \n  ```\n  abc\n  ```\n",
+        "- [x] \n  > q\n",
+        "- [ ] \n  - a\n",
+    ] {
+        let doc = load_markdown(source, editor_options());
+        assert_eq!(doc.to_markdown(), source, "source={source:?}");
+        let again = load_markdown(&doc.to_markdown(), editor_options());
+        assert_eq!(
+            again.to_markdown(),
+            source,
+            "source={source:?} must be a fixed point"
+        );
+    }
+}
+
+#[test]
+fn a_blank_line_is_needed_only_where_the_loader_would_merge_the_blocks() {
+    for (source, needed) in [
+        ("- a\n  \n  z\n", true),
+        ("- a\n  \n  ***\n", false),
+        ("- a\n  \n  # h\n", false),
+        ("- a\n  \n  > q\n", false),
+        ("- a\n  \n  - b\n", false),
+        ("- a\n  \n  ```\n  abc\n  ```\n", false),
+        ("- # h\n  \n  z\n", false),
+        ("- # h\n  \n  ***\n", false),
+        ("- # h\n  \n  > q\n", false),
+        ("- # h\n  \n  - b\n", false),
+        ("- # h\n  \n  ```\n  abc\n  ```\n", false),
+        ("- > q\n  \n  z\n", true),
+        ("- > q\n  \n  > q\n", true),
+        ("- > q\n  \n  ***\n", false),
+        ("- > q\n  \n  ```\n  abc\n  ```\n", false),
+        ("- - b\n  \n  z\n", true),
+        ("- - b\n  \n  ***\n", false),
+        ("- | a |\n  | - |\n  \n  z\n", true),
+        ("- | a |\n  | - |\n  \n  ***\n", false),
+        ("- ```\n  abc\n  ```\n  \n  z\n", false),
+        ("- ```\n  abc\n  ```\n  \n  # h\n", false),
+        ("- $$\n  x\n  $$\n  \n  z\n", false),
+        ("- > q\n  \n  $$\n  x\n  $$\n", true),
+    ] {
+        let doc = load_markdown(source, editor_options());
+        let item = doc
+            .preorder()
+            .into_iter()
+            .find(|&id| doc.arena.get(id).map(|n| n.kind) == Some(BlockKind::ListItem))
+            .unwrap_or_else(|| panic!("source={source:?} must hold a list item"));
+        let kids: Vec<NodeId> = doc.arena.children(item).collect();
+        assert!(kids.len() >= 2, "source={source:?} must hold two blocks");
+        assert_eq!(
+            super::needs_blank_between(&doc, kids[0], kids[1]),
+            needed,
+            "source={source:?} holds {:?} then {:?}",
+            doc.arena.get(kids[0]).map(|n| n.kind),
+            doc.arena.get(kids[1]).map(|n| n.kind)
+        );
+    }
+}
+
+#[test]
+fn a_tight_item_keeps_its_shape_where_the_loader_would_not_merge_the_blocks() {
+    for source in [
+        "- # h\n  z\n",
+        "- # h\n  ***\n",
+        "- > q\n  ***\n",
+        "- - b\n  ***\n",
+        "- | a |\n  | --- |\n  ***\n",
+        "- a\n  ***\n",
+        "- # h\n  - b\n",
+        "- # h\n  > q\n",
+        "- # h\n  ```\n  abc\n  ```\n",
+        "- # h\n  $$\n  x\n  $$\n",
+    ] {
+        let doc = load_markdown(source, editor_options());
+        assert_eq!(doc.to_markdown(), source, "source={source:?}");
+        let again = load_markdown(&doc.to_markdown(), editor_options());
+        assert_eq!(
+            again.to_markdown(),
+            source,
+            "source={source:?} must be a fixed point"
+        );
+    }
+}
+
+#[test]
 fn tight_list_table_after_a_paragraph_needs_no_blank_line() {
     use crate::document::TableOp;
     let mut doc = load_markdown("- para\n", editor_options());
@@ -422,18 +539,62 @@ fn table_cell_soft_break_round_trips_as_br() {
 }
 
 #[test]
-fn pristine_tables_keep_source_padding_and_separator_style() {
-    let source = "|  a  |b|\n|:---|---:|\n| c |  d  |\n";
-    let mut doc = load_markdown(source, editor_options());
+fn a_table_is_normalized_the_same_way_wherever_it_sits() {
+    let padded = "|  a  |b|\n|:---|---:|\n| c |  d  |\n";
+    let canonical = "| a | b |\n| --- | ---: |\n| c | d |\n";
 
-    assert_eq!(doc.to_markdown(), source);
-    assert_eq!(doc.write_snapshot().to_markdown(), source);
+    let root = load_markdown(padded, editor_options());
+    assert_eq!(root.to_markdown(), canonical);
+    assert_eq!(root.write_snapshot().to_markdown(), canonical);
 
+    let quoted = load_markdown(
+        "> |  a  |b|\n> |:---|---:|\n> | c |  d  |\n",
+        editor_options(),
+    );
+    assert_eq!(
+        quoted.to_markdown(),
+        "> | a | b |\n> | --- | ---: |\n> | c | d |\n"
+    );
+
+    let listed = load_markdown(
+        "- hi\n  |  a  |b|\n  |:---|---:|\n  | c |  d  |\n",
+        editor_options(),
+    );
+    assert_eq!(
+        listed.to_markdown(),
+        "- hi\n  | a | b |\n  | --- | ---: |\n  | c | d |\n"
+    );
+
+    let mut doc = load_markdown(padded, editor_options());
     let first_cell = doc.text_leaves()[0];
     let _ = doc.replace_text(first_cell, 0..1, "changed");
-    let markdown = doc.to_markdown();
-    assert!(markdown.contains("changed"), "{markdown:?}");
-    assert_ne!(markdown, source);
+    assert_eq!(
+        doc.to_markdown(),
+        "| changed | b |\n| --- | ---: |\n| c | d |\n"
+    );
+}
+
+#[test]
+fn a_delimiter_row_is_always_written_in_canonical_form() {
+    for (source, want) in [
+        ("| a |\n| - |\n", "| a |\n| --- |\n"),
+        ("| a |\n| -- |\n", "| a |\n| --- |\n"),
+        ("| a |\n| --- |\n", "| a |\n| --- |\n"),
+        ("| a |\n| :- |\n", "| a |\n| --- |\n"),
+        ("| a |\n| :-- |\n", "| a |\n| --- |\n"),
+        ("| a |\n| :--- |\n", "| a |\n| --- |\n"),
+        ("| a |\n| -: |\n", "| a |\n| ---: |\n"),
+        ("| a |\n| --: |\n", "| a |\n| ---: |\n"),
+        ("| a |\n| ---: |\n", "| a |\n| ---: |\n"),
+        ("| a |\n| :-: |\n", "| a |\n| :---: |\n"),
+        ("| a |\n| :--: |\n", "| a |\n| :---: |\n"),
+        ("| a |\n| :---: |\n", "| a |\n| :---: |\n"),
+    ] {
+        let doc = load_markdown(source, editor_options());
+        assert_eq!(doc.to_markdown(), want, "{source:?}");
+        let again = load_markdown(want, editor_options());
+        assert_eq!(again.to_markdown(), want, "{want:?} must be a fixed point");
+    }
 }
 
 #[test]

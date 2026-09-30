@@ -347,6 +347,58 @@ fn shapes_the_editor_can_produce_are_fixed_points() {
 }
 
 #[test]
+fn the_block_after_a_display_math_does_not_keep_the_seam_whitespace() {
+    for (source, tail) in [
+        ("$$x$$\nz\n", "z"),
+        ("$$x$$ b\n", "b"),
+        ("a $$x$$\nz\n", "z"),
+        ("a $$x$$ b\n", "b"),
+        ("$$x$$\nz\nw\n", "z\nw"),
+        ("$$x$$ *e*\n", "e"),
+        ("- hi\n  $$x$$\n  z\n", "z"),
+        ("- hi\n  $$x$$ b\n", "b"),
+        ("> $$x$$\n> z\n", "z"),
+    ] {
+        let doc = load_markdown(source, editor_options());
+        let after = doc
+            .preorder()
+            .into_iter()
+            .skip_while(|&id| doc.kind(id.index) != Some(BlockKind::Math))
+            .skip(1)
+            .find(|&id| doc.kind(id.index) == Some(BlockKind::Paragraph))
+            .unwrap_or_else(|| panic!("{source:?} must keep a paragraph after the math"));
+        assert_eq!(doc.display(after), tail, "{source:?}");
+    }
+}
+
+#[test]
+fn a_display_math_stops_handing_its_line_break_to_the_next_block() {
+    for (source, saved) in [
+        ("$$x$$\nz\n", "$$x$$\n\nz\n"),
+        ("$$x$$ b\n", "$$x$$\n\nb\n"),
+        ("a $$x$$\nz\n", "a\n\n$$x$$\n\nz\n"),
+        ("$$x$$\nz\nw\n", "$$x$$\n\nz\nw\n"),
+        ("- hi\n  $$x$$\n  z\n", "- hi\n  $$x$$\n  z\n"),
+        ("- hi\n  $$x$$ b\n", "- hi\n  $$x$$\n  b\n"),
+        ("> $$x$$\n> z\n", "> $$x$$\n> \n> z\n"),
+    ] {
+        let before = load_markdown(source, editor_options());
+        assert_eq!(before.to_markdown(), saved, "{source:?} must save");
+        let after = load_markdown(&before.to_markdown(), editor_options());
+        assert_eq!(
+            after.to_markdown(),
+            saved,
+            "{source:?} must be a fixed point"
+        );
+        assert_eq!(
+            shape(&before),
+            shape(&after),
+            "{source:?} must reload as the same tree"
+        );
+    }
+}
+
+#[test]
 fn an_empty_front_matter_at_the_top_loads_as_a_metadata_block() {
     for source in [
         "---\n\n---\n",

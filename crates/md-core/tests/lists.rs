@@ -603,7 +603,7 @@ fn an_empty_nested_item_takes_the_caret_and_can_be_selected_and_deleted() {
         },
     );
     assert_eq!(doc.text(caret.block), Some("x"));
-    assert_eq!(doc.document.to_markdown(), "- \n  - x\n");
+    assert_eq!(doc.document.to_markdown(), "- - x\n");
 
     let mut doc = Doc::new(load_markdown("- -\n", editor_options()));
     doc.enable_trailing_blank();
@@ -627,12 +627,12 @@ fn backspacing_an_empty_item_that_follows_a_nested_list_removes_the_line() {
         }),
         Command::DeleteBackward,
     );
-    assert_eq!(doc.document.to_markdown(), "- \n  - \n- \n");
+    assert_eq!(doc.document.to_markdown(), "- - \n- \n");
 
     let caret = doc.apply(Sel::collapsed(caret), Command::DeleteBackward);
     assert_eq!(
         doc.document.to_markdown(),
-        "- \n  - \n",
+        "- - \n",
         "the emptied item must go, not linger as an indented blank line"
     );
     let text = doc
