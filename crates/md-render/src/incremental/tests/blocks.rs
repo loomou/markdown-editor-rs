@@ -301,6 +301,7 @@ fn rule_enter_splices_without_clear_or_flatten() {
 #[test]
 fn front_matter_enter_splices_without_clear_or_flatten() {
     let mut doc = long_doc();
+    let leaves_before = doc.text_leaves().len();
     let env = BoxLayoutEnvironment::default();
     let mut engine = IncrementalEngine::new(&doc, env, estimator(), dummy_layout());
     let measure = CountingMeasure {
@@ -340,7 +341,7 @@ fn front_matter_enter_splices_without_clear_or_flatten() {
     assert!(doc.arena.get(parent).is_some());
     assert_eq!(doc.kind(first), Some(BlockKind::MetadataBlock));
     assert_eq!(doc.text_of(first).unwrap(), "");
-    assert_eq!(doc.text_leaves().len(), 200);
+    assert_eq!(doc.text_leaves().len(), leaves_before);
     assert_tree_matches_cold(&engine, &doc);
     let cold = compose(&doc, &dummy_layout());
     assert_eq!(engine.tree.nodes().len(), cold.nodes().len());
