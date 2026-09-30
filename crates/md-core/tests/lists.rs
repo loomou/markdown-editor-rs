@@ -651,3 +651,33 @@ fn backspacing_an_empty_item_that_follows_a_nested_list_removes_the_line() {
     assert_eq!(doc.document.to_markdown(), "");
     assert_eq!(doc.text(caret.block), Some(""));
 }
+
+#[test]
+fn a_soft_break_in_an_empty_item_survives_a_save() {
+    for (source, saved) in [
+        ("- \n", "- \n  \n"),
+        ("1. \n", "1. \n   \n"),
+        ("> - \n", "> - \n>   \n"),
+    ] {
+        let mut doc = Doc::new(load_markdown(source, editor_options()));
+        doc.enable_trailing_blank();
+        let block = doc.first_text_leaf().expect("first leaf");
+        let len = doc.caret_text(block).unwrap_or("").len();
+        let caret = Caret { block, offset: len };
+        let _ = doc.apply(
+            Sel {
+                anchor: caret,
+                head: caret,
+            },
+            Command::SoftBreak,
+        );
+        let out = doc.document.write_snapshot().to_markdown();
+        assert_eq!(out, saved, "{source:?}");
+        let reloaded = load_markdown(&out, editor_options());
+        assert_eq!(
+            reloaded.to_markdown(),
+            out,
+            "{source:?} must be a fixed point"
+        );
+    }
+}

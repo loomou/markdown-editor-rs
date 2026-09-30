@@ -41,6 +41,7 @@ enum Item<'a, 'input> {
         host: bool,
         end_row: bool,
         gaps: Vec<usize>,
+        trailing: usize,
     },
     CloseRoot {
         gaps: Vec<usize>,
@@ -125,8 +126,10 @@ fn walk_all(builder: &mut Builder, source: &str, parsed: &Parsed<'_>) {
                 host,
                 end_row,
                 gaps,
+                trailing,
             } => {
                 builder.close_gaps(source, &gaps, false);
+                builder.close_trailing_blanks(source, trailing);
                 builder.parents.pop();
                 if host {
                     builder.hosts.pop();
@@ -201,6 +204,7 @@ fn visit<'a, 'i>(
                 host: false,
                 end_row: false,
                 gaps: Vec::new(),
+                trailing: 0,
             });
             push_children(stack, node, ctx);
         }
@@ -217,10 +221,17 @@ fn visit<'a, 'i>(
             builder.hosts.push(HostIndent::ContentColumn(width));
             builder.attach(id);
             builder.parents.push(id);
+            let trailing = match innermost_trailing_item(source, &node) {
+                Some(item) if item.span() == span => {
+                    item_trailing_blanks(source, span, width as usize)
+                }
+                _ => 0,
+            };
             stack.push(Item::CloseBlock {
                 host: true,
                 end_row: false,
                 gaps: Vec::new(),
+                trailing,
             });
             push_children(stack, node, ctx);
         }
@@ -236,6 +247,7 @@ fn visit<'a, 'i>(
                 host: false,
                 end_row: false,
                 gaps: container_gaps(source, &node, kind.is_some()),
+                trailing: 0,
             });
             push_children(stack, node, ctx);
         }
@@ -250,6 +262,7 @@ fn visit<'a, 'i>(
                 host: true,
                 end_row: false,
                 gaps: Vec::new(),
+                trailing: 0,
             });
             push_children(stack, node, ctx);
         }
@@ -275,6 +288,7 @@ fn visit<'a, 'i>(
                 host: false,
                 end_row: false,
                 gaps: Vec::new(),
+                trailing: 0,
             });
             push_children(stack, node, ctx);
         }
@@ -292,6 +306,7 @@ fn visit<'a, 'i>(
                 host: false,
                 end_row: true,
                 gaps: Vec::new(),
+                trailing: 0,
             });
             push_children(stack, node, ctx);
         }
@@ -859,6 +874,80 @@ fn trailing_blanks(source: &str, range: Range<usize>, previous_terminated: bool)
         .count()
 }
 
+fn blank_line_width(line: &str) -> Option<usize> {
+    if !blank_in_container(line) {
+        return None;
+    }
+    Some(line.len())
+}
+
+fn last_content_end(source: &str, range: &Range<usize>) -> usize {
+    let Some(region) = source.get(range.clone()) else {
+        return range.start;
+    };
+    let mut at = range.start;
+    let mut end = range.start;
+    for line in region.split('\n') {
+        let line_end = at + line.len();
+        if !blank_in_container(line) {
+            end = line_end;
+        }
+        at = line_end + 1;
+    }
+    end
+}
+
+fn ends_with_a_list(node: &NodeRef<'_, '_>) -> bool {
+    node.children()
+        .last()
+        .is_some_and(|last| matches!(last.kind(), NodeKind::List(_)))
+}
+
+fn innermost_trailing_item<'a, 'i>(
+    source: &str,
+    node: &NodeRef<'a, 'i>,
+) -> Option<NodeRef<'a, 'i>> {
+    let mut current = *node;
+    loop {
+        if current.next_sibling().is_some() {
+            return None;
+        }
+        if matches!(current.kind(), NodeKind::List(_)) || ends_with_a_list(&current) {
+            current = current.children().last()?;
+            continue;
+        }
+        if current.span().end != source.len() {
+            return None;
+        }
+        return Some(current);
+    }
+}
+
+fn item_trailing_blanks(source: &str, range: Range<usize>, indent: usize) -> usize {
+    let end = last_content_end(source, &range);
+    let Some(region) = source.get(end..range.end) else {
+        return 0;
+    };
+    if region.is_empty() {
+        return 0;
+    }
+    let mut lines: Vec<&str> = region.split('\n').collect();
+    if region.ends_with('\n') {
+        lines.pop();
+    }
+    if !ends_with_newline(source, end) && lines.first().is_some_and(|line| line.is_empty()) {
+        lines.remove(0);
+    }
+    let mut count = 0usize;
+    for line in lines.into_iter().rev() {
+        match blank_line_width(line) {
+            Some(width) if width >= indent => count += 1,
+            _ => break,
+        }
+    }
+    count
+}
+
 fn gap_blanks(source: &str, range: Range<usize>, previous_terminated: bool) -> usize {
     let Some(region) = source.get(range) else {
         return 0;
@@ -927,12 +1016,17 @@ fn gaps_for(source: &str, node: &NodeRef<'_, '_>, span: Range<usize>, alert: boo
         gaps.push(count.saturating_sub(1));
     }
     let last = kids[kids.len() - 1].end;
-    let last = list_content_end(source, &children[children.len() - 1]).unwrap_or(last);
-    gaps.push(trailing_blanks(
-        source,
-        last..span.end,
-        ends_with_newline(source, last),
-    ));
+    let last_child = &children[children.len() - 1];
+    let last = list_content_end(source, last_child).unwrap_or(last);
+    let claimed = innermost_trailing_item(source, last_child)
+        .map(|item| {
+            let span = item.span();
+            let indent = super::item_host_indent(source, span.start) as usize;
+            item_trailing_blanks(source, span, indent)
+        })
+        .unwrap_or(0);
+    let trailing = trailing_blanks(source, last..span.end, ends_with_newline(source, last));
+    gaps.push(trailing.saturating_sub(claimed));
     gaps
 }
 
@@ -966,6 +1060,19 @@ impl Builder {
             anchor = Some(*kid);
         }
         let count = gaps.get(kids.len()).copied().unwrap_or(0);
+        for _ in 0..count {
+            anchor = Some(self.synthesize_blank_paragraph(source, closed, anchor));
+        }
+    }
+
+    pub(super) fn close_trailing_blanks(&mut self, source: &str, count: usize) {
+        if count == 0 {
+            return;
+        }
+        let Some(closed) = self.parents.last().copied() else {
+            return;
+        };
+        let mut anchor = self.arena.children(closed).last();
         for _ in 0..count {
             anchor = Some(self.synthesize_blank_paragraph(source, closed, anchor));
         }
