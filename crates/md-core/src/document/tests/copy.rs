@@ -89,7 +89,7 @@ fn whole_leaf_copies_block_syntax() {
     assert_eq!(copy_all(&img, 0), "![alt](u.png)");
 
     let front = load_markdown("---\ntitle: hi\n---\n", editor_options());
-    assert_eq!(copy_all(&front, 0), "---\ntitle: hi\n---\n");
+    assert_eq!(copy_all(&front, 0), "---\ntitle: hi\n---");
     assert_eq!(front.copy_markdown(sel(&front, 0, 0, 0, 5)), "title");
 }
 

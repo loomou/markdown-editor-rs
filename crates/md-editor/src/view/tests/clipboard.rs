@@ -329,7 +329,7 @@ fn pasting_a_copied_front_matter_does_not_open_a_second_one(cx: &mut TestAppCont
     focus_editor(&editor, cx);
     let (x, y) = well_copy_point(&editor, cx, BlockKind::MetadataBlock, 0);
     cx.simulate_mouse_down(point(px(x), px(y)), MouseButton::Left, Modifiers::none());
-    assert_eq!(clipboard(cx), "---\ntitle: hi\n---\n");
+    assert_eq!(clipboard(cx), "---\ntitle: hi\n---");
 
     cx.update(|_, app| {
         editor.update(app, |view, _| {

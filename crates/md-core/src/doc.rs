@@ -1024,6 +1024,28 @@ mod tests {
     }
 
     #[test]
+    fn select_all_copy_of_a_lone_block_has_no_trailing_newline() {
+        for source in [
+            "---\ntitle: hi\n---\n",
+            "```\nx\n```\n",
+            "# h\n",
+            "$$x$$\n",
+            "hi\n",
+        ] {
+            let mut doc = Doc::new(load_markdown(source, editor_options()));
+            doc.enable_trailing_blank();
+            let sel = doc.whole_document_sel().expect("selection");
+            let copied = doc.copy_markdown(sel);
+            assert!(!copied.ends_with('\n'), "{source:?} copied as {copied:?}");
+            assert_eq!(
+                load_markdown(&copied, editor_options()).to_markdown(),
+                source,
+                "{source:?} copied as {copied:?}"
+            );
+        }
+    }
+
+    #[test]
     fn select_all_takes_a_break_that_sits_between_the_text() {
         let mut doc = Doc::new(load_markdown("123\n\n---\n\n456\n", editor_options()));
         doc.enable_trailing_blank();
