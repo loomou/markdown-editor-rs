@@ -241,7 +241,7 @@ impl Document {
                 self.arena.tombstone(id);
                 changes.push(DocChange::TreeSpliced {
                     parent,
-                    before: inserted.last().copied(),
+                    before: splice_before,
                     removed: vec![id],
                     inserted: Vec::new(),
                 });
