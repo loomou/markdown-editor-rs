@@ -591,8 +591,10 @@ fn visit<'a, 'i>(
         NodeKind::SoftBreak | NodeKind::HardBreak { .. } => {
             let (lo, hi) = clamp(source, &span);
             builder.recorder.cover(lo, hi);
-            builder.push_intern("\n", ctx);
-            builder.log_leaf(LeafLog::Break { span: span.clone() });
+            if !builder.at_math_seam() {
+                builder.push_intern("\n", ctx);
+                builder.log_leaf(LeafLog::Break { span: span.clone() });
+            }
             builder.cover_source(source, span);
         }
         NodeKind::Root => {
@@ -765,7 +767,7 @@ fn extract_display_math(
     builder.leave_text_leaf(source, false);
     let mut floor = range.end;
     let bytes = source.as_bytes();
-    while floor < source.len() && matches!(bytes[floor], b' ' | b'\t') {
+    while floor < source.len() && matches!(bytes[floor], b' ' | b'\t' | b'\n' | b'\r') {
         floor += 1;
     }
     let id = builder.alloc(BlockKind::Paragraph);
@@ -774,6 +776,7 @@ fn extract_display_math(
     builder.image_count = 0;
     builder.math_extract_at = Some(floor);
     builder.math_continuation = true;
+    builder.math_seam_lead = true;
 }
 
 fn list_marker_of(
@@ -1009,6 +1012,7 @@ impl Builder {
         let Some(mut leaf) = self.current_leaf.take() else {
             return;
         };
+        self.math_seam_lead = false;
         match leaf.sink {
             LeafSink::Html => {
                 let parent = *self.parents.last().expect("parent");
