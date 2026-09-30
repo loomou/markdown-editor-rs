@@ -1676,3 +1676,62 @@ fn trailing_blank_does_not_hide_an_unterminated_html_tail_from_the_writer() {
     });
     assert_eq!(after_reload, live, "saved={saved:?}");
 }
+
+#[test]
+fn a_leading_blank_paragraph_writes_exactly_one_line() {
+    for (source, expected) in [("abc\n", "\nabc\n"), ("> abc\n", "> \n> abc\n")] {
+        let mut doc = load_markdown(source, editor_options());
+        let leaf = doc.text_leaves()[0];
+        let _ = apply(
+            &mut doc,
+            Sel::collapsed(Caret {
+                block: leaf,
+                offset: 0,
+            }),
+            Command::Break,
+        );
+        assert_eq!(doc.to_markdown(), expected, "source={source:?}");
+    }
+}
+
+#[test]
+fn edge_blank_lines_round_trip_byte_for_byte() {
+    for source in [
+        "> \n",
+        "> \n> \n",
+        "> \n> \n> \n",
+        "> \n> abc\n",
+        "> abc\n> \n",
+        "> abc\n> \n> \n",
+        "> > \n",
+        "> [!note]\n> \n",
+        "> [!note]\n> \n> abc\n",
+        "\nabc\n",
+        "\n\nabc\n",
+        "\n\n\nabc\n",
+    ] {
+        let doc = load_markdown(source, editor_options());
+        let saved = doc.to_markdown();
+        assert_eq!(saved, source, "source={source:?}");
+        let reloaded = load_markdown(&saved, editor_options());
+        assert_eq!(reloaded.to_markdown(), saved, "source={source:?}");
+    }
+}
+
+#[test]
+fn an_editor_snapshot_keeps_edge_blank_lines() {
+    for source in [
+        "> \n> \n",
+        "> \n> abc\n",
+        "> abc\n> \n",
+        "> abc\n> \n> \n",
+        "> [!note]\n> \n",
+        "\nabc\n",
+        "\n\nabc\n",
+    ] {
+        let mut doc = Doc::new(load_markdown(source, editor_options()));
+        doc.enable_trailing_blank();
+        let saved = doc.document.write_snapshot().to_markdown();
+        assert_eq!(saved, source, "source={source:?}");
+    }
+}

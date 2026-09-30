@@ -183,11 +183,13 @@ where
                 write_prefixed(out, &inner, &format!("[!{label}]"))?;
                 if has_children {
                     out.write_str("\n")?;
-                    if blank_after_marker {
+                    let kids: Vec<NodeId> = doc.children(id).collect();
+                    let leading_blank = kids.first().is_some_and(|&k| is_blank_paragraph(doc, k));
+                    if blank_after_marker && !leading_blank {
                         blank_line(out, &inner)?;
                     }
                     stack.push(Step::Flow {
-                        kids: doc.children(id).collect(),
+                        kids,
                         prefix: inner,
                     });
                 }
@@ -260,21 +262,28 @@ where
     D: MarkdownExport,
     W: fmt::Write,
 {
-    let last = kids.len().saturating_sub(1);
     let mut steps = Vec::with_capacity(kids.len() * 2);
-    let mut previous = None;
-    for (i, id) in kids.into_iter().enumerate() {
-        let trailing_blank = i == last && i > 0 && is_blank_paragraph(doc, id);
-        if i > 0 && !glues_to_next(doc, previous) {
-            steps.push(Step::BlankLine {
-                prefix: prefix.clone(),
-            });
+    let mut previous: Option<NodeId> = None;
+    for id in kids {
+        let blank = is_blank_paragraph(doc, id);
+        if let Some(prev) = previous {
+            let prev_blank = is_blank_paragraph(doc, prev);
+            if !prev_blank && !glues_to_next(doc, Some(prev)) {
+                steps.push(if blank {
+                    Step::Newline
+                } else {
+                    Step::BlankLine {
+                        prefix: prefix.clone(),
+                    }
+                });
+            }
         }
-        if !trailing_blank {
-            steps.push(Step::Block {
-                id,
-                prefix: prefix.clone(),
-            });
+        steps.push(Step::Block {
+            id,
+            prefix: prefix.clone(),
+        });
+        if blank {
+            steps.push(Step::Newline);
         }
         previous = Some(id);
     }

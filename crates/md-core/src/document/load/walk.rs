@@ -37,9 +37,21 @@ impl LeafCtx {
 
 enum Item<'a, 'input> {
     Node(NodeRef<'a, 'input>, InlineCtx),
-    CloseBlock { host: bool, end_row: bool },
-    CloseLeaf { allow_standalone: bool },
+    CloseBlock {
+        host: bool,
+        end_row: bool,
+        edge: Edge,
+    },
+    CloseLeaf {
+        allow_standalone: bool,
+    },
     Inline(InlineEnd),
+}
+
+#[derive(Clone, Copy, Default)]
+pub(super) struct Edge {
+    lead: usize,
+    trail: usize,
 }
 
 struct InlineEnd {
@@ -104,13 +116,27 @@ pub(super) fn document_of(parsed: &Parsed<'_>, source: String) -> Document {
 
 fn walk_all(builder: &mut Builder, source: &str, parsed: &Parsed<'_>) {
     let mut stack: Vec<Item<'_, '_>> = Vec::new();
-    if let Some(first) = parsed.root().first_child() {
-        stack.push(Item::Node(first, InlineCtx::default()));
+    match parsed.root().first_child() {
+        Some(first) => {
+            builder.synthesize_leading_blanks(
+                source,
+                leading_blanks(source, 0..first.span().start, false),
+            );
+            stack.push(Item::Node(first, InlineCtx::default()));
+        }
+        None => {
+            builder
+                .synthesize_leading_blanks(source, leading_blanks(source, 0..source.len(), false));
+        }
     }
     while let Some(item) = stack.pop() {
         match item {
-            Item::CloseBlock { host, end_row } => {
-                builder.close_container(source);
+            Item::CloseBlock {
+                host,
+                end_row,
+                edge,
+            } => {
+                builder.close_container(source, edge);
                 builder.parents.pop();
                 if host {
                     builder.hosts.pop();
@@ -181,6 +207,7 @@ fn visit<'a, 'i>(
             stack.push(Item::CloseBlock {
                 host: false,
                 end_row: false,
+                edge: Edge::default(),
             });
             push_children(stack, node, ctx);
         }
@@ -200,6 +227,7 @@ fn visit<'a, 'i>(
             stack.push(Item::CloseBlock {
                 host: true,
                 end_row: false,
+                edge: Edge::default(),
             });
             push_children(stack, node, ctx);
         }
@@ -214,6 +242,7 @@ fn visit<'a, 'i>(
             stack.push(Item::CloseBlock {
                 host: false,
                 end_row: false,
+                edge: quote_edge(source, &node, kind.is_some()),
             });
             push_children(stack, node, ctx);
         }
@@ -227,6 +256,7 @@ fn visit<'a, 'i>(
             stack.push(Item::CloseBlock {
                 host: true,
                 end_row: false,
+                edge: Edge::default(),
             });
             push_children(stack, node, ctx);
         }
@@ -251,6 +281,7 @@ fn visit<'a, 'i>(
             stack.push(Item::CloseBlock {
                 host: false,
                 end_row: false,
+                edge: Edge::default(),
             });
             push_children(stack, node, ctx);
         }
@@ -267,6 +298,7 @@ fn visit<'a, 'i>(
             stack.push(Item::CloseBlock {
                 host: false,
                 end_row: true,
+                edge: Edge::default(),
             });
             push_children(stack, node, ctx);
         }
@@ -791,20 +823,108 @@ fn hosts_a_caret(kind: BlockKind) -> bool {
     matches!(kind, BlockKind::ListItem | BlockKind::BlockQuote)
 }
 
+fn blank_in_container(line: &str) -> bool {
+    line.chars().all(|c| c == '>' || c == ' ' || c == '\t')
+}
+
+fn leading_blanks(source: &str, range: Range<usize>, alert: bool) -> usize {
+    let Some(region) = source.get(range) else {
+        return 0;
+    };
+    let mut lines: Vec<&str> = region.split('\n').collect();
+    lines.pop();
+    if alert && !lines.is_empty() {
+        lines.remove(0);
+    }
+    lines
+        .into_iter()
+        .take_while(|line| blank_in_container(line))
+        .count()
+}
+
+fn trailing_blanks(source: &str, range: Range<usize>) -> usize {
+    let Some(region) = source.get(range) else {
+        return 0;
+    };
+    let mut lines: Vec<&str> = region.split('\n').collect();
+    if region.ends_with('\n') {
+        lines.pop();
+    }
+    if lines.first().is_some_and(|line| line.is_empty()) {
+        lines.remove(0);
+    }
+    lines
+        .into_iter()
+        .rev()
+        .take_while(|line| blank_in_container(line))
+        .count()
+}
+
+fn quote_edge(source: &str, node: &NodeRef<'_, '_>, alert: bool) -> Edge {
+    let span = node.span();
+    let first = node.first_child().map(|child| child.span().start);
+    let last = node.children().last().map(|child| child.span().end);
+    match (first, last) {
+        (Some(first), Some(last)) => Edge {
+            lead: leading_blanks(source, span.start..first, alert),
+            trail: trailing_blanks(source, last..span.end),
+        },
+        _ => Edge {
+            lead: leading_blanks(source, span, alert).max(1),
+            trail: 0,
+        },
+    }
+}
+
 impl Builder {
-    pub(super) fn close_container(&mut self, source: &str) {
+    pub(super) fn close_container(&mut self, source: &str, edge: Edge) {
         let Some(closed) = self.parents.last().copied() else {
             return;
         };
         let Some(node) = self.arena.get(closed) else {
             return;
         };
-        if node.first_child.is_some() || !hosts_a_caret(node.kind) {
+        if node.first_child.is_some() {
+            let mut anchor = None;
+            for _ in 0..edge.lead {
+                anchor = Some(self.synthesize_blank_paragraph(source, closed, anchor));
+            }
+            let mut anchor = self.arena.get(closed).and_then(|n| n.last_child);
+            for _ in 0..edge.trail {
+                anchor = Some(self.synthesize_blank_paragraph(source, closed, anchor));
+            }
             return;
         }
+        if !hosts_a_caret(node.kind) {
+            return;
+        }
+        let mut anchor = None;
+        for _ in 0..edge.lead.max(edge.trail).max(1) {
+            anchor = Some(self.synthesize_blank_paragraph(source, closed, anchor));
+        }
+    }
+
+    pub(super) fn synthesize_leading_blanks(&mut self, source: &str, count: usize) {
+        let Some(root) = self.parents.first().copied() else {
+            return;
+        };
+        let mut anchor = None;
+        for _ in 0..count {
+            anchor = Some(self.synthesize_blank_paragraph(source, root, anchor));
+        }
+    }
+
+    fn synthesize_blank_paragraph(
+        &mut self,
+        source: &str,
+        parent: crate::document::arena::NodeId,
+        after: Option<crate::document::arena::NodeId>,
+    ) -> crate::document::arena::NodeId {
         let id = self.alloc(BlockKind::Paragraph);
         self.enter_leaf(id, BlockKind::Paragraph, LeafSink::Text, 0..0);
         self.leave_text_leaf(source, false);
+        self.arena.insert_after(parent, after, id);
+        id
     }
 
     pub(super) fn enter_leaf(
