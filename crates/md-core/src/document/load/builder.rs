@@ -264,7 +264,7 @@ impl Builder {
 
     pub(super) fn finish(mut self, source: String, reference_definitions: Vec<String>) -> Document {
         let root = self.parents[0];
-        let source_tail_blanks = self.root_tail_blanks(root);
+        let (source_tail_blanks, source_tail_blank) = self.root_tail(root);
         if self.arena.get(root).and_then(|n| n.first_child).is_none() {
             let id = self.alloc(BlockKind::Paragraph);
             self.enter_leaf(id, BlockKind::Paragraph, LeafSink::Text, 0..0);
@@ -284,6 +284,7 @@ impl Builder {
             table_alignment_overflow: self.table_alignment_overflow,
             root,
             source_tail_blanks,
+            source_tail_blank,
             revision: 1,
             max_content_revision: 1,
             changes: ChangeSet::document_replaced(1),
@@ -303,17 +304,19 @@ impl Builder {
         })
     }
 
-    fn root_tail_blanks(&self, root: NodeId) -> usize {
+    fn root_tail(&self, root: NodeId) -> (usize, Option<NodeId>) {
         let mut count = 0usize;
+        let mut first = None;
         let mut cur = self.arena.get(root).and_then(|n| n.last_child);
         while let Some(id) = cur {
             if !self.blank_paragraph(id) {
                 break;
             }
             count += 1;
+            first = Some(id);
             cur = self.arena.get(id).and_then(|n| n.prev_sibling);
         }
-        count
+        (count, first)
     }
 
     fn merge_leading_front_matter(&mut self, source: &str) {

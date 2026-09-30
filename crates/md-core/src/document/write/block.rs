@@ -160,7 +160,16 @@ where
             {
                 blanks += 1;
             }
-            if blanks > doc.source_tail_blanks() {
+            let first_blank = kids
+                .len()
+                .checked_sub(blanks)
+                .and_then(|i| kids.get(i).copied());
+            let drop = if first_blank == doc.source_tail_blank() {
+                blanks.saturating_sub(doc.source_tail_blanks())
+            } else {
+                usize::from(blanks > 0)
+            };
+            for _ in 0..drop {
                 kids.pop();
             }
             stack.push(Step::Flow {

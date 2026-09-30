@@ -1810,3 +1810,33 @@ fn an_editor_snapshot_drops_the_spare_line_it_appended() {
         );
     }
 }
+
+#[test]
+fn replacing_a_whole_document_drops_the_trailing_blank_the_source_had() {
+    let mut doc = Doc::new(load_markdown("para\n\n", editor_options()));
+    doc.enable_trailing_blank();
+    assert_eq!(doc.document.to_markdown(), "para\n\n");
+    let leaves = doc.text_leaves();
+    let last = leaves[leaves.len() - 1];
+    let end = doc.text(last).unwrap_or("").len();
+    doc.apply(
+        Sel {
+            anchor: Caret {
+                block: leaves[0],
+                offset: 0,
+            },
+            head: Caret {
+                block: last,
+                offset: end,
+            },
+        },
+        Command::DeleteBackward,
+    );
+    assert_eq!(doc.document.to_markdown(), "");
+    let block = doc.text_leaves()[0];
+    doc.apply(
+        Sel::collapsed(Caret { block, offset: 0 }),
+        Command::Insert { text: "z".into() },
+    );
+    assert_eq!(doc.document.to_markdown(), "z\n");
+}
