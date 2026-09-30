@@ -278,6 +278,53 @@ fn a_fenced_block_needs_no_blank_line_before_the_next_block() {
 }
 
 #[test]
+fn a_first_block_that_fits_after_the_marker_shares_its_line() {
+    for source in [
+        "- ```\n  abc\n  ```\n",
+        "- ```rust\n  fn a() {}\n  fn b() {}\n  ```\n",
+        "-     abc\n",
+        "- ```mermaid\n  graph\n  ```\n",
+        "- | a |\n  | --- |\n",
+        "- > q\n",
+        "- - a\n  - b\n",
+        "- $$\n  x\n  $$\n",
+        "1. ```\n   abc\n   ```\n",
+        "1. > q\n",
+        "1. | a |\n   | --- |\n",
+        "> - ```\n>   abc\n>   ```\n",
+    ] {
+        let doc = load_markdown(source, editor_options());
+        assert_eq!(doc.to_markdown(), source, "source={source:?}");
+        let again = load_markdown(&doc.to_markdown(), editor_options());
+        assert_eq!(
+            again.to_markdown(),
+            source,
+            "source={source:?} must be a fixed point"
+        );
+    }
+}
+
+#[test]
+fn a_thematic_break_and_a_task_item_keep_the_marker_line_to_themselves() {
+    for source in [
+        "- \n  ---\n",
+        "- \n  ***\n",
+        "- [ ] \n  ```\n  abc\n  ```\n",
+        "- [x] \n  > q\n",
+        "- [ ] \n  - a\n",
+    ] {
+        let doc = load_markdown(source, editor_options());
+        assert_eq!(doc.to_markdown(), source, "source={source:?}");
+        let again = load_markdown(&doc.to_markdown(), editor_options());
+        assert_eq!(
+            again.to_markdown(),
+            source,
+            "source={source:?} must be a fixed point"
+        );
+    }
+}
+
+#[test]
 fn tight_list_table_after_a_paragraph_needs_no_blank_line() {
     use crate::document::TableOp;
     let mut doc = load_markdown("- para\n", editor_options());

@@ -308,6 +308,40 @@ pub(crate) fn needs_blank_between<D: MarkdownExport>(
     )
 }
 
+fn shares_the_marker_line(kind: Option<BlockKind>) -> bool {
+    matches!(
+        kind,
+        Some(
+            BlockKind::CodeBlock
+                | BlockKind::Mermaid
+                | BlockKind::Table
+                | BlockKind::BlockQuote
+                | BlockKind::List
+                | BlockKind::Math
+        )
+    )
+}
+
+fn block_text<D>(doc: &D, id: NodeId) -> String
+where
+    D: MarkdownExport,
+{
+    let mut out = MarkdownWriter {
+        inner: String::new(),
+        written: true,
+        nl_run: 1,
+    };
+    let _ = run_stack(
+        doc,
+        vec![Step::Block {
+            id,
+            prefix: Prefix::default(),
+        }],
+        &mut out,
+    );
+    out.inner
+}
+
 fn write_flow_step<D, W>(
     doc: &D,
     kids: Vec<NodeId>,
@@ -486,11 +520,16 @@ where
         _ => {
             prefix.write_open(out)?;
             out.write_str(&marker)?;
-            out.write_str("\n")?;
-            steps.push(Step::Block {
-                id: first,
-                prefix: rest.clone(),
-            });
+            if task.is_none() && shares_the_marker_line(first_kind) {
+                let text = block_text(doc, first);
+                push_first_and_rest(out, &rest, &text)?;
+            } else {
+                out.write_str("\n")?;
+                steps.push(Step::Block {
+                    id: first,
+                    prefix: rest.clone(),
+                });
+            }
         }
     }
     let loose = doc

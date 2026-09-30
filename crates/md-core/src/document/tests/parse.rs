@@ -994,7 +994,7 @@ fn a_container_that_holds_the_caret_loads_with_an_empty_paragraph() {
                 BlockKind::ListItem,
                 BlockKind::Paragraph,
             ],
-            "- \n  - \n",
+            "- - \n",
         ),
         (
             "- a\n- \n",
