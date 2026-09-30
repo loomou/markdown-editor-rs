@@ -217,14 +217,10 @@ fn snapshot_source(doc: &Document, id: NodeId, display: &SnapText) -> SnapText {
 
 fn snapshot_raw(doc: &Document, id: NodeId) -> Option<SnapText> {
     let node = doc.arena.get(id)?;
-    let (NodeExtra::Table {
+    let NodeExtra::Image {
         source: Some((start, end)),
         ..
-    }
-    | NodeExtra::Image {
-        source: Some((start, end)),
-        ..
-    }) = node.extra
+    } = node.extra
     else {
         return None;
     };

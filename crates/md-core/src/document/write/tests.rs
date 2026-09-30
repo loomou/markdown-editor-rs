@@ -539,18 +539,62 @@ fn table_cell_soft_break_round_trips_as_br() {
 }
 
 #[test]
-fn pristine_tables_keep_source_padding_and_separator_style() {
-    let source = "|  a  |b|\n|:---|---:|\n| c |  d  |\n";
-    let mut doc = load_markdown(source, editor_options());
+fn a_table_is_normalized_the_same_way_wherever_it_sits() {
+    let padded = "|  a  |b|\n|:---|---:|\n| c |  d  |\n";
+    let canonical = "| a | b |\n| --- | ---: |\n| c | d |\n";
 
-    assert_eq!(doc.to_markdown(), source);
-    assert_eq!(doc.write_snapshot().to_markdown(), source);
+    let root = load_markdown(padded, editor_options());
+    assert_eq!(root.to_markdown(), canonical);
+    assert_eq!(root.write_snapshot().to_markdown(), canonical);
 
+    let quoted = load_markdown(
+        "> |  a  |b|\n> |:---|---:|\n> | c |  d  |\n",
+        editor_options(),
+    );
+    assert_eq!(
+        quoted.to_markdown(),
+        "> | a | b |\n> | --- | ---: |\n> | c | d |\n"
+    );
+
+    let listed = load_markdown(
+        "- hi\n  |  a  |b|\n  |:---|---:|\n  | c |  d  |\n",
+        editor_options(),
+    );
+    assert_eq!(
+        listed.to_markdown(),
+        "- hi\n  | a | b |\n  | --- | ---: |\n  | c | d |\n"
+    );
+
+    let mut doc = load_markdown(padded, editor_options());
     let first_cell = doc.text_leaves()[0];
     let _ = doc.replace_text(first_cell, 0..1, "changed");
-    let markdown = doc.to_markdown();
-    assert!(markdown.contains("changed"), "{markdown:?}");
-    assert_ne!(markdown, source);
+    assert_eq!(
+        doc.to_markdown(),
+        "| changed | b |\n| --- | ---: |\n| c | d |\n"
+    );
+}
+
+#[test]
+fn a_delimiter_row_is_always_written_in_canonical_form() {
+    for (source, want) in [
+        ("| a |\n| - |\n", "| a |\n| --- |\n"),
+        ("| a |\n| -- |\n", "| a |\n| --- |\n"),
+        ("| a |\n| --- |\n", "| a |\n| --- |\n"),
+        ("| a |\n| :- |\n", "| a |\n| --- |\n"),
+        ("| a |\n| :-- |\n", "| a |\n| --- |\n"),
+        ("| a |\n| :--- |\n", "| a |\n| --- |\n"),
+        ("| a |\n| -: |\n", "| a |\n| ---: |\n"),
+        ("| a |\n| --: |\n", "| a |\n| ---: |\n"),
+        ("| a |\n| ---: |\n", "| a |\n| ---: |\n"),
+        ("| a |\n| :-: |\n", "| a |\n| :---: |\n"),
+        ("| a |\n| :--: |\n", "| a |\n| :---: |\n"),
+        ("| a |\n| :---: |\n", "| a |\n| :---: |\n"),
+    ] {
+        let doc = load_markdown(source, editor_options());
+        assert_eq!(doc.to_markdown(), want, "{source:?}");
+        let again = load_markdown(want, editor_options());
+        assert_eq!(again.to_markdown(), want, "{want:?} must be a fixed point");
+    }
 }
 
 #[test]

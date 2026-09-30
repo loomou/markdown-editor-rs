@@ -150,14 +150,10 @@ impl MarkdownExport for Document {
 
 pub(super) fn raw_block_source(doc: &Document, id: NodeId) -> Option<&str> {
     let node = doc.arena.get(id)?;
-    let (NodeExtra::Table {
+    let NodeExtra::Image {
         source: Some((start, end)),
         ..
-    }
-    | NodeExtra::Image {
-        source: Some((start, end)),
-        ..
-    }) = node.extra
+    } = node.extra
     else {
         return None;
     };

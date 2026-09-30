@@ -735,9 +735,6 @@ where
     D: MarkdownExport,
     W: fmt::Write,
 {
-    if let Some(raw) = doc.raw_block(id) {
-        return out.write_str(raw);
-    }
     let rows: Vec<NodeId> = doc.children(id).collect();
     let cols = rows
         .first()
