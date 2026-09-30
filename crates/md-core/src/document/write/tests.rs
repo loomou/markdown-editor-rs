@@ -325,6 +325,76 @@ fn a_thematic_break_and_a_task_item_keep_the_marker_line_to_themselves() {
 }
 
 #[test]
+fn a_blank_line_is_needed_only_where_the_loader_would_merge_the_blocks() {
+    for (source, needed) in [
+        ("- a\n  \n  z\n", true),
+        ("- a\n  \n  ***\n", false),
+        ("- a\n  \n  # h\n", false),
+        ("- a\n  \n  > q\n", false),
+        ("- a\n  \n  - b\n", false),
+        ("- a\n  \n  ```\n  abc\n  ```\n", false),
+        ("- # h\n  \n  z\n", false),
+        ("- # h\n  \n  ***\n", false),
+        ("- # h\n  \n  > q\n", false),
+        ("- # h\n  \n  - b\n", false),
+        ("- # h\n  \n  ```\n  abc\n  ```\n", false),
+        ("- > q\n  \n  z\n", true),
+        ("- > q\n  \n  > q\n", true),
+        ("- > q\n  \n  ***\n", false),
+        ("- > q\n  \n  ```\n  abc\n  ```\n", false),
+        ("- - b\n  \n  z\n", true),
+        ("- - b\n  \n  ***\n", false),
+        ("- | a |\n  | - |\n  \n  z\n", true),
+        ("- | a |\n  | - |\n  \n  ***\n", false),
+        ("- ```\n  abc\n  ```\n  \n  z\n", false),
+        ("- ```\n  abc\n  ```\n  \n  # h\n", false),
+        ("- $$\n  x\n  $$\n  \n  z\n", false),
+        ("- > q\n  \n  $$\n  x\n  $$\n", true),
+    ] {
+        let doc = load_markdown(source, editor_options());
+        let item = doc
+            .preorder()
+            .into_iter()
+            .find(|&id| doc.arena.get(id).map(|n| n.kind) == Some(BlockKind::ListItem))
+            .unwrap_or_else(|| panic!("source={source:?} must hold a list item"));
+        let kids: Vec<NodeId> = doc.arena.children(item).collect();
+        assert!(kids.len() >= 2, "source={source:?} must hold two blocks");
+        assert_eq!(
+            super::needs_blank_between(&doc, kids[0], kids[1]),
+            needed,
+            "source={source:?} holds {:?} then {:?}",
+            doc.arena.get(kids[0]).map(|n| n.kind),
+            doc.arena.get(kids[1]).map(|n| n.kind)
+        );
+    }
+}
+
+#[test]
+fn a_tight_item_keeps_its_shape_where_the_loader_would_not_merge_the_blocks() {
+    for source in [
+        "- # h\n  z\n",
+        "- # h\n  ***\n",
+        "- > q\n  ***\n",
+        "- - b\n  ***\n",
+        "- | a |\n  | --- |\n  ***\n",
+        "- a\n  ***\n",
+        "- # h\n  - b\n",
+        "- # h\n  > q\n",
+        "- # h\n  ```\n  abc\n  ```\n",
+        "- # h\n  $$\n  x\n  $$\n",
+    ] {
+        let doc = load_markdown(source, editor_options());
+        assert_eq!(doc.to_markdown(), source, "source={source:?}");
+        let again = load_markdown(&doc.to_markdown(), editor_options());
+        assert_eq!(
+            again.to_markdown(),
+            source,
+            "source={source:?} must be a fixed point"
+        );
+    }
+}
+
+#[test]
 fn tight_list_table_after_a_paragraph_needs_no_blank_line() {
     use crate::document::TableOp;
     let mut doc = load_markdown("- para\n", editor_options());

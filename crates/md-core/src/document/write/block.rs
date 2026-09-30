@@ -281,31 +281,27 @@ pub(crate) fn needs_blank_between<D: MarkdownExport>(
     previous: NodeId,
     next: NodeId,
 ) -> bool {
-    if doc.kind(previous) == Some(BlockKind::Math)
-        || matches!(doc.extra(previous), NodeExtra::CodeFence { .. })
-    {
-        return false;
-    }
-    let Some(kind) = doc.kind(next) else {
-        return false;
-    };
-    if !matches!(
-        kind,
-        BlockKind::Table
-            | BlockKind::Paragraph
-            | BlockKind::Heading(_)
-            | BlockKind::ThematicBreak
-            | BlockKind::Image
-    ) {
-        return false;
-    }
-    if doc.kind(previous) != Some(BlockKind::Paragraph) {
+    let previous_kind = doc.kind(previous);
+    let next_kind = doc.kind(next);
+    if previous_kind == Some(BlockKind::Image) || next_kind == Some(BlockKind::Image) {
         return true;
     }
-    matches!(
-        kind,
-        BlockKind::Paragraph | BlockKind::ThematicBreak | BlockKind::Image
-    )
+    match previous_kind {
+        Some(BlockKind::Paragraph) => match next_kind {
+            Some(BlockKind::Paragraph) => true,
+            Some(BlockKind::ThematicBreak) => doc.leaf_source(next).starts_with('-'),
+            _ => false,
+        },
+        Some(BlockKind::BlockQuote) => matches!(
+            next_kind,
+            Some(BlockKind::Paragraph | BlockKind::BlockQuote | BlockKind::Table | BlockKind::Math)
+        ),
+        Some(BlockKind::List | BlockKind::Table) => matches!(
+            next_kind,
+            Some(BlockKind::Paragraph | BlockKind::Table | BlockKind::Math)
+        ),
+        _ => false,
+    }
 }
 
 fn shares_the_marker_line(kind: Option<BlockKind>) -> bool {
