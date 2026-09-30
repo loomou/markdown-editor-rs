@@ -157,3 +157,29 @@ fn rule_in_list_item_does_not_become_break() {
             .any(|n| doc.arena.get(n).map(|n| n.kind) == Some(BlockKind::List))
     );
 }
+
+#[test]
+fn a_dash_rule_line_swallows_its_list_marker() {
+    let doc = load_markdown("- ---\n", editor_options());
+    let rule = doc
+        .preorder()
+        .into_iter()
+        .find(|&id| doc.arena.get(id).map(|n| n.kind) == Some(BlockKind::ThematicBreak))
+        .expect("rule");
+    assert_eq!(doc.arena.get(rule).and_then(|n| n.parent), Some(doc.root));
+    assert!(
+        doc.preorder()
+            .into_iter()
+            .all(|id| doc.arena.get(id).map(|n| n.kind) != Some(BlockKind::List)),
+        "- --- is one thematic break, so its marker never opens a list"
+    );
+
+    let starred = load_markdown("- ***\n", editor_options());
+    assert!(
+        starred
+            .preorder()
+            .into_iter()
+            .any(|id| starred.arena.get(id).map(|n| n.kind) == Some(BlockKind::List)),
+        "- *** mixes the markers, so it does open one"
+    );
+}

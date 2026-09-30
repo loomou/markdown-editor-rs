@@ -295,10 +295,14 @@ where
     while index < count {
         let id = kids[index];
         if !is_blank_paragraph(doc, id) {
-            if previous.is_some() && !previous_blank && !glues_to_next(doc, previous) {
-                steps.push(Step::BlankLine {
-                    prefix: prefix.clone(),
-                });
+            if previous.is_some() && !previous_blank {
+                if glues_to_next(doc, previous) {
+                    steps.push(Step::Newline);
+                } else {
+                    steps.push(Step::BlankLine {
+                        prefix: prefix.clone(),
+                    });
+                }
             }
             steps.push(Step::Block {
                 id,
@@ -313,9 +317,7 @@ where
         while index < count && is_blank_paragraph(doc, kids[index]) {
             index += 1;
         }
-        if let Some(prev) = previous
-            && !glues_to_next(doc, Some(prev))
-        {
+        if previous.is_some() {
             steps.push(Step::Newline);
         }
         for &blank in &kids[start..index] {
@@ -612,8 +614,7 @@ where
         .unwrap_or((FrontMatterMarker::Dash, 3));
     let fence = (marker.byte() as char).to_string().repeat(len.max(3));
     let body = doc.display(id);
-    write_prefixed(out, prefix, &format!("{fence}\n{body}\n{fence}"))?;
-    out.write_str("\n")
+    write_prefixed(out, prefix, &format!("{fence}\n{body}\n{fence}"))
 }
 
 fn write_math<D, W>(
