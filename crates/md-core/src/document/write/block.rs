@@ -276,6 +276,38 @@ pub(super) fn is_blank_paragraph<D: MarkdownExport>(doc: &D, id: NodeId) -> bool
         && doc.leaf_source(id).trim().is_empty()
 }
 
+pub(crate) fn needs_blank_between<D: MarkdownExport>(
+    doc: &D,
+    previous: NodeId,
+    next: NodeId,
+) -> bool {
+    if doc.kind(previous) == Some(BlockKind::Math)
+        || matches!(doc.extra(previous), NodeExtra::CodeFence { .. })
+    {
+        return false;
+    }
+    let Some(kind) = doc.kind(next) else {
+        return false;
+    };
+    if !matches!(
+        kind,
+        BlockKind::Table
+            | BlockKind::Paragraph
+            | BlockKind::Heading(_)
+            | BlockKind::ThematicBreak
+            | BlockKind::Image
+    ) {
+        return false;
+    }
+    if doc.kind(previous) != Some(BlockKind::Paragraph) {
+        return true;
+    }
+    matches!(
+        kind,
+        BlockKind::Paragraph | BlockKind::ThematicBreak | BlockKind::Image
+    )
+}
+
 fn write_flow_step<D, W>(
     doc: &D,
     kids: Vec<NodeId>,
@@ -464,20 +496,10 @@ where
     let loose = doc
         .parent(id)
         .is_some_and(|list| doc.extra(list).list_loose());
+    let mut previous = first;
     for rest_id in kids.into_iter().skip(1) {
         steps.push(Step::Newline);
-        if loose
-            || matches!(
-                doc.kind(rest_id),
-                Some(
-                    BlockKind::Table
-                        | BlockKind::Paragraph
-                        | BlockKind::Heading(_)
-                        | BlockKind::ThematicBreak
-                        | BlockKind::Image
-                )
-            )
-        {
+        if loose || needs_blank_between(doc, previous, rest_id) {
             steps.push(Step::BlankLine {
                 prefix: rest.clone(),
             });
@@ -486,6 +508,7 @@ where
             id: rest_id,
             prefix: rest.clone(),
         });
+        previous = rest_id;
     }
     push_rev(stack, steps);
     Ok(())

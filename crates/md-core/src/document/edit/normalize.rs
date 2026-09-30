@@ -3,6 +3,7 @@ use super::super::arena::NodeId;
 use super::super::change::DocChange;
 use super::Caret;
 use crate::block::{BlockId, BlockKind, NodeExtra};
+use crate::document::write::needs_blank_between;
 
 const COVERED_WRAPPER_ROUNDS: usize = 8;
 
@@ -296,10 +297,14 @@ fn sync_loose(
     clear_source_loose: bool,
 ) {
     let extra = doc.extra(list);
-    let structural_loose = doc
-        .arena
-        .children(list)
-        .any(|item| doc.arena.children(item).nth(1).is_some());
+    let structural_loose = doc.arena.children(list).any(|item| {
+        let mut previous: Option<NodeId> = None;
+        doc.arena.children(item).any(|child| {
+            let needs = previous.is_some_and(|prev| needs_blank_between(doc, prev, child));
+            previous = Some(child);
+            needs
+        })
+    });
     let source_loose = extra.list_source_loose() && !clear_source_loose;
     let want = source_loose || structural_loose;
     if extra.list_loose() == want && extra.list_source_loose() == source_loose {

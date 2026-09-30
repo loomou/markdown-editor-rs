@@ -319,6 +319,34 @@ fn shape(doc: &md_core::document::Document) -> Vec<String> {
 }
 
 #[test]
+fn shapes_the_editor_can_produce_are_fixed_points() {
+    for source in [
+        "> hi\n> \n",
+        "\nhi\n",
+        "- hi\n  ```\n  abc\n  ```\n- \n",
+        "- hi\n  ```\n  abc\n  ```\n  z\n",
+        "- hi\n  ```\n  abc\n  ```\n  z\n- w\n",
+        "a\n\n\nb\n",
+        "a\n\n\n",
+    ] {
+        let before = load_markdown(source, editor_options());
+        let saved = before.to_markdown();
+        assert_eq!(saved, source, "{source:?} must survive a save");
+        let after = load_markdown(&saved, editor_options());
+        assert_eq!(
+            after.to_markdown(),
+            source,
+            "{source:?} must be a fixed point"
+        );
+        assert_eq!(
+            shape(&before),
+            shape(&after),
+            "{source:?} must reload as the same tree"
+        );
+    }
+}
+
+#[test]
 fn an_empty_front_matter_at_the_top_loads_as_a_metadata_block() {
     for source in [
         "---\n\n---\n",
