@@ -347,6 +347,48 @@ fn shapes_the_editor_can_produce_are_fixed_points() {
 }
 
 #[test]
+fn a_list_item_keeps_the_blank_lines_that_are_indented_to_its_content() {
+    for source in [
+        "- hi\n  ```\n  abc\n  ```\n  \n  \n",
+        "- hi\n  \n",
+        "- hi\n  \n  \n",
+        "- hi\n  z\n  \n",
+        "- \n  \n",
+        "1. \n   \n",
+        "- a\n  - b\n    \n",
+        "> - hi\n>   \n",
+    ] {
+        let doc = load_markdown(source, editor_options());
+        let saved = doc.to_markdown();
+        assert_eq!(saved, source, "{source:?} must survive a save");
+        let after = load_markdown(&saved, editor_options());
+        assert_eq!(
+            shape(&doc),
+            shape(&after),
+            "{source:?} must reload as the same tree"
+        );
+    }
+}
+
+#[test]
+fn a_list_item_leaves_the_blank_lines_it_does_not_own_alone() {
+    for (source, saved) in [
+        ("- hi\n\n", "- hi\n\n"),
+        ("- hi\n\n\n", "- hi\n\n\n"),
+        (
+            "- hi\n  ```\n  abc\n  ```\n\n\n",
+            "- hi\n  ```\n  abc\n  ```\n\n\n",
+        ),
+        ("- hi\n  \n- b\n", "- hi\n\n- b\n"),
+        ("- hi\n  \nz\n", "- hi\n\nz\n"),
+        ("- hi\n  \n\n", "- hi\n\n\n"),
+    ] {
+        let doc = load_markdown(source, editor_options());
+        assert_eq!(doc.to_markdown(), saved, "{source:?} changed shape");
+    }
+}
+
+#[test]
 fn the_block_after_a_display_math_does_not_keep_the_seam_whitespace() {
     for (source, tail) in [
         ("$$x$$\nz\n", "z"),

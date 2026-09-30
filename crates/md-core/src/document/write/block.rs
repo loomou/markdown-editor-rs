@@ -532,18 +532,49 @@ where
         .parent(id)
         .is_some_and(|list| doc.extra(list).list_loose());
     let mut previous = first;
-    for rest_id in kids.into_iter().skip(1) {
-        steps.push(Step::Newline);
-        if loose || needs_blank_between(doc, previous, rest_id) {
-            steps.push(Step::BlankLine {
+    let mut previous_blank = false;
+    let mut index = 1usize;
+    while index < kids.len() {
+        let rest_id = kids[index];
+        if !is_blank_paragraph(doc, rest_id) {
+            if !previous_blank {
+                steps.push(Step::Newline);
+                if loose || needs_blank_between(doc, previous, rest_id) {
+                    steps.push(Step::BlankLine {
+                        prefix: rest.clone(),
+                    });
+                }
+            }
+            steps.push(Step::Block {
+                id: rest_id,
+                prefix: rest.clone(),
+            });
+            previous = rest_id;
+            previous_blank = false;
+            index += 1;
+            continue;
+        }
+        let start = index;
+        while index < kids.len() && is_blank_paragraph(doc, kids[index]) {
+            index += 1;
+        }
+        if !previous_blank {
+            steps.push(Step::Newline);
+        }
+        for &blank in &kids[start..index] {
+            steps.push(Step::Block {
+                id: blank,
+                prefix: rest.clone(),
+            });
+            steps.push(Step::Newline);
+        }
+        if index < kids.len() {
+            steps.push(Step::HardBlank {
                 prefix: rest.clone(),
             });
         }
-        steps.push(Step::Block {
-            id: rest_id,
-            prefix: rest.clone(),
-        });
-        previous = rest_id;
+        previous = kids[index - 1];
+        previous_blank = true;
     }
     push_rev(stack, steps);
     Ok(())
