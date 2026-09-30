@@ -320,11 +320,28 @@ fn sync_loose(
 
 impl Document {
     pub(crate) fn ensure_trailing_blank(&mut self) {
-        let _ = ensure_trailing_blank_paragraph(self, None);
+        let root = self.root;
+        let last = self.arena.get(root).and_then(|n| n.last_child);
+        if last.is_some_and(|id| is_blank_paragraph(self, id)) {
+            return;
+        }
+        let before_rev = self.revision();
+        let para = self.alloc_leaf(BlockKind::Paragraph);
+        self.arena.append_child(root, para);
+        self.bump_structure(root);
+        let _ = self.commit(
+            before_rev,
+            vec![DocChange::TreeSpliced {
+                parent: root,
+                before: last,
+                removed: Vec::new(),
+                inserted: vec![para],
+            }],
+        );
     }
 
     pub(crate) fn ensure_trailing_blank_at(&mut self, caret: Caret) -> Caret {
-        ensure_trailing_blank_paragraph(self, Some(caret))
+        ensure_trailing_blank_paragraph(self, caret)
     }
 
     pub(crate) fn clamp_live_caret(&self, caret: Caret) -> Caret {
@@ -352,58 +369,44 @@ pub(crate) fn is_blank_paragraph(doc: &Document, id: NodeId) -> bool {
         && doc.leaf_source(id).trim().is_empty()
 }
 
-pub(crate) fn ensure_trailing_blank_paragraph(doc: &mut Document, caret: Option<Caret>) -> Caret {
+pub(crate) fn ensure_trailing_blank_paragraph(doc: &mut Document, caret: Caret) -> Caret {
+    let root = doc.root;
     let before_rev = doc.revision();
     let mut changes = Vec::new();
-    let root = doc.root;
     loop {
         let last = doc.arena.get(root).and_then(|n| n.last_child);
         let prev = last.and_then(|id| doc.arena.get(id).and_then(|n| n.prev_sibling));
-        if last.is_some_and(|id| is_blank_paragraph(doc, id))
-            && prev.is_some_and(|id| is_blank_paragraph(doc, id))
-        {
-            let id = last.expect("last");
-            let drop_sentinel = match caret {
-                None => true,
-                Some(c) => prev.is_some_and(|p| c.block == p.index),
-            };
-            if !drop_sentinel {
-                break;
-            }
-            tombstone(doc, id);
-            doc.bump_structure(root);
-            changes.push(DocChange::TreeSpliced {
-                parent: root,
-                before: prev,
-                removed: vec![id],
-                inserted: Vec::new(),
-            });
-            continue;
+        let redundant = prev.is_some_and(|id| caret.block == id.index)
+            && last.is_some_and(|id| is_blank_paragraph(doc, id))
+            && prev.is_some_and(|id| is_blank_paragraph(doc, id));
+        if !redundant {
+            break;
         }
-        break;
-    }
-    let last = doc.arena.get(root).and_then(|n| n.last_child);
-    if let Some(id) = last.filter(|&id| is_blank_paragraph(doc, id)) {
-        if !changes.is_empty() {
-            let _ = doc.commit(before_rev, changes);
-        }
-        return caret.unwrap_or(Caret {
-            block: id.index,
-            offset: 0,
+        let id = last.expect("last");
+        let before = prev.expect("prev");
+        tombstone(doc, id);
+        doc.bump_structure(root);
+        changes.push(DocChange::TreeSpliced {
+            parent: root,
+            before: Some(before),
+            removed: vec![id],
+            inserted: Vec::new(),
         });
     }
-    let para = doc.alloc_leaf(BlockKind::Paragraph);
-    doc.arena.append_child(root, para);
-    doc.bump_structure(root);
-    changes.push(DocChange::TreeSpliced {
-        parent: root,
-        before: last,
-        removed: Vec::new(),
-        inserted: vec![para],
-    });
-    let _ = doc.commit(before_rev, changes);
-    caret.unwrap_or(Caret {
-        block: para.index,
-        offset: 0,
-    })
+    let last = doc.arena.get(root).and_then(|n| n.last_child);
+    if !last.is_some_and(|id| is_blank_paragraph(doc, id)) {
+        let para = doc.alloc_leaf(BlockKind::Paragraph);
+        doc.arena.append_child(root, para);
+        doc.bump_structure(root);
+        changes.push(DocChange::TreeSpliced {
+            parent: root,
+            before: last,
+            removed: Vec::new(),
+            inserted: vec![para],
+        });
+    }
+    if !changes.is_empty() {
+        let _ = doc.commit(before_rev, changes);
+    }
+    caret
 }
