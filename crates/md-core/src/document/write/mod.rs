@@ -377,6 +377,23 @@ fn write_prefixed<W: fmt::Write>(
     prefix: &Prefix,
     text: &str,
 ) -> fmt::Result {
+    write_lines(out, prefix, text, false)
+}
+
+fn write_lazy_prefixed<W: fmt::Write>(
+    out: &mut MarkdownWriter<W>,
+    prefix: &Prefix,
+    text: &str,
+) -> fmt::Result {
+    write_lines(out, prefix, text, true)
+}
+
+fn write_lines<W: fmt::Write>(
+    out: &mut MarkdownWriter<W>,
+    prefix: &Prefix,
+    text: &str,
+    lazy: bool,
+) -> fmt::Result {
     if text.is_empty() {
         return prefix.write_open(out);
     }
@@ -385,7 +402,9 @@ fn write_prefixed<W: fmt::Write>(
         if i > 0 {
             out.write_str("\n")?;
         }
-        out.write_str(&flat)?;
+        if i == 0 || !lazy {
+            out.write_str(&flat)?;
+        }
         out.write_str(line)?;
     }
     Ok(())
@@ -411,6 +430,7 @@ fn push_first_and_rest<W: fmt::Write>(
     out: &mut MarkdownWriter<W>,
     rest: &Prefix,
     text: &str,
+    lazy: bool,
 ) -> fmt::Result {
     let flat = rest.flat();
     let mut lines = text.split('\n');
@@ -419,7 +439,9 @@ fn push_first_and_rest<W: fmt::Write>(
     }
     for line in lines {
         out.write_str("\n")?;
-        out.write_str(&flat)?;
+        if !lazy {
+            out.write_str(&flat)?;
+        }
         out.write_str(line)?;
     }
     Ok(())
