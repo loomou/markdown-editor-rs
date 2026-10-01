@@ -2,7 +2,8 @@ use super::inline::{
     LeadingBlock, escape_leading_block_markers, paragraph_export, trim_end_newlines,
 };
 use super::{
-    MarkdownExport, MarkdownWriter, Prefix, blank_line, push_first_and_rest, write_prefixed,
+    MarkdownExport, MarkdownWriter, Prefix, blank_line, push_first_and_rest, write_lazy_prefixed,
+    write_prefixed,
 };
 use crate::block::{BlockKind, CodeFenceMarker, FrontMatterMarker, ListMarker, NodeExtra};
 use crate::document::arena::NodeId;
@@ -181,7 +182,11 @@ where
         BlockKind::DocStart => Ok(()),
         BlockKind::Paragraph => {
             let body = paragraph_export(doc, id);
-            write_prefixed(out, prefix, &body)
+            if lazy_continuation(prefix, &body) {
+                write_lazy_prefixed(out, prefix, &body)
+            } else {
+                write_prefixed(out, prefix, &body)
+            }
         }
         BlockKind::Heading(n) => write_prefixed(out, prefix, &heading_line(doc, id, n)),
         BlockKind::MetadataBlock => write_front_matter(doc, id, out, prefix),
@@ -511,14 +516,15 @@ where
             } else {
                 ""
             };
-            push_first_and_rest(out, &rest, text)?;
+            let lazy = first_kind == Some(BlockKind::Paragraph) && lazy_continuation(&rest, text);
+            push_first_and_rest(out, &rest, text, lazy)?;
         }
         _ => {
             prefix.write_open(out)?;
             out.write_str(&marker)?;
             if task.is_none() && shares_the_marker_line(first_kind) {
                 let text = block_text(doc, first);
-                push_first_and_rest(out, &rest, &text)?;
+                push_first_and_rest(out, &rest, &text, false)?;
             } else {
                 out.write_str("\n")?;
                 steps.push(Step::Block {
@@ -587,6 +593,100 @@ fn thematic_break_line<D: MarkdownExport>(doc: &D, id: NodeId) -> String {
     } else {
         "---".to_string()
     }
+}
+
+fn lazy_continuation(prefix: &Prefix, body: &str) -> bool {
+    !prefix.is_plain() && needs_a_lazy_continuation(body)
+}
+
+fn needs_a_lazy_continuation(body: &str) -> bool {
+    if !body.contains('\n') {
+        return false;
+    }
+    let lines: Vec<&str> = body.split('\n').collect();
+    for (index, line) in lines.iter().enumerate() {
+        if index > 0 && is_setext_underline(line) {
+            return true;
+        }
+        let heads_a_table = if index == 0 {
+            has_unescaped_pipe(line)
+        } else {
+            line.starts_with('|')
+        };
+        if heads_a_table
+            && lines
+                .get(index + 1)
+                .and_then(|next| table_delimiter_columns(next))
+                .is_some_and(|columns| columns == table_cell_count(line))
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_setext_underline(line: &str) -> bool {
+    let line = line.trim_matches([' ', '\t']);
+    let Some(first) = line.chars().next() else {
+        return false;
+    };
+    matches!(first, '=' | '-')
+        && line.chars().all(|c| c == first)
+        && (first == '=' || line.chars().count() == 2)
+}
+
+fn has_unescaped_pipe(row: &str) -> bool {
+    let mut escaped = false;
+    for c in row.chars() {
+        match c {
+            '\\' => {
+                escaped = true;
+                continue;
+            }
+            '|' if !escaped => return true,
+            _ => {}
+        }
+        escaped = false;
+    }
+    false
+}
+
+fn table_cell_count(row: &str) -> usize {
+    table_cells(row.trim_matches([' ', '\t'])).len()
+}
+
+fn table_delimiter_columns(row: &str) -> Option<usize> {
+    if row.len() - row.trim_start_matches(' ').len() > 3 {
+        return None;
+    }
+    let row = row.trim_matches([' ', '\t']);
+    let cells = table_cells(row);
+    if cells.is_empty() || !row.contains('|') {
+        return None;
+    }
+    cells
+        .iter()
+        .all(|cell| is_table_delimiter_cell(cell))
+        .then_some(cells.len())
+}
+
+fn table_cells(row: &str) -> Vec<&str> {
+    let mut cells: Vec<&str> = row.split('|').collect();
+    if row.starts_with('|') {
+        cells.remove(0);
+    }
+    if row.ends_with('|') {
+        cells.pop();
+    }
+    cells
+}
+
+fn is_table_delimiter_cell(cell: &str) -> bool {
+    let cell = cell.trim_matches([' ', '\t']);
+    let dashes = cell.trim_start_matches(':').trim_end_matches(':');
+    !dashes.is_empty()
+        && dashes.chars().all(|c| c == '-')
+        && cell.chars().all(|c| c == '-' || c == ':')
 }
 
 fn heading_line<D: MarkdownExport>(doc: &D, id: NodeId, level: u8) -> String {
@@ -898,7 +998,8 @@ where
         if doc.kind(*first) == Some(BlockKind::Paragraph) {
             out.write_char(' ')?;
             let text = paragraph_export(doc, *first);
-            push_first_and_rest(out, &rest, &text)?;
+            let lazy = lazy_continuation(&rest, &text);
+            push_first_and_rest(out, &rest, &text, lazy)?;
         } else {
             out.write_str("\n")?;
             steps.push(Step::Block {

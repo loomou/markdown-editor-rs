@@ -523,6 +523,51 @@ fn a_loose_list_separates_every_pair_of_items_with_a_blank_line() {
 }
 
 #[test]
+fn a_paragraph_line_that_would_open_a_new_block_is_left_unprefixed() {
+    for (source, saved) in [
+        ("> q\n| a |\n| --- |\n", "> q\n| a |\n| --- |\n"),
+        ("> q\n===\n", "> q\n===\n"),
+        ("> q\n--\n", "> q\n--\n"),
+        ("> > q\n| a |\n| --- |\n", "> > q\n| a |\n| --- |\n"),
+        ("> > q\n===\n", "> > q\n===\n"),
+        ("- a\n| a |\n| --- |\n", "- a\n| a |\n| --- |\n"),
+        ("- | a |\n| --- |\n", "- | a |\n| --- |\n"),
+        ("- q\n===\n", "- q\n===\n"),
+        ("- q\n--\n", "- q\n--\n"),
+        ("> - a\n| a |\n| --- |\n", "> - a\n| a |\n| --- |\n"),
+        ("[^1]: n\n| a |\n| --- |\n", "[^1]: n\n| a |\n| --- |\n"),
+        ("[^1]: q\n===\n", "[^1]: q\n===\n"),
+        ("[^1]: q\n--\n", "[^1]: q\n--\n"),
+        ("- a\n  \n  | a |\n| --- |\n", "- a\n  \n  | a |\n| --- |\n"),
+        ("> q\n> plain\n", "> q\n> plain\n"),
+        ("- a\n  z\n", "- a\n  z\n"),
+        ("- q\n  ===\n", "- q\n  ===\n"),
+        ("> q\n> a | b\n> --- | ---\n", "> q\n> a | b\n> --- | ---\n"),
+        ("> q\n> | a |\n> | --- |\n", "> q\n> \n> | a |\n> | --- |\n"),
+        ("- | a |\n  | --- |\n", "- | a |\n  | --- |\n"),
+    ] {
+        let doc = load_markdown(source, editor_options());
+        assert_eq!(doc.to_markdown(), saved, "source={source:?}");
+        assert_eq!(
+            doc.write_snapshot().to_markdown(),
+            saved,
+            "source={source:?} must save the same way"
+        );
+        let again = load_markdown(&doc.to_markdown(), editor_options());
+        assert_eq!(
+            again.to_markdown(),
+            saved,
+            "source={source:?} must be a fixed point"
+        );
+        assert_eq!(
+            tree_with_sources(&doc),
+            tree_with_sources(&again),
+            "source={source:?} must reload as the same tree"
+        );
+    }
+}
+
+#[test]
 fn tight_list_table_after_a_paragraph_needs_no_blank_line() {
     use crate::document::TableOp;
     let mut doc = load_markdown("- para\n", editor_options());
