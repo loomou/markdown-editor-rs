@@ -309,18 +309,24 @@ pub(crate) fn needs_blank_between<D: MarkdownExport>(
     }
 }
 
-fn shares_the_marker_line(kind: Option<BlockKind>) -> bool {
-    matches!(
-        kind,
+fn shares_the_marker_line<D: MarkdownExport>(doc: &D, id: NodeId, marker: &str) -> bool {
+    match doc.kind(id) {
         Some(
             BlockKind::CodeBlock
-                | BlockKind::Mermaid
-                | BlockKind::Table
-                | BlockKind::BlockQuote
-                | BlockKind::List
-                | BlockKind::Math
-        )
-    )
+            | BlockKind::Mermaid
+            | BlockKind::Table
+            | BlockKind::BlockQuote
+            | BlockKind::List
+            | BlockKind::Math
+            | BlockKind::Image
+            | BlockKind::FootnoteDefinition,
+        ) => true,
+        Some(BlockKind::ThematicBreak) => {
+            let line = thematic_break_line(doc, id);
+            !crate::document::syntax::is_thematic_break_line(&format!("{marker}{line}"))
+        }
+        _ => false,
+    }
 }
 
 fn block_text<D>(doc: &D, id: NodeId) -> String
@@ -522,7 +528,7 @@ where
         _ => {
             prefix.write_open(out)?;
             out.write_str(&marker)?;
-            if task.is_none() && shares_the_marker_line(first_kind) {
+            if task.is_none() && shares_the_marker_line(doc, first, &marker) {
                 let text = block_text(doc, first);
                 push_first_and_rest(out, &rest, &text, false)?;
             } else {
