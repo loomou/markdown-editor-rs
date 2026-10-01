@@ -395,6 +395,43 @@ fn a_tight_item_keeps_its_shape_where_the_loader_would_not_merge_the_blocks() {
 }
 
 #[test]
+fn sibling_blocks_are_separated_by_exactly_one_blank_line() {
+    for (source, saved) in [
+        ("p\n# h\n", "p\n\n# h\n"),
+        ("# h\n- a\n", "# h\n\n- a\n"),
+        ("# h\n## h2\n", "# h\n\n## h2\n"),
+        ("p\n> q\n", "p\n\n> q\n"),
+        ("p\n```\nx\n```\n", "p\n\n```\nx\n```\n"),
+        ("p\n***\n", "p\n\n***\n"),
+        ("- a\n***\n", "- a\n\n***\n"),
+        ("p\n| a |\n| - |\n| b |\n", "p\n\n| a |\n| --- |\n| b |\n"),
+        ("> q\n> # h\n", "> q\n> \n> # h\n"),
+        ("> q\n> - a\n", "> q\n> \n> - a\n"),
+        ("> ```\n> x\n> ```\n> p\n", "> ```\n> x\n> ```\n> \n> p\n"),
+        ("p\n\n\n# h\n", "p\n\n\n# h\n"),
+    ] {
+        let doc = load_markdown(source, editor_options());
+        assert_eq!(doc.to_markdown(), saved, "source={source:?}");
+        assert_eq!(
+            doc.write_snapshot().to_markdown(),
+            saved,
+            "source={source:?} must save the same way"
+        );
+        let again = load_markdown(&doc.to_markdown(), editor_options());
+        assert_eq!(
+            again.to_markdown(),
+            saved,
+            "source={source:?} must be a fixed point"
+        );
+        assert_eq!(
+            tree_with_sources(&doc),
+            tree_with_sources(&again),
+            "source={source:?} must reload as the same tree"
+        );
+    }
+}
+
+#[test]
 fn tight_list_table_after_a_paragraph_needs_no_blank_line() {
     use crate::document::TableOp;
     let mut doc = load_markdown("- para\n", editor_options());

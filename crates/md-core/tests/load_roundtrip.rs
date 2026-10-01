@@ -633,3 +633,84 @@ fn only_dash_delimiters_that_open_the_document_make_front_matter() {
         );
     }
 }
+
+#[test]
+fn an_image_that_a_math_fence_precedes_keeps_its_source_span() {
+    for (source, saved) in [
+        ("$$\nx\n$$\n![a](u)\n", "$$\nx\n$$\n\n![a](u)\n"),
+        ("$$\nx\n$$\n\n![a](u)\n", "$$\nx\n$$\n\n![a](u)\n"),
+        ("$$\nx\n$$\n  ![cap](u)  \n", "$$\nx\n$$\n\n  ![cap](u)  \n"),
+        ("p\n$$\nx\n$$\n![a](u)\n", "p\n\n$$\nx\n$$\n\n![a](u)\n"),
+        ("# h\n![a](u)\n", "# h\n\n![a](u)\n"),
+        ("***\n![a](u)\n", "***\n\n![a](u)\n"),
+        ("```\nc\n```\n![a](u)\n", "```\nc\n```\n\n![a](u)\n"),
+    ] {
+        let before = load_markdown(source, editor_options());
+        assert_eq!(before.to_markdown(), saved, "{source:?}");
+        let after = load_markdown(&before.to_markdown(), editor_options());
+        assert_eq!(
+            shape(&before),
+            shape(&after),
+            "{source:?} must keep the image"
+        );
+        assert!(
+            after.to_markdown().contains("![a](u)") || after.to_markdown().contains("![cap](u)"),
+            "{source:?} must not lose the image: {:?}",
+            after.to_markdown()
+        );
+    }
+}
+
+#[test]
+fn an_image_only_paragraph_that_a_math_fence_cuts_keeps_its_kind() {
+    for source in [
+        "![a](u)\n$$\nx\n$$\n",
+        "![a](u)\n\n$$\nx\n$$\n",
+        "> ![a](u)\n> $$\n> x\n> $$\n",
+        "![a](u)\n$$\nx\n$$\n\nz\n",
+    ] {
+        let before = load_markdown(source, editor_options());
+        let saved = before.to_markdown();
+        let after = load_markdown(&saved, editor_options());
+        assert_eq!(
+            shape(&before),
+            shape(&after),
+            "{source:?} saved as {saved:?} must reload as the same tree"
+        );
+        assert_eq!(
+            after.to_markdown(),
+            saved,
+            "{source:?} must be a fixed point"
+        );
+    }
+}
+
+#[test]
+fn a_paragraph_that_a_math_fence_cuts_keeps_being_a_paragraph_when_it_is_not_image_only() {
+    for source in [
+        "p ![a](u)\n$$\nx\n$$\n",
+        "![a](u)![b](v)\n$$\nx\n$$\n",
+        "![a](u)\n![b](v)\n$$\nx\n$$\n",
+        "- ![a](u)\n  $$\n  x\n  $$\n",
+        "- ![a](u)\n- b\n",
+    ] {
+        let before = load_markdown(source, editor_options());
+        assert!(
+            !has_kind(&before, BlockKind::Image),
+            "{source:?} must keep a paragraph: {:?}",
+            shape(&before)
+        );
+        let saved = before.to_markdown();
+        let after = load_markdown(&saved, editor_options());
+        assert_eq!(
+            shape(&before),
+            shape(&after),
+            "{source:?} saved as {saved:?} must reload as the same tree"
+        );
+        assert_eq!(
+            after.to_markdown(),
+            saved,
+            "{source:?} must be a fixed point"
+        );
+    }
+}

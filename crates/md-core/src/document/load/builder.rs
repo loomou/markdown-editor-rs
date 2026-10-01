@@ -47,6 +47,7 @@ pub(super) struct Builder {
     pub(super) math_continuation: bool,
     pub(super) math_seam_lead: bool,
     pub(super) math_extract_at: Option<usize>,
+    pub(super) leaf_allows_standalone: bool,
     pub(super) cover_floor: Option<usize>,
     pub(super) in_image: u32,
 }
@@ -78,6 +79,7 @@ impl Builder {
             math_continuation: false,
             math_seam_lead: false,
             math_extract_at: None,
+            leaf_allows_standalone: false,
             cover_floor: None,
             in_image: 0,
         }
