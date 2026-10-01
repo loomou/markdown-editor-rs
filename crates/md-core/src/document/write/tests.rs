@@ -292,6 +292,32 @@ fn a_first_block_that_fits_after_the_marker_shares_its_line() {
         "1. > q\n",
         "1. | a |\n   | --- |\n",
         "> - ```\n>   abc\n>   ```\n",
+        "- ***\n",
+        "- ****\n",
+        "- * * *\n",
+        "- ___\n",
+        "* ---\n",
+        "+ ***\n",
+        "1. ---\n",
+        "10. ***\n",
+        "10) ***\n",
+        "- ***\n- b\n",
+        "- ***\n  \n  p\n",
+        "- ***\n  \n  ***\n",
+        "- [^1]: n\n",
+        "- [^1]: n\n- b\n",
+        "- [^1]: n\n  \n  p\n",
+        "- [^1]: n\n  \n  q\n  \n  r\n",
+        "- ![a](u)\n  \n  p\n",
+        "- ![a](u)\n\n- b\n",
+        "> - ***\n",
+        "> - ***\n>   \n>   p\n",
+        "> - [^1]: n\n",
+        "> - [^1]: n\n>   \n>   p\n",
+        "> - ![a](u)\n>   \n>   p\n",
+        "- - ***\n",
+        "- - [^1]: n\n",
+        "- 1. ***\n",
     ] {
         let doc = load_markdown(source, editor_options());
         assert_eq!(doc.to_markdown(), source, "source={source:?}");
@@ -305,10 +331,16 @@ fn a_first_block_that_fits_after_the_marker_shares_its_line() {
 }
 
 #[test]
-fn a_thematic_break_and_a_task_item_keep_the_marker_line_to_themselves() {
+fn a_thematic_break_the_marker_would_absorb_and_a_task_item_keep_the_marker_line_to_themselves() {
     for source in [
         "- \n  ---\n",
-        "- \n  ***\n",
+        "* \n  ***\n",
+        "- \n  - - -\n",
+        "- \n  ---\n  \n  p\n",
+        "* \n  ***\n  \n  p\n",
+        "- - \n    ---\n",
+        "> - \n>   ---\n",
+        "> * \n>   ***\n",
         "- [ ] \n  ```\n  abc\n  ```\n",
         "- [x] \n  > q\n",
         "- [ ] \n  - a\n",
