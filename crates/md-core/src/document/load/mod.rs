@@ -261,11 +261,11 @@ pub(super) fn standalone_image_source_range(source: &str, range: &Range<usize>) 
         .get(..range.start)
         .and_then(|prefix| prefix.rfind('\n').map(|newline| newline + 1))
         .unwrap_or(0);
-    let end = range
-        .end
-        .checked_sub(1)
-        .filter(|end| source.as_bytes().get(*end) == Some(&b'\n'))
-        .unwrap_or(range.end);
+    let end = source
+        .get(range.end..)
+        .and_then(|rest| rest.find('\n'))
+        .map(|newline| range.end + newline)
+        .unwrap_or(source.len());
     (start as u32, end as u32)
 }
 

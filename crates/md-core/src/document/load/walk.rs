@@ -343,9 +343,10 @@ fn visit<'a, 'i>(
             }
             let id = builder.alloc(BlockKind::Paragraph);
             builder.enter_leaf(id, BlockKind::Paragraph, LeafSink::Text, span);
+            let allow_standalone = matches!(node.kind(), NodeKind::Paragraph);
+            builder.leaf_allows_standalone = allow_standalone;
             builder.image_only = true;
             builder.image_count = 0;
-            let allow_standalone = matches!(node.kind(), NodeKind::Paragraph);
             stack.push(Item::CloseLeaf { allow_standalone });
             push_children(stack, node, ctx);
         }
@@ -768,8 +769,17 @@ fn extract_display_math(
         if empty {
             builder.math_continuation = true;
         }
+        if !empty
+            && builder
+                .texts
+                .get(tid)
+                .is_some_and(|l| l.runs().iter().all(|r| r.marks.is_image()))
+        {
+            builder.image_only = true;
+        }
     }
-    builder.leave_text_leaf(source, false);
+    let standalone = builder.leaf_allows_standalone;
+    builder.leave_text_leaf(source, standalone);
     let id = builder.alloc(BlockKind::Math);
     builder.enter_leaf(id, BlockKind::Math, LeafSink::Text, range.clone());
     if fenced {
@@ -1113,6 +1123,7 @@ impl Builder {
             n.text = Some(id.text_id());
         }
         self.cover_floor = None;
+        self.leaf_allows_standalone = false;
         self.current_leaf = Some(LeafCtx {
             id,
             kind,
@@ -1216,6 +1227,15 @@ impl Builder {
         if !caption.is_empty() {
             self.push_intern_owned(leaf, &caption);
         }
+        let image_span = leaf
+            .log
+            .iter()
+            .rev()
+            .find_map(|entry| match entry {
+                LeafLog::ImageEnd { span } => Some(span.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| leaf.node_span.clone());
         let alt_span = leaf.log.iter().find_map(|entry| match entry {
             LeafLog::Shown { span, .. } => Some(span.clone()),
             _ => None,
@@ -1230,7 +1250,7 @@ impl Builder {
             });
         }
         if let Some(n) = self.arena.get_mut(id) {
-            let (lo, hi) = super::standalone_image_source_range(source, &leaf.node_span);
+            let (lo, hi) = super::standalone_image_source_range(source, &image_span);
             n.kind = BlockKind::Image;
             n.extra = NodeExtra::Image {
                 dest,
