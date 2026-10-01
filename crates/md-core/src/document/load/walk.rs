@@ -227,10 +227,14 @@ fn visit<'a, 'i>(
                 }
                 _ => 0,
             };
+            let mut gaps = container_gaps(source, &node, false);
+            if let Some(last) = gaps.last_mut() {
+                *last = 0;
+            }
             stack.push(Item::CloseBlock {
                 host: true,
                 end_row: false,
-                gaps: Vec::new(),
+                gaps,
                 trailing,
             });
             push_children(stack, node, ctx);
@@ -916,6 +920,9 @@ fn innermost_trailing_item<'a, 'i>(
             current = current.children().last()?;
             continue;
         }
+        if !matches!(current.kind(), NodeKind::ListItem(_)) {
+            return None;
+        }
         if current.span().end != source.len() {
             return None;
         }
@@ -970,8 +977,11 @@ fn ends_with_newline(source: &str, end: usize) -> bool {
     end > 0 && source.as_bytes().get(end - 1) == Some(&b'\n')
 }
 
-fn list_content_end(source: &str, child: &NodeRef<'_, '_>) -> Option<usize> {
-    if !matches!(child.kind(), NodeKind::List(_)) {
+fn content_end(source: &str, child: &NodeRef<'_, '_>) -> Option<usize> {
+    if !matches!(
+        child.kind(),
+        NodeKind::List(_) | NodeKind::FootnoteDefinition(_)
+    ) {
         return None;
     }
     let span = child.span();
@@ -1010,14 +1020,14 @@ fn gaps_for(source: &str, node: &NodeRef<'_, '_>, span: Range<usize>, alert: boo
     let kids: Vec<Range<usize>> = children.iter().map(|child| child.span()).collect();
     let mut gaps = Vec::with_capacity(kids.len() + 1);
     gaps.push(leading_blanks(source, span.start..kids[0].start, alert));
-    for pair in kids.windows(2) {
-        let end = pair[0].end;
+    for (index, pair) in kids.windows(2).enumerate() {
+        let end = content_end(source, &children[index]).unwrap_or(pair[0].end);
         let count = gap_blanks(source, end..pair[1].start, ends_with_newline(source, end));
         gaps.push(count.saturating_sub(1));
     }
     let last = kids[kids.len() - 1].end;
     let last_child = &children[children.len() - 1];
-    let last = list_content_end(source, last_child).unwrap_or(last);
+    let last = content_end(source, last_child).unwrap_or(last);
     let claimed = innermost_trailing_item(source, last_child)
         .map(|item| {
             let span = item.span();
