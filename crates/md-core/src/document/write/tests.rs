@@ -432,6 +432,97 @@ fn sibling_blocks_are_separated_by_exactly_one_blank_line() {
 }
 
 #[test]
+fn an_ordered_list_renumbers_its_items_from_the_start_number() {
+    for (source, saved) in [
+        ("1. a\n\n1. a\n", "1. a\n\n2. a\n"),
+        ("1. a\n\n2. b\n", "1. a\n\n2. b\n"),
+        ("5. a\n\n5. b\n\n5. c\n", "5. a\n\n6. b\n\n7. c\n"),
+        ("0. a\n\n0. b\n", "0. a\n\n1. b\n"),
+        ("10. a\n\n10. b\n", "10. a\n\n11. b\n"),
+        ("1) a\n\n1) b\n", "1) a\n\n2) b\n"),
+    ] {
+        let doc = load_markdown(source, editor_options());
+        assert_eq!(doc.to_markdown(), saved, "source={source:?}");
+        assert_eq!(
+            doc.write_snapshot().to_markdown(),
+            saved,
+            "source={source:?} must save the same way"
+        );
+        let again = load_markdown(&doc.to_markdown(), editor_options());
+        assert_eq!(
+            again.to_markdown(),
+            saved,
+            "source={source:?} must be a fixed point"
+        );
+        assert_eq!(
+            tree_with_sources(&doc),
+            tree_with_sources(&again),
+            "source={source:?} must reload as the same tree"
+        );
+    }
+}
+
+#[test]
+fn a_blank_line_inside_a_list_item_carries_the_item_indentation() {
+    for (source, saved) in [
+        ("- a\n\n  z\n", "- a\n  \n  z\n"),
+        ("- p\n\n  p\n", "- p\n  \n  p\n"),
+        ("1. a\n\n   z\n", "1. a\n   \n   z\n"),
+        ("1. a\n\n\n   z\n", "1. a\n   \n   \n   z\n"),
+        ("> - a\n>\n>   z\n", "> - a\n>   \n>   z\n"),
+    ] {
+        let doc = load_markdown(source, editor_options());
+        assert_eq!(doc.to_markdown(), saved, "source={source:?}");
+        assert_eq!(
+            doc.write_snapshot().to_markdown(),
+            saved,
+            "source={source:?} must save the same way"
+        );
+        let again = load_markdown(&doc.to_markdown(), editor_options());
+        assert_eq!(
+            again.to_markdown(),
+            saved,
+            "source={source:?} must be a fixed point"
+        );
+        assert_eq!(
+            tree_with_sources(&doc),
+            tree_with_sources(&again),
+            "source={source:?} must reload as the same tree"
+        );
+    }
+}
+
+#[test]
+fn a_loose_list_separates_every_pair_of_items_with_a_blank_line() {
+    for (source, saved) in [
+        ("- a\n- b\n", "- a\n- b\n"),
+        ("- a\n\n- b\n", "- a\n\n- b\n"),
+        ("- a\n- b\n\n  c\n", "- a\n\n- b\n  \n  c\n"),
+        ("- a\n- b\n- c\n\n  d\n", "- a\n\n- b\n\n- c\n  \n  d\n"),
+        ("1. a\n1. b\n\n   c\n", "1. a\n\n2. b\n   \n   c\n"),
+    ] {
+        let doc = load_markdown(source, editor_options());
+        assert_eq!(doc.to_markdown(), saved, "source={source:?}");
+        assert_eq!(
+            doc.write_snapshot().to_markdown(),
+            saved,
+            "source={source:?} must save the same way"
+        );
+        let again = load_markdown(&doc.to_markdown(), editor_options());
+        assert_eq!(
+            again.to_markdown(),
+            saved,
+            "source={source:?} must be a fixed point"
+        );
+        assert_eq!(
+            tree_with_sources(&doc),
+            tree_with_sources(&again),
+            "source={source:?} must reload as the same tree"
+        );
+    }
+}
+
+#[test]
 fn tight_list_table_after_a_paragraph_needs_no_blank_line() {
     use crate::document::TableOp;
     let mut doc = load_markdown("- para\n", editor_options());
