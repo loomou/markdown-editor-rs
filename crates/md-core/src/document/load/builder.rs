@@ -294,11 +294,11 @@ impl Builder {
 
     pub(super) fn finish(mut self, source: String, reference_definitions: Vec<String>) -> Document {
         let root = self.parents[0];
-        let (source_tail_blanks, source_tail_blank) = self.root_tail(root, &source);
         if self.arena.get(root).and_then(|n| n.first_child).is_none() {
             let id = self.alloc(BlockKind::Paragraph);
             self.enter_leaf(id, BlockKind::Paragraph, LeafSink::Text, 0..0);
             self.leave_text_leaf(&source, false);
+            self.set_extra(id, NodeExtra::CursorLine);
         }
         self.merge_leading_front_matter(&source);
         self.texts.shrink_runs_and_pieces();
@@ -313,8 +313,6 @@ impl Builder {
             reference_definitions: std::sync::Arc::new(reference_definitions),
             table_alignment_overflow: self.table_alignment_overflow,
             root,
-            source_tail_blanks,
-            source_tail_blank,
             revision: 1,
             max_content_revision: 1,
             changes: ChangeSet::document_replaced(1),
@@ -326,26 +324,11 @@ impl Builder {
     fn blank_paragraph(&self, id: NodeId, source: &str) -> bool {
         self.arena.get(id).is_some_and(|node| {
             node.kind == BlockKind::Paragraph
-                && matches!(node.extra, NodeExtra::None)
+                && matches!(node.extra, NodeExtra::None | NodeExtra::CursorLine)
                 && self.texts.get(id.text_id()).is_some_and(|leaf| {
                     leaf.display().is_empty() && leaf.source_str(source).trim().is_empty()
                 })
         })
-    }
-
-    fn root_tail(&self, root: NodeId, source: &str) -> (usize, Option<NodeId>) {
-        let mut count = 0usize;
-        let mut first = None;
-        let mut cur = self.arena.get(root).and_then(|n| n.last_child);
-        while let Some(id) = cur {
-            if !self.blank_paragraph(id, source) {
-                break;
-            }
-            count += 1;
-            first = Some(id);
-            cur = self.arena.get(id).and_then(|n| n.prev_sibling);
-        }
-        (count, first)
     }
 
     fn merge_leading_front_matter(&mut self, source: &str) {

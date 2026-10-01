@@ -43,8 +43,6 @@ struct SnapNode {
 
 pub struct WriteSnapshot {
     root: NodeId,
-    source_tail_blanks: usize,
-    source_tail_blank: Option<NodeId>,
     revision: u64,
     nodes: HashMap<NodeId, SnapNode>,
     langs: Arc<Vec<String>>,
@@ -93,8 +91,6 @@ impl Document {
         }
         WriteSnapshot {
             root: self.root,
-            source_tail_blanks: self.source_tail_blanks,
-            source_tail_blank: self.source_tail_blank,
             revision: self.revision(),
             nodes,
             langs: Arc::clone(&self.langs),
@@ -176,14 +172,6 @@ impl MarkdownExport for WriteSnapshot {
 
     fn reference_definitions(&self) -> &[String] {
         &self.reference_definitions
-    }
-
-    fn source_tail_blanks(&self) -> usize {
-        self.source_tail_blanks
-    }
-
-    fn source_tail_blank(&self) -> Option<NodeId> {
-        self.source_tail_blank
     }
 }
 

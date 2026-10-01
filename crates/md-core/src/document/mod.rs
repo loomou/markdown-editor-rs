@@ -75,8 +75,6 @@ pub struct Document {
     pub(crate) reference_definitions: Arc<Vec<String>>,
     pub(crate) table_alignment_overflow: HashMap<NodeId, Arc<[u8]>>,
     pub root: NodeId,
-    pub(crate) source_tail_blanks: usize,
-    pub(crate) source_tail_blank: Option<NodeId>,
     revision: u64,
     max_content_revision: u64,
     pub(crate) changes: ChangeSet,
