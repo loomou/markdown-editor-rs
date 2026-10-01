@@ -389,6 +389,106 @@ fn a_list_item_leaves_the_blank_lines_it_does_not_own_alone() {
 }
 
 #[test]
+fn a_list_keeps_the_blank_lines_that_follow_it() {
+    for source in [
+        "- a\n\n\np\n",
+        "- a\n\n\n* b\n",
+        "- a\n\n\n> q\n",
+        "- a\n\n\n# h\n",
+        "- a\n\n\n***\n",
+        "- a\n\n\n\n\np\n",
+        "* a\n\n\np\n",
+        "1. a\n\n\np\n",
+        "- [ ] a\n\n\np\n",
+        "- a\n  - b\n\n\np\n",
+        "- a\n\np\n",
+        "> - a\n> \n> \n> p\n",
+    ] {
+        let before = load_markdown(source, editor_options());
+        let saved = before.to_markdown();
+        assert_eq!(saved, source, "{source:?} must survive a save");
+        let after = load_markdown(&saved, editor_options());
+        assert_eq!(
+            after.to_markdown(),
+            source,
+            "{source:?} must be a fixed point"
+        );
+        assert_eq!(
+            shape(&before),
+            shape(&after),
+            "{source:?} must reload as the same tree"
+        );
+    }
+}
+
+#[test]
+fn a_footnote_definition_keeps_the_blank_lines_that_follow_it() {
+    for source in [
+        "[^1]: n\n\n\np\n",
+        "[^1]: n\n\n\n",
+        "[^1]: n\n\np\n",
+        "p\n\n[^1]: n\n\n\n",
+        "> [^1]: n\n> \n> \n> p\n",
+    ] {
+        let before = load_markdown(source, editor_options());
+        let saved = before.to_markdown();
+        assert_eq!(saved, source, "{source:?} must survive a save");
+        let after = load_markdown(&saved, editor_options());
+        assert_eq!(
+            after.to_markdown(),
+            source,
+            "{source:?} must be a fixed point"
+        );
+        assert_eq!(
+            shape(&before),
+            shape(&after),
+            "{source:?} must reload as the same tree"
+        );
+    }
+}
+
+#[test]
+fn a_list_item_keeps_the_blank_lines_between_its_blocks() {
+    for source in [
+        "- p\n  \n  \n  p\n",
+        "- p\n  \n  \n  \n  p\n",
+        "- p\n  q\n  \n  \n  r\n",
+        "1. a\n   \n   \n   b\n",
+        "- # h\n  \n  \n  p\n",
+        "- p\n  \n  p\n",
+        "- > p\n  > \n  > \n  > p\n",
+        "- a\n  - p\n    \n    \n    p\n",
+    ] {
+        let before = load_markdown(source, editor_options());
+        let saved = before.to_markdown();
+        assert_eq!(saved, source, "{source:?} must survive a save");
+        let after = load_markdown(&saved, editor_options());
+        assert_eq!(
+            after.to_markdown(),
+            source,
+            "{source:?} must be a fixed point"
+        );
+        assert_eq!(
+            shape(&before),
+            shape(&after),
+            "{source:?} must reload as the same tree"
+        );
+    }
+}
+
+#[test]
+fn a_list_does_not_claim_a_blank_paragraph_between_its_items() {
+    for (source, saved) in [
+        ("- a\n\n\n- b\n", "- a\n\n- b\n"),
+        ("- a\n\n\n\n- b\n", "- a\n\n- b\n"),
+        ("> - a\n> \n> \n> - b\n", "> - a\n> \n> - b\n"),
+    ] {
+        let doc = load_markdown(source, editor_options());
+        assert_eq!(doc.to_markdown(), saved, "{source:?} changed shape");
+    }
+}
+
+#[test]
 fn the_block_after_a_display_math_does_not_keep_the_seam_whitespace() {
     for (source, tail) in [
         ("$$x$$\nz\n", "z"),
