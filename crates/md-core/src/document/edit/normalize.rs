@@ -327,21 +327,26 @@ impl Document {
     pub(crate) fn ensure_trailing_blank(&mut self) {
         let root = self.root;
         let last = self.arena.get(root).and_then(|n| n.last_child);
-        if last.is_some_and(|id| is_blank_paragraph(self, id)) {
+        if last.is_some_and(|id| is_cursor_line(self, id)) {
             return;
         }
         let before_rev = self.revision();
         let para = self.alloc_leaf(BlockKind::Paragraph);
         self.arena.append_child(root, para);
         self.bump_structure(root);
+        self.set_extra(para, NodeExtra::CursorLine);
+        let attrs = self.attrs_change(para, BlockKind::Paragraph, NodeExtra::None);
         let _ = self.commit(
             before_rev,
-            vec![DocChange::TreeSpliced {
-                parent: root,
-                before: last,
-                removed: Vec::new(),
-                inserted: vec![para],
-            }],
+            vec![
+                DocChange::TreeSpliced {
+                    parent: root,
+                    before: last,
+                    removed: Vec::new(),
+                    inserted: vec![para],
+                },
+                attrs,
+            ],
         );
     }
 
@@ -369,9 +374,31 @@ pub(crate) fn is_blank_paragraph(doc: &Document, id: NodeId) -> bool {
     doc.arena
         .get(id)
         .is_some_and(|n| n.kind == BlockKind::Paragraph)
-        && matches!(doc.extra(id), NodeExtra::None)
+        && matches!(doc.extra(id), NodeExtra::None | NodeExtra::CursorLine)
         && doc.display(id).is_empty()
         && doc.leaf_source(id).trim().is_empty()
+}
+
+pub(crate) fn is_cursor_line(doc: &Document, id: NodeId) -> bool {
+    doc.extra(id) == NodeExtra::CursorLine
+}
+
+fn mark_cursor_line(doc: &mut Document, id: NodeId, changes: &mut Vec<DocChange>) {
+    let old = doc.extra(id);
+    if old == NodeExtra::CursorLine {
+        return;
+    }
+    doc.set_extra(id, NodeExtra::CursorLine);
+    changes.push(doc.attrs_change(id, BlockKind::Paragraph, old));
+}
+
+fn unmark_cursor_line(doc: &mut Document, id: NodeId, changes: &mut Vec<DocChange>) {
+    let old = doc.extra(id);
+    if old != NodeExtra::CursorLine {
+        return;
+    }
+    doc.set_extra(id, NodeExtra::None);
+    changes.push(doc.attrs_change(id, BlockKind::Paragraph, old));
 }
 
 pub(crate) fn ensure_trailing_blank_paragraph(doc: &mut Document, caret: Caret) -> Caret {
@@ -399,7 +426,9 @@ pub(crate) fn ensure_trailing_blank_paragraph(doc: &mut Document, caret: Caret) 
         });
     }
     let last = doc.arena.get(root).and_then(|n| n.last_child);
-    if !last.is_some_and(|id| is_blank_paragraph(doc, id)) {
+    let cursor = if last.is_some_and(|id| is_blank_paragraph(doc, id)) {
+        last
+    } else {
         let para = doc.alloc_leaf(BlockKind::Paragraph);
         doc.arena.append_child(root, para);
         doc.bump_structure(root);
@@ -409,6 +438,18 @@ pub(crate) fn ensure_trailing_blank_paragraph(doc: &mut Document, caret: Caret) 
             removed: Vec::new(),
             inserted: vec![para],
         });
+        Some(para)
+    };
+    let strays: Vec<NodeId> = doc
+        .arena
+        .children(root)
+        .filter(|&child| Some(child) != cursor && is_cursor_line(doc, child))
+        .collect();
+    for child in strays {
+        unmark_cursor_line(doc, child, &mut changes);
+    }
+    if let Some(id) = cursor {
+        mark_cursor_line(doc, id, &mut changes);
     }
     if !changes.is_empty() {
         let _ = doc.commit(before_rev, changes);
