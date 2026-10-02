@@ -988,8 +988,10 @@ where
     let mut steps = Vec::with_capacity(body.len() * 3);
     if let Some((first, more)) = body.split_first() {
         if doc.kind(*first) == Some(BlockKind::Paragraph) {
-            out.write_char(' ')?;
             let text = paragraph_export(doc, *first);
+            if !text.is_empty() {
+                out.write_char(' ')?;
+            }
             let lazy = lazy_continuation(&rest, &text);
             push_first_and_rest(out, &rest, &text, lazy)?;
         } else {

@@ -821,3 +821,50 @@ fn a_trailing_blank_run_is_still_counted_from_the_file() {
         );
     }
 }
+
+#[test]
+fn an_empty_footnote_definition_roundtrips_with_its_blank_lines() {
+    for source in [
+        "[^1]:\n",
+        "[^1]:\n\n",
+        "[^1]:\n\n\n",
+        "[^1]:\n\nz\n",
+        "[^1]:\n\n\nz\n",
+        "z\n\n[^1]:\n",
+        "z\n\n[^1]:\n\n\n",
+        "p[^1]\n\n[^1]:\n",
+        "> [^1]:\n",
+        "> [^1]:\n> \n",
+        "- [^1]:\n",
+        "[^1]: x\n\n[^2]: y\n",
+    ] {
+        let before = load_markdown(source, editor_options());
+        let saved = before.to_markdown();
+        assert_eq!(saved, source, "{source:?} must survive a save");
+        let after = load_markdown(&saved, editor_options());
+        assert_eq!(
+            after.to_markdown(),
+            source,
+            "{source:?} must be a fixed point"
+        );
+        assert_eq!(
+            shape(&before),
+            shape(&after),
+            "{source:?} must reload as the same tree"
+        );
+    }
+}
+
+#[test]
+fn an_empty_footnote_definition_holds_a_paragraph_for_the_caret() {
+    let doc = load_markdown("[^1]:\n", editor_options());
+    let footnote = doc
+        .preorder()
+        .into_iter()
+        .find(|&id| doc.kind(id.index) == Some(BlockKind::FootnoteDefinition))
+        .expect("the definition must load");
+    let kids: Vec<_> = doc.arena.children(footnote).collect();
+    assert_eq!(kids.len(), 1, "an empty body must hold exactly one block");
+    assert_eq!(doc.kind(kids[0].index), Some(BlockKind::Paragraph));
+    assert!(doc.display(kids[0]).is_empty());
+}
