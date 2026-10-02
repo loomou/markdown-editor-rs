@@ -448,6 +448,48 @@ fn a_footnote_definition_keeps_the_blank_lines_that_follow_it() {
 }
 
 #[test]
+fn a_reference_definition_only_document_keeps_its_blank_lines() {
+    for (source, saved) in [
+        ("[a]: u\n", "[a]: u\n"),
+        ("[a]: u\n\n\n", "\n\n[a]: u\n"),
+        ("[a]: u\n\n\n\n", "\n\n\n[a]: u\n"),
+        ("[a]: u\n\n[b]: v\n\n\n", "\n\n\n[a]: u\n[b]: v\n"),
+        ("\n\n\n", "\n\n\n"),
+    ] {
+        let before = load_markdown(source, editor_options());
+        assert_eq!(
+            before.to_markdown(),
+            saved,
+            "{source:?} must keep its blank lines"
+        );
+        let after = load_markdown(saved, editor_options());
+        assert_eq!(
+            after.to_markdown(),
+            saved,
+            "{source:?} must be stable under a second save"
+        );
+        assert_eq!(
+            shape(&before),
+            shape(&after),
+            "{source:?} must reload as the same tree"
+        );
+    }
+}
+
+#[test]
+fn a_lone_blank_line_after_a_reference_definition_is_not_dropped() {
+    let source = "[a]: u\n\n";
+    let before = load_markdown(source, editor_options());
+    let saved = before.to_markdown();
+    assert_eq!(saved, "\n\n[a]: u\n", "{source:?} must keep its blank line");
+    assert_eq!(
+        load_markdown(&saved, editor_options()).to_markdown(),
+        saved,
+        "{source:?} must be stable under a second save"
+    );
+}
+
+#[test]
 fn a_list_item_keeps_the_blank_lines_between_its_blocks() {
     for source in [
         "- p\n  \n  \n  p\n",
