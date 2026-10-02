@@ -1293,8 +1293,8 @@ mod tests {
             ("> # heading\n", "> # \n"),
             ("> ![alt](a.png)\n", "> ![]()\n"),
             ("- ![alt](a.png)\n", "- \n"),
-            ("[^1]: note\n", "[^1]: \n"),
-            ("> [^1]: note\n", "> [^1]: \n"),
+            ("[^1]: note\n", "[^1]:\n"),
+            ("> [^1]: note\n", "> [^1]:\n"),
         ] {
             let mut doc = Doc::new(load_markdown(source, editor_options()));
             doc.enable_trailing_blank();
@@ -1317,6 +1317,36 @@ mod tests {
                 doc.document.to_markdown(),
                 expected,
                 "{source:?} must only lose the text"
+            );
+        }
+    }
+
+    #[test]
+    fn an_emptied_footnote_body_still_reloads_as_the_same_tree() {
+        for source in ["[^1]: note\n", "> [^1]: note\n", "- [^1]: note\n"] {
+            let mut doc = Doc::new(load_markdown(source, editor_options()));
+            doc.enable_trailing_blank();
+            let leaf = doc.text_leaves()[0];
+            let end = doc.caret_text(leaf).unwrap_or("").len();
+            doc.apply(
+                Sel {
+                    anchor: Cursor {
+                        block: leaf,
+                        offset: 0,
+                    },
+                    head: Cursor {
+                        block: leaf,
+                        offset: end,
+                    },
+                },
+                Command::DeleteBackward,
+            );
+            let saved = doc.document.to_markdown();
+            let reloaded = load_markdown(&saved, editor_options());
+            assert_eq!(
+                reloaded.to_markdown(),
+                saved,
+                "{source:?} must be a fixed point once its body is emptied"
             );
         }
     }

@@ -845,7 +845,10 @@ fn display_math_fenced(t: &str) -> bool {
 }
 
 fn hosts_a_caret(kind: BlockKind) -> bool {
-    matches!(kind, BlockKind::ListItem | BlockKind::BlockQuote)
+    matches!(
+        kind,
+        BlockKind::ListItem | BlockKind::BlockQuote | BlockKind::FootnoteDefinition
+    )
 }
 
 fn blank_in_container(line: &str) -> bool {
