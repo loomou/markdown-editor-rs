@@ -175,7 +175,7 @@ fn r3_list_gutter_growth_reflows_existing_table_rows(cx: &mut TestAppContext) {
         let shaper = shaper(window, app, &theme);
         let env = BoxLayoutEnvironment::default();
         let mut doc = load_markdown(
-            "998. first\n\n     | a | b |\n     | --- | --- |\n     | c | d |\n\n999. tail\n",
+            "998. first\n\n     | a | b |\n     | --- | --- |\n     | c | d |\n999. tail\n",
             editor_options(),
         );
         let _ = doc.take_changes();
@@ -300,6 +300,211 @@ fn r4_list_looseness_refreshes_existing_flow_gaps(cx: &mut TestAppContext) {
             actual, expected,
             "before={before}; changes={:?}",
             changes.changes
+        );
+    });
+}
+
+#[gpui::test]
+fn r5_a_blank_line_between_two_paragraphs_costs_exactly_one_line(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let theme = DocumentTheme::one_dark();
+        let shaper = shaper(window, app, &theme);
+        let env = BoxLayoutEnvironment::default();
+        let snap = SnapOperator::new(1.0);
+        let doc = Doc::new(load_markdown("a\n\n\nb\n", editor_options()));
+        let first = doc.first_text_leaf().unwrap();
+        let frame = compose(
+            FrameContext {
+                doc: &doc,
+                env,
+                shaper: &shaper,
+                snap: &snap,
+                theme: &theme,
+            },
+            &FrameRequest {
+                viewport: (env.viewport_width, 2000.0),
+                scroll: 0.0,
+                cursor: Cursor {
+                    block: first,
+                    offset: 0,
+                },
+                selection: None,
+                marked: None,
+                search_query: "",
+                search_skip: None,
+            },
+            &FallbackSolver,
+            None,
+        );
+        let pieces: Vec<_> = frame.snapshot.texts.iter().collect();
+        assert_eq!(pieces.len(), 3, "a, the blank paragraph, b");
+        let advance = pieces[0].art.row_advance;
+        assert_eq!(pieces[1].art.row_advance, advance);
+        let top_a = pieces[0].content_origin_device.1;
+        let top_b = pieces[2].content_origin_device.1;
+        assert_eq!(
+            top_b - top_a,
+            2.0 * advance,
+            "one blank line costs one line and nothing else, or the caret cannot reach it"
+        );
+    });
+}
+
+#[gpui::test]
+fn r6_a_soft_break_at_the_end_of_a_line_adds_exactly_one_line(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let theme = DocumentTheme::one_dark();
+        let shaper = shaper(window, app, &theme);
+        let env = BoxLayoutEnvironment::default();
+        let snap = SnapOperator::new(1.0);
+        let mut doc = Doc::new(load_markdown("132\n", editor_options()));
+        let first = doc.first_text_leaf().unwrap();
+        let mut at = Cursor {
+            block: first,
+            offset: 3,
+        };
+        for pressed in 1..=3usize {
+            at = doc.apply(Sel::collapsed(at), Command::SoftBreak);
+            let frame = compose(
+                FrameContext {
+                    doc: &doc,
+                    env,
+                    shaper: &shaper,
+                    snap: &snap,
+                    theme: &theme,
+                },
+                &FrameRequest {
+                    viewport: (env.viewport_width, 2000.0),
+                    scroll: 0.0,
+                    cursor: at,
+                    selection: None,
+                    marked: None,
+                    search_query: "",
+                    search_skip: None,
+                },
+                &FallbackSolver,
+                None,
+            );
+            let pieces: Vec<_> = frame.snapshot.texts.iter().collect();
+            let advance = pieces[0].art.row_advance;
+            let first_top = pieces[0].content_origin_device.1;
+            let last = pieces.last().unwrap();
+            let last_row_top =
+                last.content_origin_device.1 + last.art.rows.saturating_sub(1) as f64 * advance;
+            assert_eq!(
+                last_row_top,
+                first_top + pressed as f64 * advance,
+                "press {pressed} must leave one more line than the press before it"
+            );
+            assert_eq!(
+                at.block, last.block,
+                "press {pressed} must leave the caret on the last line"
+            );
+        }
+    });
+}
+
+#[gpui::test]
+fn r7_a_soft_break_at_a_seam_keeps_the_paragraph(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let theme = DocumentTheme::one_dark();
+        let live_shaper = shaper(window, app, &theme);
+        let env = BoxLayoutEnvironment::default();
+        let snap = SnapOperator::new(1.0);
+        let mut doc = Doc::new(load_markdown("a\nb\n", editor_options()));
+        let _ = doc.take_changes();
+        let first = doc.first_text_leaf().unwrap();
+        let mut hot = IncrementalEngine::new(
+            &doc.document,
+            env,
+            Estimator::from_theme(&theme),
+            theme.layout_theme(),
+        );
+        hot.assemble_incremental(ScrollAnchor::top(), 2000.0, &live_shaper, &FallbackSolver);
+        let at = doc.apply(
+            Sel::collapsed(Cursor {
+                block: first,
+                offset: 2,
+            }),
+            Command::SoftBreak,
+        );
+        let changes = doc.take_changes();
+        hot.apply_changes(&doc.document, &changes);
+        hot.assemble_incremental(ScrollAnchor::top(), 2000.0, &live_shaper, &FallbackSolver);
+
+        assert_eq!(
+            at.offset, 3,
+            "the caret lands at the start of the line that moved down"
+        );
+        assert_eq!(
+            doc.text_leaves().len(),
+            1,
+            "the seam must stay one paragraph"
+        );
+        assert_eq!(doc.text(first).unwrap(), "a\n\nb");
+        let saved = doc.document.to_markdown();
+        assert_eq!(saved, "a\n\\\nb\n");
+
+        let frame = compose(
+            FrameContext {
+                doc: &doc,
+                env,
+                shaper: &live_shaper,
+                snap: &snap,
+                theme: &theme,
+            },
+            &FrameRequest {
+                viewport: (env.viewport_width, 2000.0),
+                scroll: 0.0,
+                cursor: at,
+                selection: None,
+                marked: None,
+                search_query: "",
+                search_skip: None,
+            },
+            &FallbackSolver,
+            None,
+        );
+        let pieces: Vec<_> = frame.snapshot.texts.iter().collect();
+        assert_eq!(
+            pieces.len(),
+            1,
+            "the blank line must not become its own block"
+        );
+        assert_eq!(pieces[0].art.rows, 3);
+        let advance = pieces[0].art.row_advance;
+        let first_top = pieces[0].content_origin_device.1;
+        let caret_y = frame
+            .snapshot
+            .caret_device
+            .expect("the caret must be painted")
+            .1;
+        let caret_row = (caret_y - first_top) / advance;
+        assert_eq!(
+            caret_row.round(),
+            2.0,
+            "the caret must sit two row advances below the first line"
+        );
+
+        let reloaded = Doc::new(load_markdown(&saved, editor_options()));
+        assert_eq!(reloaded.text_leaves().len(), 1);
+        let reloaded_leaf = reloaded.text_leaves()[0];
+        assert_eq!(reloaded.text(reloaded_leaf).unwrap(), "a\n\nb");
+        let cold_shaper = shaper(window, app, &theme);
+        let mut cold = IncrementalEngine::new(
+            &reloaded.document,
+            env,
+            Estimator::from_theme(&theme),
+            theme.layout_theme(),
+        );
+        cold.assemble_incremental(ScrollAnchor::top(), 2000.0, &cold_shaper, &FallbackSolver);
+        assert_eq!(
+            hot.total_height(),
+            cold.total_height(),
+            "the live paragraph must be spaced like the saved file"
         );
     });
 }

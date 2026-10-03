@@ -78,11 +78,17 @@ fn generate_tests_from_spec() {
             .unwrap();
 
         for (i, testcase) in spec.enumerate() {
+            let number = i + 1;
+            let deviation = if EDITOR_MODE_DEVIATIONS.contains(&(spec_name, number)) {
+                "\n#[cfg_attr(feature = \"editor-mode\", ignore = \"editor mode ends the list where a blank line separates two items\")]"
+            } else {
+                ""
+            };
             spec_rs
                 .write_fmt(format_args!(
                     r###"
-#[test]
-fn {}_test_{i}() {{
+#[test]{deviation}
+fn {}_test_{number}() {{
     let original = r##"{original}"##;
     let expected = r##"{expected}"##;
 
@@ -90,7 +96,8 @@ fn {}_test_{i}() {{
 }}
 "###,
                     spec_name,
-                    i = i + 1,
+                    number = number,
+                    deviation = deviation,
                     original = testcase.original,
                     expected = testcase.expected,
                     smart_punct = testcase.smart_punct,
@@ -133,6 +140,25 @@ fn {}_test_{i}() {{
         mod_rs.write_all(b";\n").unwrap();
     }
 }
+
+#[cfg(feature = "gen-tests")]
+const EDITOR_MODE_DEVIATIONS: &[(&str, usize)] = &[
+    ("footnotes", 15),
+    ("math", 26),
+    ("regression", 8),
+    ("regression", 64),
+    ("regression", 70),
+    ("regression", 109),
+    ("regression", 110),
+    ("regression", 187),
+    ("spec", 306),
+    ("spec", 309),
+    ("spec", 311),
+    ("spec", 313),
+    ("spec", 314),
+    ("spec", 315),
+    ("spec", 326),
+];
 
 #[cfg(feature = "gen-tests")]
 pub struct Spec<'a> {

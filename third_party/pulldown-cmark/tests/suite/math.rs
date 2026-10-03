@@ -448,6 +448,7 @@ fn math_test_25() {
 }
 
 #[test]
+#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
 fn math_test_26() {
     let original = r##"- $a$
 

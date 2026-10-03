@@ -11,4 +11,5 @@ mod heading;
 mod inline;
 mod quote;
 mod rule;
+mod soft_break;
 mod table;

@@ -107,6 +107,7 @@ fn regression_test_7() {
 }
 
 #[test]
+#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
 fn regression_test_8() {
     let original = r##"<!-- <dl> -->
 - **foo** (u8, u8)
@@ -873,6 +874,7 @@ fn regression_test_63() {
 }
 
 #[test]
+#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
 fn regression_test_64() {
     let original = r##"* A list.
 
@@ -995,6 +997,7 @@ fn regression_test_69() {
 }
 
 #[test]
+#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
 fn regression_test_70() {
     let original = r##"* [ ] foo
 
@@ -1599,6 +1602,7 @@ Things
 }
 
 #[test]
+#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
 fn regression_test_109() {
     let original = r##"-
 
@@ -1623,6 +1627,7 @@ fn regression_test_109() {
 }
 
 #[test]
+#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
 fn regression_test_110() {
     let original = r##"-
 
@@ -2957,6 +2962,7 @@ fn regression_test_186() {
 }
 
 #[test]
+#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
 fn regression_test_187() {
     let original = r##"-     test
 

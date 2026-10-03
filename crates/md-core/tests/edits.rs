@@ -1455,3 +1455,49 @@ fn collapsed_replace_entity_consumes_whole_token() {
     );
     assert_eq!(doc.document.to_markdown(), "a x b\n");
 }
+
+#[test]
+fn two_lists_split_by_an_empty_paragraph_survive_a_reload() {
+    let mut doc = Doc::new(load_markdown("- a\n- b\n", editor_options()));
+    let first = doc.first_text_leaf().unwrap();
+    let end = doc.text(first).unwrap().len();
+    doc.apply(
+        Sel::collapsed(Caret {
+            block: first,
+            offset: end,
+        }),
+        Command::Break,
+    );
+    let empty = doc
+        .text_leaves()
+        .into_iter()
+        .find(|&id| doc.text(id) == Some(""))
+        .expect("the first break leaves an empty item to break again");
+    doc.apply(
+        Sel::collapsed(Caret {
+            block: empty,
+            offset: 0,
+        }),
+        Command::Break,
+    );
+
+    let saved = doc.document.to_markdown();
+    assert_eq!(saved, "- a\n\n\n- b\n");
+
+    let reopened = load_markdown(&saved, editor_options());
+    assert_eq!(
+        reopened.to_markdown(),
+        saved,
+        "reopening must not fold the two lists into one loose list"
+    );
+    let lists: Vec<_> = reopened
+        .preorder()
+        .into_iter()
+        .filter(|&id| reopened.kind(id.index) == Some(BlockKind::List))
+        .collect();
+    assert_eq!(lists.len(), 2, "the empty paragraph splits the two lists");
+    assert!(
+        lists.iter().all(|&id| !reopened.extra(id).list_loose()),
+        "neither list may turn loose, or its items would space out"
+    );
+}

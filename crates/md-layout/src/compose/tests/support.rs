@@ -47,6 +47,14 @@ pub(super) fn heading_spacing_theme() -> LayoutTheme {
     .with_flow_metrics(flow_metrics(24.0))
 }
 
+pub(super) fn paragraph_spacing_theme() -> LayoutTheme {
+    spacing_theme(|kind| match kind {
+        BlockKind::Paragraph => 20.0,
+        _ => 0.0,
+    })
+    .with_flow_metrics(flow_metrics(24.0))
+}
+
 pub(super) fn kind_count(doc: &Document, kind: BlockKind) -> usize {
     doc.preorder()
         .into_iter()

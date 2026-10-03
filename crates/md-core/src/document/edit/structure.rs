@@ -1,7 +1,7 @@
 use super::span::{clear_same_block_span, same_block_span};
 use super::typing::{insert, split_promotable_line};
 use super::{Caret, Sel, list, path};
-use crate::block::BlockKind;
+use crate::block::{BlockId, BlockKind};
 use crate::document::syntax::line_range;
 use crate::document::{Document, PasteIntent};
 
@@ -95,6 +95,9 @@ pub(super) fn soft_break(doc: &mut Document, sel: Sel) -> Caret {
     {
         return doc.break_literal_leaf(id, at.offset);
     }
+    if let Some(caret) = break_paragraph_at_a_line_boundary(doc, at) {
+        return caret;
+    }
     if let Some(id) = doc.live_id(at.block)
         && let Some(caret) = doc.try_break_commonmark(id, at.offset)
     {
@@ -107,6 +110,77 @@ pub(super) fn soft_break(doc: &mut Document, sel: Sel) -> Caret {
     Caret {
         block: id,
         offset: 0,
+    }
+}
+
+fn break_paragraph_at_a_line_boundary(doc: &mut Document, at: Caret) -> Option<Caret> {
+    if doc.kind(at.block) != Some(BlockKind::Paragraph) {
+        return None;
+    }
+    let id = doc.live_id(at.block)?;
+    let display = doc.display(id).to_string();
+    let off = crate::document::chars::floor_char_boundary(&display, at.offset.min(display.len()));
+    let len = display.len();
+    let at_a_boundary = off == 0
+        || (off > 0 && display.as_bytes()[off - 1] == b'\n')
+        || (off < len && display.as_bytes()[off] == b'\n');
+    if !at_a_boundary {
+        return None;
+    }
+    if let Some(caret) = add_a_line_beside_the_break(doc, id, &display, off) {
+        return Some(caret);
+    }
+    let (_, right) = doc.split_leaf(at.block, off);
+    let left_ends = doc
+        .text_of(at.block)
+        .is_some_and(|text| text.ends_with('\n'));
+    let right_starts = doc
+        .text_of(right)
+        .is_some_and(|text| text.starts_with('\n'));
+    trim_one_line_break(doc, at.block, right);
+    if !left_ends && !right_starts {
+        return Some(Caret {
+            block: right,
+            offset: 0,
+        });
+    }
+    let (_, tail) = doc.split_leaf(right, 0);
+    Some(Caret {
+        block: if left_ends { tail } else { right },
+        offset: 0,
+    })
+}
+
+fn add_a_line_beside_the_break(
+    doc: &mut Document,
+    id: crate::document::NodeId,
+    display: &str,
+    off: usize,
+) -> Option<Caret> {
+    let len = display.len();
+    let seam = if off > 0 && display.as_bytes()[off - 1] == b'\n' {
+        off
+    } else if off < len && display.as_bytes()[off] == b'\n' {
+        off + 1
+    } else {
+        return None;
+    };
+    if seam == 0 || seam >= len || display[..seam - 1].is_empty() || display[seam..].is_empty() {
+        return None;
+    }
+    let change = doc.add_a_line_after_the_break(id, seam);
+    doc.push_changes(vec![change]);
+    Some(Caret {
+        block: id.index,
+        offset: seam + 1,
+    })
+}
+
+fn trim_one_line_break(doc: &mut Document, left: BlockId, right: BlockId) {
+    let mut changes = Vec::new();
+    doc.trim_the_line_break_between(left, right, &mut changes);
+    if !changes.is_empty() {
+        doc.push_changes(changes);
     }
 }
 

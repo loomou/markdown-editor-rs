@@ -340,6 +340,7 @@ An unordered list before the footnotes:
 }
 
 #[test]
+#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
 fn footnotes_test_15() {
     let original = r##"Songs that simply loop are a popular way to annoy people. [^examples]
 

@@ -2,7 +2,7 @@ use super::support::kind_count;
 use crate::block::{BlockId, BlockKind};
 use crate::doc::Doc;
 use crate::document::edit::{Caret, Command, Sel, apply};
-use crate::document::{PasteIntent, editor_options, load_markdown};
+use crate::document::{Document, PasteIntent, editor_options, load_markdown};
 
 fn fragment(text: &str) -> Command {
     Command::Paste {
@@ -1133,6 +1133,99 @@ fn a_demoted_front_matter_body_stays_literal() {
     assert_eq!(
         again.text_of(again.text_leaves()[1]),
         Some("# not a heading")
+    );
+}
+
+fn blank_line_in_prose(doc: &Document) -> Option<String> {
+    for id in doc.preorder() {
+        if !matches!(
+            doc.kind(id.index),
+            Some(BlockKind::Paragraph | BlockKind::Heading(_))
+        ) {
+            continue;
+        }
+        let display = doc.display(id);
+        if display.starts_with('\n') || display.contains("\n\n") {
+            return Some(format!("{:?}|{display:?}", doc.kind(id.index)));
+        }
+    }
+    None
+}
+
+fn paste_violation(
+    source: &str,
+    at: std::ops::Range<usize>,
+    text: &str,
+    intent: PasteIntent,
+) -> Option<String> {
+    let mut doc = load_markdown(source, editor_options());
+    let leaf = doc.text_leaves().first().copied()?;
+    let _ = doc.paste(leaf, at.clone(), text, intent);
+    let where_ = format!("src={source:?} at={at:?} text={text:?} intent={intent:?}");
+    if let Some(leaf) = blank_line_in_prose(&doc) {
+        return Some(format!("{where_} -> {leaf}"));
+    }
+    let saved = doc.to_markdown();
+    let once = load_markdown(&saved, editor_options()).to_markdown();
+    let twice = load_markdown(&once, editor_options()).to_markdown();
+    if once != twice {
+        return Some(format!(
+            "{where_} -> save {saved:?} then {once:?} then {twice:?}"
+        ));
+    }
+    None
+}
+
+#[test]
+fn paste_never_leaves_a_blank_line_in_prose() {
+    let sources = [
+        "one two\n",
+        "one\ntwo\n",
+        "one\ntwo\nthree\n",
+        "# head\n",
+        "> quote\n",
+        "> a\n> \n> b\n",
+        "- item\n",
+        "- a\n  - b\n",
+        "alpha beta\n",
+    ];
+    let texts = [
+        "\n", "x\n", "\nx", "x\n\n", "\n\nx", "a\n\nb", "a\nb", "\n\n", "x\n\ny\n", "a\n\n\nb",
+        "x\ny", "a\n\n",
+    ];
+    let mut violations = Vec::new();
+    for source in sources {
+        let len = {
+            let doc = load_markdown(source, editor_options());
+            doc.text_leaves()
+                .first()
+                .and_then(|&leaf| doc.text_of(leaf))
+                .map(str::len)
+                .unwrap_or(0)
+        };
+        for intent in [PasteIntent::PlainText, PasteIntent::IndependentFragment] {
+            for text in texts {
+                for off in 0..=len {
+                    if let Some(v) = paste_violation(source, off..off, text, intent) {
+                        violations.push(v);
+                    }
+                }
+                for (start, end) in [(0, len), (len / 2, len), (0, len / 2)] {
+                    if start >= end {
+                        continue;
+                    }
+                    if let Some(v) = paste_violation(source, start..end, text, intent) {
+                        violations.push(v);
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "{} violations:\n{}",
+        violations.len(),
+        violations.join("\n")
     );
 }
 

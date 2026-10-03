@@ -3,7 +3,7 @@ use super::super::arena::NodeId;
 use super::super::change::DocChange;
 use super::Caret;
 use crate::block::{BlockId, BlockKind, NodeExtra};
-use crate::document::write::needs_blank_between;
+use crate::document::write::{is_blank_paragraph, needs_blank_between};
 
 const COVERED_WRAPPER_ROUNDS: usize = 8;
 
@@ -368,15 +368,6 @@ impl Document {
             None => caret,
         }
     }
-}
-
-pub(crate) fn is_blank_paragraph(doc: &Document, id: NodeId) -> bool {
-    doc.arena
-        .get(id)
-        .is_some_and(|n| n.kind == BlockKind::Paragraph)
-        && matches!(doc.extra(id), NodeExtra::None | NodeExtra::CursorLine)
-        && doc.display(id).is_empty()
-        && doc.leaf_source(id).trim().is_empty()
 }
 
 pub(crate) fn is_cursor_line(doc: &Document, id: NodeId) -> bool {

@@ -170,7 +170,7 @@ fn quote_inside_list_item_round_trips_shape() {
 }
 
 #[test]
-fn blank_separated_nonparagraph_items_mark_the_list_loose() {
+fn blank_separated_nonparagraph_items_are_separate_lists() {
     for source in [
         "- > q\n\n- > r\n",
         "- > q\n \n- > r\n",
@@ -178,12 +178,11 @@ fn blank_separated_nonparagraph_items_mark_the_list_loose() {
         "- # h\n\n- # h2\n",
     ] {
         let doc = load_markdown(source, editor_options());
-        let list = *list_nodes(&doc).first().expect("list");
-        assert!(doc.extra(list).list_loose(), "source={source:?}");
+        assert_eq!(list_nodes(&doc).len(), 2, "source={source:?}");
         let md = doc.to_markdown();
         let again = load_markdown(&md, editor_options());
-        let list = *list_nodes(&again).first().expect("list");
-        assert!(again.extra(list).list_loose(), "md={md:?}");
+        assert_eq!(list_nodes(&again).len(), 2, "md={md:?}");
+        assert_eq!(again.to_markdown(), md, "md={md:?}");
     }
 }
 
@@ -206,13 +205,14 @@ fn blanks_bordering_a_list_do_not_mark_it_loose() {
 }
 
 #[test]
-fn blank_between_nested_items_marks_only_the_inner_list_loose() {
+fn blank_between_nested_items_starts_a_new_inner_list() {
     let doc = load_markdown("- - a\n\n  - b\n- - c\n", editor_options());
     let lists = list_nodes(&doc);
-    assert_eq!(lists.len(), 3);
-    assert!(!doc.extra(lists[0]).list_loose(), "outer");
-    assert!(doc.extra(lists[1]).list_loose(), "inner of item 1");
-    assert!(!doc.extra(lists[2]).list_loose(), "inner of item 2");
+    assert_eq!(lists.len(), 4);
+    assert!(doc.extra(lists[0]).list_loose(), "outer");
+    for (i, list) in lists.iter().enumerate().skip(1) {
+        assert!(!doc.extra(*list).list_loose(), "inner {i}");
+    }
 }
 
 #[test]
@@ -466,12 +466,12 @@ fn sibling_blocks_are_separated_by_exactly_one_blank_line() {
 #[test]
 fn an_ordered_list_renumbers_its_items_from_the_start_number() {
     for (source, saved) in [
-        ("1. a\n\n1. a\n", "1. a\n\n2. a\n"),
-        ("1. a\n\n2. b\n", "1. a\n\n2. b\n"),
-        ("5. a\n\n5. b\n\n5. c\n", "5. a\n\n6. b\n\n7. c\n"),
-        ("0. a\n\n0. b\n", "0. a\n\n1. b\n"),
-        ("10. a\n\n10. b\n", "10. a\n\n11. b\n"),
-        ("1) a\n\n1) b\n", "1) a\n\n2) b\n"),
+        ("1. a\n1. a\n", "1. a\n2. a\n"),
+        ("1. a\n2. b\n", "1. a\n2. b\n"),
+        ("5. a\n5. b\n5. c\n", "5. a\n6. b\n7. c\n"),
+        ("0. a\n0. b\n", "0. a\n1. b\n"),
+        ("10. a\n10. b\n", "10. a\n11. b\n"),
+        ("1) a\n1) b\n", "1) a\n2) b\n"),
     ] {
         let doc = load_markdown(source, editor_options());
         assert_eq!(doc.to_markdown(), saved, "source={source:?}");
@@ -525,13 +525,13 @@ fn a_blank_line_inside_a_list_item_carries_the_item_indentation() {
 }
 
 #[test]
-fn a_loose_list_separates_every_pair_of_items_with_a_blank_line() {
+fn a_loose_list_keeps_its_items_adjacent() {
     for (source, saved) in [
         ("- a\n- b\n", "- a\n- b\n"),
         ("- a\n\n- b\n", "- a\n\n- b\n"),
-        ("- a\n- b\n\n  c\n", "- a\n\n- b\n  \n  c\n"),
-        ("- a\n- b\n- c\n\n  d\n", "- a\n\n- b\n\n- c\n  \n  d\n"),
-        ("1. a\n1. b\n\n   c\n", "1. a\n\n2. b\n   \n   c\n"),
+        ("- a\n- b\n\n  c\n", "- a\n- b\n  \n  c\n"),
+        ("- a\n- b\n- c\n\n  d\n", "- a\n- b\n- c\n  \n  d\n"),
+        ("1. a\n1. b\n\n   c\n", "1. a\n2. b\n   \n   c\n"),
     ] {
         let doc = load_markdown(source, editor_options());
         assert_eq!(doc.to_markdown(), saved, "source={source:?}");

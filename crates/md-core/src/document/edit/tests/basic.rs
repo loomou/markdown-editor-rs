@@ -89,24 +89,38 @@ fn apply_soft_break_inserts_newline() {
 }
 
 #[test]
-fn each_soft_break_in_an_empty_paragraph_adds_one_line() {
+fn each_soft_break_in_an_empty_paragraph_starts_another_one() {
     let mut doc = load_markdown("", editor_options());
     let leaf = doc.text_leaves()[0];
-    for want in ["\n", "\n\n", "\n\n\n"] {
-        apply(&mut doc, Sel::collapsed(caret(leaf, 0)), Command::SoftBreak);
-        let id = doc.live_id(leaf).expect("live");
-        assert_eq!(doc.display(id), want);
+    let mut at = caret(leaf, 0);
+    for (want, leaves) in [("\n\n", 2), ("\n\n\n", 3), ("\n\n\n\n", 4)] {
+        at = apply(&mut doc, Sel::collapsed(at), Command::SoftBreak);
+        assert_eq!(at.offset, 0);
+        assert_eq!(doc.text_of(at.block).unwrap(), "");
+        assert_eq!(doc.text_leaves().len(), leaves);
+        assert_eq!(doc.to_markdown(), want);
     }
 }
 
 #[test]
-fn an_empty_paragraph_in_a_container_adds_one_line_per_soft_break() {
-    for src in ["> ", "- ", "1. ", "> - "] {
+fn an_empty_paragraph_in_a_container_gains_a_blank_line_per_soft_break() {
+    for (src, saved) in [
+        ("> ", "> \n> \n"),
+        ("- ", "- \n  \n"),
+        ("1. ", "1. \n   \n"),
+        ("> - ", "> - \n>   \n"),
+    ] {
         let mut doc = load_markdown(src, editor_options());
         let leaf = doc.text_leaves()[0];
+        assert_eq!(doc.text_of(leaf), Some(""), "src={src:?}");
+        let leaves = doc.text_leaves().len();
         apply(&mut doc, Sel::collapsed(caret(leaf, 0)), Command::SoftBreak);
-        let id = doc.live_id(leaf).expect("live");
-        assert_eq!(doc.display(id), "\n", "src={src:?}");
+        assert_eq!(doc.text_of(leaf), Some(""), "src={src:?}");
+        assert_eq!(doc.text_leaves().len(), leaves + 1, "src={src:?}");
+        assert_eq!(doc.to_markdown(), saved, "src={src:?}");
+        let reloaded = load_markdown(&doc.to_markdown(), editor_options());
+        assert_eq!(reloaded.to_markdown(), saved, "src={src:?}");
+        assert_eq!(reloaded.text_leaves().len(), leaves + 1, "src={src:?}");
     }
 }
 
@@ -582,12 +596,10 @@ fn deleting_list_text_preserves_an_unselected_empty_alt_image() {
         "unselected image lost: {markdown:?}"
     );
     let reloaded = load_markdown(&markdown, editor_options());
-    assert!(
-        reloaded
-            .preorder()
-            .into_iter()
-            .any(|id| reloaded.kind(id.index) == Some(BlockKind::Image)),
-        "image lost on reload: {markdown:?}"
+    assert_eq!(
+        reloaded.to_markdown(),
+        markdown,
+        "the image must survive a reload: {markdown:?}"
     );
 }
 

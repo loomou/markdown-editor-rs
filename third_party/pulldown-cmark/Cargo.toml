@@ -79,6 +79,12 @@ bincode = "1.3.1"
 default = ["getopts", "html"]
 # Read-only access to the parse tree (`Parsed` / `NodeRef`), see src/tree_api.rs.
 tree = []
+# Parse the way this editor's document model is shaped instead of the way CommonMark is
+# written. Today that is one rule: a blank line between two items of the same list ends
+# the list and starts a new one, rather than turning that single list loose. Off by
+# default so `tests/suite/` keeps asserting CommonMark; with it on, the cases that spell
+# a loose list with a blank line are ignored there, naming this feature as the reason.
+editor-mode = []
 gen-tests = []
 simd = ["pulldown-cmark-escape?/simd"]
 html = ["pulldown-cmark-escape"]

@@ -1,4 +1,6 @@
-use super::support::{flow_metrics, heading_spacing_theme, kind_count, layout, spacing_theme};
+use super::support::{
+    flow_metrics, heading_spacing_theme, kind_count, layout, paragraph_spacing_theme, spacing_theme,
+};
 use crate::compose::{compose, sync_layout};
 use md_core::document::{PasteIntent, editor_options, load_markdown};
 
@@ -710,5 +712,58 @@ fn wrapper_lead_stays_flushed_through_a_sync() {
         tree.style(bid).margin.top,
         cold.style(bid).margin.top,
         "hot and cold must agree on the quote lead"
+    );
+}
+
+#[test]
+fn typing_into_a_blank_paragraph_gives_the_margin_back() {
+    use md_core::document::{Caret, Command, Sel, apply};
+
+    let mut doc = load_markdown("abc\n", editor_options());
+    let layout = paragraph_spacing_theme();
+    let mut tree = compose(&doc, &layout);
+    let _ = doc.take_changes();
+    let leaf = doc.text_leaves()[0];
+
+    let blank = apply(
+        &mut doc,
+        Sel::collapsed(Caret {
+            block: leaf,
+            offset: 3,
+        }),
+        Command::Break,
+    );
+    let changes = doc.take_changes();
+    assert!(!sync_layout(&mut tree, &doc, &changes, &layout));
+    let blank_node = doc.live_id(blank.block).expect("live blank paragraph");
+    assert!(
+        doc.is_blank_paragraph(blank_node),
+        "the fixture must start from a blank paragraph"
+    );
+
+    let typed = apply(
+        &mut doc,
+        Sel::collapsed(blank),
+        Command::Insert { text: "x".into() },
+    );
+    let changes = doc.take_changes();
+    assert!(!sync_layout(&mut tree, &doc, &changes, &layout));
+
+    let box_id = crate::box_tree::LayoutBoxId::frame(typed.block);
+    let cold = compose(&doc, &layout);
+    let cold_margin = cold
+        .nodes
+        .get(&box_id)
+        .map(|node| cold.style_of(node).margin.top)
+        .expect("the typed paragraph has a cold box");
+    assert_eq!(cold_margin, 20.0, "the fixture must space paragraphs apart");
+    let hot = tree
+        .nodes
+        .get(&box_id)
+        .expect("the typed paragraph has a box");
+    assert_eq!(
+        tree.style_of(hot).margin.top,
+        cold_margin,
+        "the typed paragraph kept the blank paragraph's margin"
     );
 }

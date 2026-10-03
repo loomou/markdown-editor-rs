@@ -39,8 +39,43 @@ pub fn patch_text(tree: &mut BoxTree, doc: &Document, theme: &LayoutTheme, id: N
                 n.content_generation = id.generation.get();
             }
         }
+        restyle_flow_margins(tree, doc, theme, id);
     } else {
         refresh_deferred_estimate(tree, doc, theme, id);
+    }
+}
+
+fn restyle_flow_margins(tree: &mut BoxTree, doc: &Document, theme: &LayoutTheme, id: NodeId) {
+    restyle_flow_margin(tree, doc, theme, id);
+    if let Some(next) = doc.arena.get(id).and_then(|node| node.next_sibling) {
+        restyle_flow_margin(tree, doc, theme, next);
+    }
+}
+
+fn restyle_flow_margin(tree: &mut BoxTree, doc: &Document, theme: &LayoutTheme, id: NodeId) {
+    let Some(node) = doc.arena.get(id) else {
+        return;
+    };
+    let kind = node.kind;
+    let nested_list = kind == BlockKind::List
+        && node.parent.is_some_and(|p| {
+            doc.arena
+                .get(p)
+                .is_some_and(|n| n.kind == BlockKind::ListItem)
+        });
+    let box_id = LayoutBoxId::for_kind(kind, id.index);
+    if nested_list {
+        if tree.nodes.contains_key(&box_id) {
+            apply_list_metrics(doc, id, box_id, theme, &mut tree.nodes, &mut tree.styles);
+        }
+        return;
+    }
+    if tree.nodes.contains_key(&box_id) {
+        restyle(&mut tree.nodes, &mut tree.styles, box_id, |style| {
+            style.margin.top = flow_top_margin(theme, doc, id, kind);
+        });
+    } else if let Some(d) = tree.deferred.get_mut(&box_id) {
+        d.margin_top = flow_top_margin(theme, doc, id, kind);
     }
 }
 
@@ -231,19 +266,12 @@ fn retarget_lead_top_margins(
             .unwrap_or(BlockKind::Paragraph);
         let extra = doc.extra(c);
         let bid = LayoutBoxId::for_kind(kind, c.index);
+        restyle_flow_margin(tree, doc, theme, c);
         if kind == BlockKind::List && parent_kind == BlockKind::ListItem {
-            apply_list_metrics(doc, c, bid, theme, &mut tree.nodes, &mut tree.styles);
             continue;
         }
-        if tree.nodes.contains_key(&bid) {
-            restyle(&mut tree.nodes, &mut tree.styles, bid, |style| {
-                style.margin.top = flow_top_margin(theme, doc, c, kind);
-            });
-            if let Some(n) = tree.nodes.get_mut(&bid) {
-                n.type_slot = type_slot_for(theme, doc, c, kind, extra);
-            }
-        } else if let Some(d) = tree.deferred.get_mut(&bid) {
-            d.margin_top = flow_top_margin(theme, doc, c, kind);
+        if let Some(n) = tree.nodes.get_mut(&bid) {
+            n.type_slot = type_slot_for(theme, doc, c, kind, extra);
         }
     }
 }

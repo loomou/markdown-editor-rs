@@ -147,6 +147,9 @@ pub(super) fn flow_top_margin(
     id: NodeId,
     kind: BlockKind,
 ) -> md_core::Px {
+    if doc.is_blank_paragraph(id) || follows_a_blank_paragraph(doc, id) {
+        return 0.0;
+    }
     let base = if matches!(kind, BlockKind::Heading(_) | BlockKind::Table) {
         theme.style_for(BlockKind::Paragraph).margin.top
     } else {
@@ -176,6 +179,13 @@ pub(super) fn flow_top_margin(
         return top;
     }
     base
+}
+
+fn follows_a_blank_paragraph(doc: &Document, id: NodeId) -> bool {
+    doc.arena
+        .get(id)
+        .and_then(|node| node.prev_sibling)
+        .is_some_and(|prev| doc.is_blank_paragraph(prev))
 }
 
 pub(super) fn type_slot_for(

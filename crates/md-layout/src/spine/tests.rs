@@ -838,7 +838,8 @@ fn list_box_of(doc: &md_core::document::Document) -> LayoutBoxId {
 
 #[test]
 fn refreshing_unchanged_loose_list_gaps_preserves_geometry() {
-    let doc = md_core::document::load_markdown("- a\n\n- b\n", md_core::document::editor_options());
+    let doc =
+        md_core::document::load_markdown("- a\n- b\n\n  c\n", md_core::document::editor_options());
     let tree = crate::compose::compose(&doc, &zero_theme());
     let list_box = list_box_of(&doc);
     assert_eq!(

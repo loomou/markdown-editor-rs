@@ -237,7 +237,7 @@ fn list_tight_has_no_paragraph_events() {
         !first_list_extra(&tight).list_loose(),
         "tight list should not be loose"
     );
-    let loose = load_markdown("- a\n\n- b\n", editor_options());
+    let loose = load_markdown("- a\n- b\n\n  c\n", editor_options());
     assert!(first_list_extra(&loose).list_loose());
     let ordered = load_markdown("1. a\n", editor_options());
     assert_eq!(first_list_extra(&ordered).ordered_start(), Some(1));
@@ -268,7 +268,10 @@ fn compose_ordered_gutter_grows_with_digits() {
     };
     assert!(pad(&wide) > pad(&one));
     let tight = compose(&load_markdown("- a\n- b\n", editor_options()), &layout);
-    let loose = compose(&load_markdown("- a\n\n- b\n", editor_options()), &layout);
+    let loose = compose(
+        &load_markdown("- a\n- b\n\n  c\n", editor_options()),
+        &layout,
+    );
     let gap = |tree: &crate::box_tree::BoxTree| {
         tree.nodes
             .values()
@@ -716,4 +719,32 @@ fn wrapper_lead_takes_the_container_prose_top() {
     let (block, lead) = wrapper_lead(&doc, BlockKind::FootnoteDefinition);
     assert_eq!(lead, BlockKind::Paragraph);
     assert_eq!(block_top(&tree, block, lead), 9.0, "footnote lead");
+}
+
+#[test]
+fn a_blank_paragraph_takes_one_line_and_no_margin() {
+    let theme = spacing_theme(|kind| match kind {
+        BlockKind::Paragraph => 20.0,
+        _ => 0.0,
+    });
+    let tops = |source: &str| {
+        let doc = load_markdown(source, editor_options());
+        let tree = compose(&doc, &theme);
+        doc.preorder()
+            .into_iter()
+            .filter(|&id| doc.kind(id.index) == Some(BlockKind::Paragraph))
+            .map(|id| block_top(&tree, id.index, BlockKind::Paragraph))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(tops("a\n\nb\n"), vec![0.0, 20.0]);
+    assert_eq!(
+        tops("a\n\n\nb\n"),
+        vec![0.0, 0.0, 0.0],
+        "a blank line must cost one line and nothing else, or the caret cannot reach it"
+    );
+    assert_eq!(
+        tops("- a\n\n\n- b\n"),
+        vec![0.0, 0.0, 0.0],
+        "a blank line inside a list item must not borrow the paragraph margin either"
+    );
 }

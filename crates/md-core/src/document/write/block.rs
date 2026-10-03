@@ -23,7 +23,6 @@ enum Step {
         items: Vec<NodeId>,
         prefix: Prefix,
         ordered: bool,
-        loose: bool,
         start: u64,
         marker: ListMarker,
     },
@@ -117,10 +116,9 @@ where
                 items,
                 prefix,
                 ordered,
-                loose,
                 start,
                 marker,
-            } => write_list_step(items, &prefix, ordered, loose, start, marker, &mut stack)?,
+            } => write_list_step(items, &prefix, ordered, start, marker, &mut stack)?,
             Step::Item {
                 id,
                 prefix,
@@ -223,14 +221,12 @@ where
             let extra = doc.extra(id);
             let ordered = extra.ordered_start().is_some();
             let marker = extra.list_marker();
-            let loose = extra.list_loose();
             let start = extra.ordered_start().unwrap_or(1);
             let items: Vec<NodeId> = doc.children(id).collect();
             stack.push(Step::List {
                 items,
                 prefix: prefix.clone(),
                 ordered,
-                loose,
                 start,
                 marker,
             });
@@ -260,7 +256,7 @@ where
     }
 }
 
-pub(super) fn is_blank_paragraph<D: MarkdownExport>(doc: &D, id: NodeId) -> bool {
+pub(crate) fn is_blank_paragraph<D: MarkdownExport>(doc: &D, id: NodeId) -> bool {
     doc.kind(id) == Some(BlockKind::Paragraph)
         && matches!(doc.extra(id), NodeExtra::None | NodeExtra::CursorLine)
         && doc.display(id).is_empty()
@@ -409,21 +405,15 @@ fn write_list_step(
     items: Vec<NodeId>,
     prefix: &Prefix,
     ordered: bool,
-    loose: bool,
     start: u64,
     marker: ListMarker,
     stack: &mut Vec<Step>,
 ) -> fmt::Result {
-    let mut steps = Vec::with_capacity(items.len() * 3);
+    let mut steps = Vec::with_capacity(items.len() * 2);
     let mut num = start;
     for (i, item) in items.iter().copied().enumerate() {
         if i > 0 {
             steps.push(Step::Newline);
-            if loose {
-                steps.push(Step::BlankLine {
-                    prefix: prefix.clone(),
-                });
-            }
         }
         steps.push(Step::Item {
             id: item,
