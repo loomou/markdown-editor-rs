@@ -166,12 +166,13 @@ impl IncrementalEngine {
                     let islands = self.islands_of_block(node.index);
                     if islands.is_empty() {
                         self.refresh_deferred_ancestors(doc, *node);
-                        continue;
+                    } else {
+                        for island in islands {
+                            self.invalidate_one_island(island, &mut out);
+                        }
+                        self.refresh_collapsed_ancestors(node.index);
                     }
-                    for island in islands {
-                        self.invalidate_one_island(island, &mut out);
-                    }
-                    self.refresh_collapsed_ancestors(node.index);
+                    self.refresh_parent_gaps(doc, *node);
                 }
                 DocChange::AttrsChanged { node, .. } => {
                     let root = match doc.arena.get(*node) {
@@ -263,6 +264,17 @@ impl IncrementalEngine {
         if !out.invalidated.contains(&island) {
             out.invalidated.push(island);
         }
+    }
+
+    fn refresh_parent_gaps(&mut self, doc: &Document, node: NodeId) {
+        let Some(parent) = doc.arena.get(node).and_then(|n| n.parent) else {
+            return;
+        };
+        let Some(parent_box) = self.box_id_in_tree(parent.index) else {
+            return;
+        };
+        let tree = Rc::clone(&self.tree);
+        self.spine.refresh_gaps_of(&tree, parent_box);
     }
 
     fn box_id_in_tree(&self, index: u32) -> Option<LayoutBoxId> {

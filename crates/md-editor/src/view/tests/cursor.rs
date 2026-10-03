@@ -944,3 +944,62 @@ fn a_horizontal_move_ends_the_vertical_run(cx: &mut TestAppContext) {
         "up reused the column of the vertical run that the left press already ended"
     );
 }
+
+fn painted_line_tops(
+    editor: &gpui::Entity<EditorView>,
+    cx: &mut VisualTestContext,
+) -> (Vec<f64>, f64) {
+    let drawn = cx.draw(
+        point(px(0.0), px(0.0)),
+        size(px(800.0), px(600.0)),
+        |_, _| EditorElement {
+            state: editor.clone(),
+        },
+    );
+    let frame = &drawn.1.frame;
+    let advance = frame
+        .texts
+        .first()
+        .expect("the fixture paints at least one text piece")
+        .art
+        .row_advance;
+    let mut tops: Vec<f64> = frame
+        .texts
+        .iter()
+        .map(|piece| piece.content_origin_device.1)
+        .collect();
+    tops.sort_by(|a, b| {
+        a.partial_cmp(b)
+            .expect("the fixture paints finite line tops")
+    });
+    (tops, advance)
+}
+
+#[gpui::test]
+fn a_paragraph_typed_into_a_blank_line_is_spaced_like_the_saved_file(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc("abc\n", cx);
+    focus_editor(&editor, cx);
+    place_caret(&editor, cx, 0, 3);
+    cx.simulate_keystrokes("enter");
+    settle(&editor, cx);
+    cx.simulate_input("x");
+    settle(&editor, cx);
+
+    let (live, advance) = painted_line_tops(&editor, cx);
+    let saved = cx.update(|_, app| editor.read(app).state.doc.document.to_markdown());
+    let (reloaded, cx) = editor_with_doc(&saved, cx);
+    let (cold, _) = painted_line_tops(&reloaded, cx);
+    assert_eq!(
+        live.len(),
+        cold.len(),
+        "the two paints must cover the same lines: live={live:?} cold={cold:?}"
+    );
+    assert_eq!(
+        live, cold,
+        "the paragraph typed into a blank line is not spaced like the saved file"
+    );
+    assert!(
+        live[1] - live[0] > advance,
+        "the fixture never exercised the paragraph margin ({live:?})"
+    );
+}
