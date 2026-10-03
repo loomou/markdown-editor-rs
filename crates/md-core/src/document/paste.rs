@@ -35,13 +35,14 @@ impl Document {
                 if self.math_edit_would_close(id, range.clone(), text) {
                     return (ChangeSet::empty(self.revision), index, range.start);
                 }
-                let parts = split_plain_paragraphs(text);
                 let split_host = matches!(
                     self.arena.get(id).map(|n| n.kind),
                     Some(BlockKind::Paragraph | BlockKind::Heading(_) | BlockKind::Math)
                 );
+                let split = split_plain_paragraphs(text, self.plain_seams(id, &range));
+                let parts = &split.parts;
                 if parts.len() > 1 && split_host {
-                    let (changes, last_block, caret) = self.paste_plain_lines(id, range, &parts);
+                    let (changes, last_block, caret) = self.paste_plain_lines(id, range, &split);
                     let set = self.commit(before, changes);
                     return (set, last_block, caret);
                 }
@@ -68,24 +69,51 @@ impl Document {
         }
     }
 
+    fn plain_seams(&self, id: NodeId, range: &Range<usize>) -> PlainSeams {
+        let text = self.caret_text(id);
+        let len = text.len();
+        let start = floor_char_boundary(text, range.start.min(len));
+        let end = floor_char_boundary(text, range.end.min(len)).max(start);
+        PlainSeams {
+            at_head: start == 0,
+            left: text[..start].ends_with('\n'),
+            right: text[end..].starts_with('\n'),
+            has_suffix: end < len,
+        }
+    }
+
     fn paste_plain_lines(
         &mut self,
         id: NodeId,
         range: Range<usize>,
-        parts: &[&str],
+        split: &PlainSplit<'_>,
     ) -> (Vec<DocChange>, BlockId, usize) {
         let text_len = self.caret_text(id).len();
         let start = floor_char_boundary(self.caret_text(id), range.start.min(text_len));
         let end = floor_char_boundary(self.caret_text(id), range.end.min(text_len)).max(start);
         let (full_end, suffix) = if end < text_len {
             let suffix_src = self.suffix_source(id, end);
+            let suffix_src = if split.trim_right {
+                suffix_src
+                    .strip_prefix('\n')
+                    .unwrap_or(&suffix_src)
+                    .to_string()
+            } else {
+                suffix_src
+            };
             (text_len, suffix_src)
         } else {
             (range.end, String::new())
         };
+        let parts = &split.parts;
+        let from = if split.trim_left {
+            start.saturating_sub(1)
+        } else {
+            start
+        };
         let first = flattened_soft_breaks(self.arena.get(id).map(|n| n.kind), parts[0]);
         let (changes, mut caret) =
-            self.rewrite_text_spanning_constructs(id, start..full_end, &first);
+            self.rewrite_text_spanning_constructs(id, from..full_end, &first);
         let mut changes = changes;
         let parent = self.arena.get(id).and_then(|n| n.parent);
         let mut anchor = Some(id);
@@ -205,6 +233,11 @@ impl Document {
         let off = if range.start != range.end {
             let (chs, start) = self.rewrite_text(id, range, "");
             changes.extend(chs);
+            if self.kind(id.index) == Some(BlockKind::Paragraph) {
+                let mut trim = Vec::new();
+                self.trim_the_leading_line_break(id.index, &mut trim);
+                changes.append(&mut trim);
+            }
             start
         } else if image {
             let source = self.leaf_source(id);
@@ -225,6 +258,9 @@ impl Document {
         if !image && off > 0 && off < len {
             let (tc, tail) = self.split_leaf_nodes(id, off);
             changes.push(tc);
+            if self.kind(id.index) == Some(BlockKind::Paragraph) {
+                self.trim_the_line_break_between(id.index, tail.index, &mut changes);
+            }
             splice_before = Some(id);
             let grafted = self.graft_roots(&fragment, &roots, parent, Some(id));
             caret_src = grafted.1;
@@ -424,6 +460,9 @@ impl Document {
         let before = self.revision;
         let (text_changes, caret) = self.rewrite_text(id, range, text);
         let mut changes = text_changes;
+        if self.kind(id.index) == Some(BlockKind::Paragraph) {
+            self.trim_the_leading_line_break(id.index, &mut changes);
+        }
         if let Some(change) = definition_change {
             changes.push(change);
             self.reproject_leaves_with_reference_syntax(&[id], &mut changes);
@@ -572,19 +611,60 @@ impl Document {
     }
 }
 
-fn split_plain_paragraphs(text: &str) -> Vec<&str> {
+struct PlainSeams {
+    at_head: bool,
+    left: bool,
+    right: bool,
+    has_suffix: bool,
+}
+
+struct PlainSplit<'a> {
+    parts: Vec<&'a str>,
+    trim_left: bool,
+    trim_right: bool,
+}
+
+fn split_plain_paragraphs(text: &str, seams: PlainSeams) -> PlainSplit<'_> {
+    let bytes = text.as_bytes();
     let mut parts: Vec<&str> = Vec::new();
-    for (index, part) in text.split("\n\n").enumerate() {
-        if index == 0 {
-            parts.push(part);
-        } else {
-            let stripped = part.trim_start_matches('\n');
-            if !stripped.is_empty() {
-                parts.push(stripped);
-            }
+    let mut trim_left = false;
+    let mut trim_right = false;
+    let mut start = 0usize;
+    let mut at = 0usize;
+    while at < bytes.len() {
+        if bytes[at] != b'\n' {
+            at += 1;
+            continue;
+        }
+        let run_start = at;
+        while at < bytes.len() && bytes[at] == b'\n' {
+            at += 1;
+        }
+        let run = at - run_start;
+        let opens = run_start == 0;
+        let closes = at == bytes.len();
+        let boundary = run >= 2
+            || (opens && (seams.at_head || seams.left))
+            || (closes && seams.has_suffix && seams.right);
+        if !boundary {
+            continue;
+        }
+        trim_left |= opens && seams.left;
+        trim_right |= closes && seams.has_suffix && seams.right;
+        parts.push(&text[start..run_start]);
+        start = at;
+    }
+    parts.push(&text[start..]);
+    if !seams.has_suffix {
+        while parts.len() > 1 && parts.last() == Some(&"") {
+            parts.pop();
         }
     }
-    parts
+    PlainSplit {
+        parts,
+        trim_left,
+        trim_right,
+    }
 }
 
 fn flattened_soft_breaks(kind: Option<BlockKind>, text: &str) -> Cow<'_, str> {
