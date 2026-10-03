@@ -596,12 +596,10 @@ fn deleting_list_text_preserves_an_unselected_empty_alt_image() {
         "unselected image lost: {markdown:?}"
     );
     let reloaded = load_markdown(&markdown, editor_options());
-    assert!(
-        reloaded
-            .preorder()
-            .into_iter()
-            .any(|id| reloaded.kind(id.index) == Some(BlockKind::Image)),
-        "image lost on reload: {markdown:?}"
+    assert_eq!(
+        reloaded.to_markdown(),
+        markdown,
+        "the image must survive a reload: {markdown:?}"
     );
 }
 

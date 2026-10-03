@@ -43,7 +43,7 @@ md-editor = { path = "crates/md-editor" }
 
 gpui = { git = "https://github.com/zed-industries/zed.git", rev = "8eebe1ce1cd0190d44d9fac25f1bd71a4fc89a65" }
 gpui_platform = { git = "https://github.com/zed-industries/zed.git", rev = "8eebe1ce1cd0190d44d9fac25f1bd71a4fc89a65" }
-pulldown-cmark = { path = "third_party/pulldown-cmark", features = ["tree"] }
+pulldown-cmark = { path = "third_party/pulldown-cmark", features = ["tree", "editor-mode"] }
 merman = { version = "=0.8.0-alpha.5", default-features = false, features = [
     "svg",
     "png",

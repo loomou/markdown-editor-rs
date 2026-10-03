@@ -597,14 +597,14 @@ fn a_list_item_keeps_the_blank_lines_between_its_blocks() {
 }
 
 #[test]
-fn a_list_does_not_claim_a_blank_paragraph_between_its_items() {
-    for (source, saved) in [
-        ("- a\n\n\n- b\n", "- a\n\n- b\n"),
-        ("- a\n\n\n\n- b\n", "- a\n\n- b\n"),
-        ("> - a\n> \n> \n> - b\n", "> - a\n> \n> - b\n"),
+fn blank_paragraphs_between_two_lists_survive() {
+    for source in [
+        "- a\n\n\n- b\n",
+        "- a\n\n\n\n- b\n",
+        "> - a\n> \n> \n> - b\n",
     ] {
         let doc = load_markdown(source, editor_options());
-        assert_eq!(doc.to_markdown(), saved, "{source:?} changed shape");
+        assert_eq!(doc.to_markdown(), source, "{source:?} changed shape");
     }
 }
 
