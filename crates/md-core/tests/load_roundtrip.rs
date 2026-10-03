@@ -525,6 +525,11 @@ fn the_blank_lines_a_source_holds_become_the_same_number_of_blank_paragraphs() {
         ("- a\n  \n  \n  b\n", 1),
         ("> [!NOTE]\n> \n> hi\n", 1),
         ("[^1]: x\n\n\nz\n", 1),
+        ("a\n   ", 1),
+        ("a\n\t", 1),
+        ("a\n\n   ", 2),
+        ("   \na\n", 1),
+        ("\n   ", 1),
     ] {
         let doc = load_markdown(source, editor_options());
         let blanks = doc
@@ -535,6 +540,30 @@ fn the_blank_lines_a_source_holds_become_the_same_number_of_blank_paragraphs() {
             })
             .count();
         assert_eq!(blanks, want, "{source:?}");
+    }
+}
+
+#[test]
+fn an_edge_blank_line_survives_a_reload_without_a_terminator() {
+    for (source, want) in [
+        ("a\n   ", "a\n\n"),
+        ("a\n\t", "a\n\n"),
+        ("a\n\n   ", "a\n\n\n"),
+        ("   \na\n", "\na\n"),
+        ("   \n", "\n"),
+        ("  \n  ", "\n"),
+        ("\n   ", "\n"),
+    ] {
+        let doc = load_markdown(source, editor_options());
+        assert_eq!(doc.to_markdown(), want, "{source:?}");
+    }
+}
+
+#[test]
+fn a_file_of_nothing_but_whitespace_loads_as_an_empty_document() {
+    for source in ["", "   ", "\t", "  \t "] {
+        let doc = load_markdown(source, editor_options());
+        assert_eq!(doc.to_markdown(), "", "{source:?}");
     }
 }
 

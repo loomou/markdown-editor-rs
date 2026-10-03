@@ -96,11 +96,7 @@ pub(super) fn load_via_tree(md: &str, mut opts: Options) -> Document {
 }
 
 pub(super) fn document_of(parsed: &Parsed<'_>, source: String) -> Document {
-    let blanks: Vec<Range<usize>> = parsed
-        .blank_lines()
-        .map(|line| line.span)
-        .filter(|span| span.end > span.start && source.as_bytes()[span.end - 1] == b'\n')
-        .collect();
+    let blanks: Vec<Range<usize>> = parsed.blank_lines().map(|line| line.span).collect();
     let mut builder = Builder::new();
     walk_all(&mut builder, &source, parsed, &blanks);
     let mut spans: Vec<_> = parsed
@@ -862,17 +858,24 @@ fn blank_in_container(line: &str) -> bool {
     line.chars().all(|c| c == '>' || c == ' ' || c == '\t')
 }
 
-fn count_blank(blanks: &[Range<usize>], range: Range<usize>) -> usize {
-    let start = blanks.partition_point(|span| span.start < range.start);
-    let end = blanks.partition_point(|span| span.end <= range.end);
-    end.saturating_sub(start)
+fn is_a_line(source: &str, span: &Range<usize>) -> bool {
+    span.end > span.start && source.as_bytes()[span.end - 1] == b'\n'
 }
 
-fn leading_blank_run(blanks: &[Range<usize>], range: Range<usize>) -> usize {
+fn count_blank(blanks: &[Range<usize>], source: &str, range: Range<usize>) -> usize {
+    let start = blanks.partition_point(|span| span.start < range.start);
+    let end = blanks.partition_point(|span| span.end <= range.end);
+    blanks[start..end]
+        .iter()
+        .filter(|span| is_a_line(source, span))
+        .count()
+}
+
+fn leading_blank_run(blanks: &[Range<usize>], source: &str, range: Range<usize>) -> usize {
     let mut at = range.start;
     let mut count = 0;
     for span in &blanks[blanks.partition_point(|span| span.start < range.start)..] {
-        if span.start != at || span.end > range.end {
+        if span.start != at || span.end > range.end || !is_a_line(source, span) {
             break;
         }
         at = span.end;
@@ -1038,7 +1041,7 @@ fn gaps_for(
 ) -> Vec<usize> {
     let children: Vec<NodeRef<'_, '_>> = node.children().collect();
     if children.is_empty() {
-        return vec![count_blank(blanks, span)];
+        return vec![count_blank(blanks, source, span)];
     }
     let kids: Vec<Range<usize>> = children.iter().map(|child| child.span()).collect();
     let mut gaps = Vec::with_capacity(kids.len() + 1);
@@ -1047,11 +1050,11 @@ fn gaps_for(
     } else {
         span.start
     };
-    gaps.push(leading_blank_run(blanks, head..kids[0].start));
+    gaps.push(leading_blank_run(blanks, source, head..kids[0].start));
     for (index, pair) in kids.windows(2).enumerate() {
         let end = content_end(source, &children[index]).unwrap_or(pair[0].end);
         let start = after_the_previous_line(source, end);
-        let count = leading_blank_run(blanks, start..pair[1].start);
+        let count = leading_blank_run(blanks, source, start..pair[1].start);
         gaps.push(count.saturating_sub(1));
     }
     let last = kids[kids.len() - 1].end;
@@ -1361,28 +1364,39 @@ mod tests {
         pairs.iter().map(|&(start, end)| start..end).collect()
     }
 
+    const LINES: &str = "aa\n\nbbbbb\n";
+
     #[test]
     fn count_blank_counts_every_blank_line_in_the_range() {
         let list = blanks(&[(2, 3), (3, 4), (9, 10)]);
-        assert_eq!(count_blank(&list, 0..10), 3);
-        assert_eq!(count_blank(&list, 2..4), 2);
-        assert_eq!(count_blank(&list, 4..9), 0);
-        assert_eq!(count_blank(&list, 0..3), 1);
+        assert_eq!(count_blank(&list, LINES, 0..10), 3);
+        assert_eq!(count_blank(&list, LINES, 2..4), 2);
+        assert_eq!(count_blank(&list, LINES, 4..9), 0);
+        assert_eq!(count_blank(&list, LINES, 0..3), 1);
+    }
+
+    #[test]
+    fn a_blank_line_that_the_file_never_terminates_is_not_a_line() {
+        let list = blanks(&[(2, 3), (3, 6)]);
+        assert_eq!(count_blank(&list, "a\n\n   ", 0..6), 1);
+        assert_eq!(leading_blank_run(&list, "a\n\n   ", 2..6), 1);
     }
 
     #[test]
     fn a_leading_run_stops_at_the_first_non_blank_line() {
         let list = blanks(&[(0, 3), (3, 6), (9, 10)]);
-        assert_eq!(leading_blank_run(&list, 0..10), 2);
-        assert_eq!(leading_blank_run(&list, 3..10), 1);
-        assert_eq!(leading_blank_run(&list, 6..10), 0);
+        let source = "  \n  \n   \n";
+        assert_eq!(leading_blank_run(&list, source, 0..10), 2);
+        assert_eq!(leading_blank_run(&list, source, 3..10), 1);
+        assert_eq!(leading_blank_run(&list, source, 6..10), 0);
     }
 
     #[test]
     fn a_leading_run_ignores_a_blank_line_that_is_not_at_the_edge() {
         let list = blanks(&[(9, 10)]);
-        assert_eq!(leading_blank_run(&list, 0..10), 0);
-        assert_eq!(leading_blank_run(&list, 9..10), 1);
+        let source = "  \n  \n   \n";
+        assert_eq!(leading_blank_run(&list, source, 0..10), 0);
+        assert_eq!(leading_blank_run(&list, source, 9..10), 1);
     }
 
     #[test]
@@ -1397,6 +1411,12 @@ mod tests {
     fn a_trailing_run_that_does_not_reach_the_content_is_ignored() {
         let list = blanks(&[(4, 5), (12, 13), (13, 14)]);
         assert_eq!(trailing_blank_run(&list, 4..14), (12, 2));
+    }
+
+    #[test]
+    fn a_trailing_run_keeps_a_line_the_file_never_terminates() {
+        let list = blanks(&[(2, 3), (3, 6)]);
+        assert_eq!(trailing_blank_run(&list, 2..6), (2, 2));
     }
 
     #[test]
@@ -1418,5 +1438,136 @@ mod tests {
         assert_eq!(first_line_end("> [!NOTE]\n> hi\n", 0), Some(10));
         assert_eq!(first_line_end("> [!NOTE]", 0), None);
         assert_eq!(first_line_end("> hi\n", 0), Some(5));
+    }
+
+    fn tag_of(node: &NodeRef<'_, '_>) -> &'static str {
+        match node.kind() {
+            NodeKind::BlockQuote(_) => "quote",
+            NodeKind::ListItem(_) => "item",
+            NodeKind::Paragraph => "para",
+            NodeKind::CodeBlock(_) => "code",
+            NodeKind::FootnoteDefinition(_) => "footnote",
+            _ => "other",
+        }
+    }
+
+    fn find<'a, 'i>(node: &NodeRef<'a, 'i>, tag: &str) -> Option<NodeRef<'a, 'i>> {
+        if tag_of(node) == tag {
+            return Some(*node);
+        }
+        node.children().find_map(|child| find(&child, tag))
+    }
+
+    fn gaps_of(source: &str, tag: Option<&str>) -> Vec<usize> {
+        let normalized = super::super::normalize_markdown_source(source);
+        let mut opts = crate::document::editor_options();
+        opts.remove(Options::ENABLE_DEFINITION_LIST);
+        let parsed = Parsed::new(&normalized, opts);
+        let blanks: Vec<Range<usize>> = parsed.blank_lines().map(|line| line.span).collect();
+        let root = parsed.root();
+        match tag {
+            None => root_gaps(&blanks, &normalized, &root),
+            Some(tag) => {
+                let node = find(&root, tag).expect("the tag must name a node in the tree");
+                let alert = matches!(node.kind(), NodeKind::BlockQuote(Some(_)));
+                container_gaps(&blanks, &normalized, &node, alert)
+            }
+        }
+    }
+
+    fn count_synthesized(total: &mut usize, gaps: &[usize], childless: bool, is_root: bool) {
+        if childless {
+            let count = gaps.first().copied().unwrap_or(0);
+            *total += if is_root { count } else { count.max(1) };
+            return;
+        }
+        *total += gaps.iter().sum::<usize>();
+    }
+
+    fn walk_containers(
+        node: &NodeRef<'_, '_>,
+        blanks: &[Range<usize>],
+        source: &str,
+        total: &mut usize,
+    ) {
+        for child in node.children() {
+            let childless = child.first_child().is_none();
+            match child.kind() {
+                NodeKind::ListItem(_) => {
+                    let mut gaps = container_gaps(blanks, source, &child, false);
+                    if let Some(last) = gaps.last_mut() {
+                        *last = 0;
+                    }
+                    count_synthesized(total, &gaps, childless, false);
+                }
+                NodeKind::BlockQuote(kind) => {
+                    let gaps = container_gaps(blanks, source, &child, kind.is_some());
+                    count_synthesized(total, &gaps, childless, false);
+                }
+                _ => {}
+            }
+            walk_containers(&child, blanks, source, total);
+        }
+    }
+
+    fn synthesized(source: &str) -> usize {
+        let normalized = super::super::normalize_markdown_source(source);
+        let mut opts = crate::document::editor_options();
+        opts.remove(Options::ENABLE_DEFINITION_LIST);
+        let parsed = Parsed::new(&normalized, opts);
+        let blanks: Vec<Range<usize>> = parsed.blank_lines().map(|line| line.span).collect();
+        let root = parsed.root();
+        let mut total = 0;
+        let root_gaps = root_gaps(&blanks, &normalized, &root);
+        count_synthesized(&mut total, &root_gaps, root.first_child().is_none(), true);
+        walk_containers(&root, &blanks, &normalized, &mut total);
+        total
+    }
+
+    fn blank_paragraphs(source: &str) -> usize {
+        let doc = crate::document::load_markdown(source, crate::document::editor_options());
+        doc.preorder()
+            .into_iter()
+            .filter(|&id| {
+                doc.kind(id.index) == Some(BlockKind::Paragraph) && doc.display(id).is_empty()
+            })
+            .count()
+    }
+
+    #[test]
+    fn every_container_counts_the_blank_lines_it_owns() {
+        for (source, tag, want) in [
+            ("a\n\n\nb\n", None, vec![0, 1, 0]),
+            ("a\n\nb\n", None, vec![0, 0, 0]),
+            ("> a\n> \n> \n> b\n", Some("quote"), vec![0, 1, 0]),
+            ("> a\n> \n> b\n", Some("quote"), vec![0, 0, 0]),
+            ("- a\n  \n  \n  b\n", Some("item"), vec![0, 1, 0]),
+            ("    code\n\n\npara\n", None, vec![0, 1, 0]),
+            ("[^1]: x\n\n\nz\n", None, vec![0, 1, 0]),
+            ("> [!NOTE]\n> \n> hi\n", Some("quote"), vec![1, 0]),
+        ] {
+            assert_eq!(gaps_of(source, tag), want, "{source:?} {tag:?}");
+        }
+    }
+
+    #[test]
+    fn the_gaps_the_walk_hands_to_the_builder_add_up_to_the_blank_paragraphs() {
+        for source in [
+            "a\n\n\nb\n",
+            "a\n\nb\n",
+            "> a\n> \n> \n> b\n",
+            "- a\n  \n  \n  b\n",
+            "    code\n\n\npara\n",
+            "[^1]: x\n\n\nz\n",
+            "> [!NOTE]\n> \n> hi\n",
+            "```\nx\n```\n\n\np\n",
+            "para\n\n[a]: u\n\n\n",
+            "a\n\n\n",
+            "\n\n\n",
+            "- p\n  \n  \n  p\n",
+            "> \n> \n",
+        ] {
+            assert_eq!(synthesized(source), blank_paragraphs(source), "{source:?}");
+        }
     }
 }
