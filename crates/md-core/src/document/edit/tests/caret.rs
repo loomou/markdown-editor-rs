@@ -91,17 +91,30 @@ fn mid_enter_then_type_on_first_leaf_keeps_prefix() {
 }
 
 #[test]
-fn a_second_soft_break_beside_the_first_starts_a_paragraph() {
+fn a_second_soft_break_beside_the_first_keeps_the_paragraph() {
     let (mut doc, leaf) = fresh();
     let _ = type_chars(&mut doc, caret(leaf, 0), "123456");
     let mid = apply(&mut doc, Sel::collapsed(caret(leaf, 3)), Command::SoftBreak);
     assert_eq!(mid, caret(leaf, 4));
     let out = apply(&mut doc, Sel::collapsed(mid), Command::SoftBreak);
-    assert_ne!(out.block, leaf);
-    assert_eq!(out.offset, 0);
-    assert_eq!(doc.text_of(leaf).unwrap(), "123");
-    assert_eq!(doc.text_of(out.block).unwrap(), "456");
-    assert_eq!(doc.to_markdown(), "123\n\n\n456\n");
+    assert_eq!(out, caret(leaf, 5));
+    assert_eq!(doc.text_leaves(), vec![leaf]);
+    assert_eq!(doc.text_of(leaf).unwrap(), "123\n\n456");
+    assert_eq!(doc.to_markdown(), "123\n\\\n456\n");
+    let reloaded = load_markdown(&doc.to_markdown(), editor_options());
+    assert_eq!(
+        reloaded.text_of(reloaded.text_leaves()[0]).unwrap(),
+        "123\n\n456"
+    );
+}
+
+#[test]
+fn clearing_a_whole_soft_broken_paragraph_leaves_one_empty_leaf() {
+    let (mut doc, leaf) = fresh();
+    let _ = type_chars(&mut doc, caret(leaf, 0), "123456");
+    let mid = apply(&mut doc, Sel::collapsed(caret(leaf, 3)), Command::SoftBreak);
+    let _ = apply(&mut doc, Sel::collapsed(mid), Command::SoftBreak);
+    assert_eq!(doc.text_of(leaf).unwrap(), "123\n\n456");
     let end = doc.text_of(leaf).unwrap().len();
     let cleared = apply(
         &mut doc,

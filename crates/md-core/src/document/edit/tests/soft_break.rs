@@ -22,7 +22,7 @@ fn prose_rows(doc: &Document) -> usize {
         .sum()
 }
 
-fn assert_no_blank_line_in_prose(doc: &Document, step: usize) {
+fn assert_no_blank_line_in_the_source(doc: &Document, step: usize) {
     for id in doc.preorder() {
         if !matches!(
             doc.kind(id.index),
@@ -30,9 +30,9 @@ fn assert_no_blank_line_in_prose(doc: &Document, step: usize) {
         ) {
             continue;
         }
-        let display = doc.display(id);
-        assert!(!display.starts_with('\n'), "step {step}: {display:?}");
-        assert!(!display.contains("\n\n"), "step {step}: {display:?}");
+        let source = doc.leaf_source(id);
+        assert!(!source.starts_with('\n'), "step {step}: {source:?}");
+        assert!(!source.contains("\n\n"), "step {step}: {source:?}");
     }
 }
 
@@ -105,8 +105,8 @@ fn a_soft_break_at_the_start_starts_a_paragraph() {
 }
 
 #[test]
-fn a_soft_break_on_either_side_of_a_break_gives_the_same_paragraphs() {
-    for (offset, landed_on) in [(2, ""), (3, "x")] {
+fn a_soft_break_on_either_side_of_a_break_keeps_one_paragraph() {
+    for offset in [2, 3] {
         let mut doc = load_markdown("hi\nx\n", editor_options());
         let leaf = doc.text_leaves()[0];
         assert_eq!(doc.text_of(leaf), Some("hi\nx"));
@@ -115,12 +115,29 @@ fn a_soft_break_on_either_side_of_a_break_gives_the_same_paragraphs() {
             Sel::collapsed(caret(leaf, offset)),
             Command::SoftBreak,
         );
-        assert_eq!(doc.text_of(leaf), Some("hi"), "offset={offset}");
-        assert_eq!(doc.text_of(out.block), Some(landed_on), "offset={offset}");
-        assert_eq!(out.offset, 0, "offset={offset}");
-        assert_eq!(doc.to_markdown(), "hi\n\n\nx\n", "offset={offset}");
-        assert_eq!(shape(&reload(&doc.to_markdown())), shape(&doc));
+        assert_eq!(doc.text_leaves(), vec![leaf], "offset={offset}");
+        assert_eq!(doc.text_of(leaf), Some("hi\n\nx"), "offset={offset}");
+        assert_eq!(out, caret(leaf, 4), "offset={offset}");
+        assert_eq!(doc.to_markdown(), "hi\n\\\nx\n", "offset={offset}");
+        assert_eq!(
+            shape(&reload(&doc.to_markdown())),
+            shape(&doc),
+            "offset={offset}"
+        );
     }
+}
+
+#[test]
+fn a_soft_break_at_a_seam_inside_a_list_item_keeps_the_item() {
+    let mut doc = load_markdown("- a\n  b\n", editor_options());
+    let leaf = doc.text_leaves()[0];
+    assert_eq!(doc.text_of(leaf), Some("a\nb"));
+    let out = apply(&mut doc, Sel::collapsed(caret(leaf, 2)), Command::SoftBreak);
+    assert_eq!(doc.text_leaves(), vec![leaf]);
+    assert_eq!(doc.text_of(leaf), Some("a\n\nb"));
+    assert_eq!(out, caret(leaf, 3));
+    assert_eq!(doc.to_markdown(), "- a\n  \\\n  b\n");
+    assert_eq!(shape(&reload(&doc.to_markdown())), shape(&doc));
 }
 
 #[test]
@@ -161,17 +178,17 @@ fn a_lone_trailing_soft_break_is_lost_on_save() {
 }
 
 #[test]
-fn a_soft_break_never_leaves_a_blank_line_in_a_paragraph() {
+fn a_soft_break_never_puts_a_blank_line_in_the_source() {
     for start in [0, 3, 7] {
         let mut doc = load_markdown("one two\n", editor_options());
         let leaf = doc.text_leaves()[0];
         let mut at = caret(leaf, start);
         for step in 0..10 {
             at = apply(&mut doc, Sel::collapsed(at), Command::SoftBreak);
-            assert_no_blank_line_in_prose(&doc, step);
+            assert_no_blank_line_in_the_source(&doc, step);
         }
         at = type_chars(&mut doc, at, "z");
-        assert_no_blank_line_in_prose(&doc, 10);
+        assert_no_blank_line_in_the_source(&doc, 10);
     }
 }
 
@@ -220,10 +237,10 @@ fn the_prose_invariant_holds_through_a_scripted_session() {
     for cmd in script {
         at = apply(&mut doc, Sel::collapsed(at), cmd);
         step += 1;
-        assert_no_blank_line_in_prose(&doc, step);
+        assert_no_blank_line_in_the_source(&doc, step);
         assert_the_editor_settles_after_one_save(&doc, step);
         at = step_the_caret_back(&doc, at);
-        assert_no_blank_line_in_prose(&doc, step);
+        assert_no_blank_line_in_the_source(&doc, step);
         assert_the_editor_settles_after_one_save(&doc, step);
     }
 }
