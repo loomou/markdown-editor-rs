@@ -96,8 +96,13 @@ pub(super) fn load_via_tree(md: &str, mut opts: Options) -> Document {
 }
 
 pub(super) fn document_of(parsed: &Parsed<'_>, source: String) -> Document {
+    let blanks: Vec<Range<usize>> = parsed
+        .blank_lines()
+        .map(|line| line.span)
+        .filter(|span| span.end > span.start && source.as_bytes()[span.end - 1] == b'\n')
+        .collect();
     let mut builder = Builder::new();
-    walk_all(&mut builder, &source, parsed);
+    walk_all(&mut builder, &source, parsed, &blanks);
     let mut spans: Vec<_> = parsed
         .reference_definitions()
         .iter()
@@ -112,10 +117,10 @@ pub(super) fn document_of(parsed: &Parsed<'_>, source: String) -> Document {
     builder.finish(source, reference_definitions)
 }
 
-fn walk_all(builder: &mut Builder, source: &str, parsed: &Parsed<'_>) {
+fn walk_all(builder: &mut Builder, source: &str, parsed: &Parsed<'_>, blanks: &[Range<usize>]) {
     let mut stack: Vec<Item<'_, '_>> = Vec::new();
     stack.push(Item::CloseRoot {
-        gaps: root_gaps(source, &parsed.root()),
+        gaps: root_gaps(blanks, source, &parsed.root()),
     });
     if let Some(first) = parsed.root().first_child() {
         stack.push(Item::Node(first, InlineCtx::default()));
@@ -151,7 +156,7 @@ fn walk_all(builder: &mut Builder, source: &str, parsed: &Parsed<'_>) {
                 if let Some(sibling) = node.next_sibling() {
                     stack.push(Item::Node(sibling, ctx));
                 }
-                visit(builder, source, node, ctx, &mut stack);
+                visit(builder, source, node, ctx, &mut stack, blanks);
             }
         }
     }
@@ -163,6 +168,7 @@ fn visit<'a, 'i>(
     node: NodeRef<'a, 'i>,
     ctx: InlineCtx,
     stack: &mut Vec<Item<'a, 'i>>,
+    blanks: &[Range<usize>],
 ) {
     let span = node.span();
     if matches!(
@@ -227,7 +233,7 @@ fn visit<'a, 'i>(
                 }
                 _ => 0,
             };
-            let mut gaps = container_gaps(source, &node, false);
+            let mut gaps = container_gaps(blanks, source, &node, false);
             if let Some(last) = gaps.last_mut() {
                 *last = 0;
             }
@@ -242,6 +248,7 @@ fn visit<'a, 'i>(
         NodeKind::BlockQuote(kind) => {
             builder.mark_list_loose_before(source, span.start);
             let id = builder.alloc(BlockKind::BlockQuote);
+            let alert = kind.is_some();
             if let Some(k) = kind {
                 builder.set_extra(id, super::quote_alert(source, &span, k));
             }
@@ -250,7 +257,7 @@ fn visit<'a, 'i>(
             stack.push(Item::CloseBlock {
                 host: false,
                 end_row: false,
-                gaps: container_gaps(source, &node, kind.is_some()),
+                gaps: container_gaps(blanks, source, &node, alert),
                 trailing: 0,
             });
             push_children(stack, node, ctx);
@@ -855,55 +862,50 @@ fn blank_in_container(line: &str) -> bool {
     line.chars().all(|c| c == '>' || c == ' ' || c == '\t')
 }
 
-fn leading_blanks(source: &str, range: Range<usize>, alert: bool) -> usize {
-    let Some(region) = source.get(range) else {
-        return 0;
-    };
-    let mut lines: Vec<&str> = region.split('\n').collect();
-    lines.pop();
-    if alert && !lines.is_empty() {
-        lines.remove(0);
-    }
-    lines
-        .into_iter()
-        .take_while(|line| blank_in_container(line))
-        .count()
+fn count_blank(blanks: &[Range<usize>], range: Range<usize>) -> usize {
+    let start = blanks.partition_point(|span| span.start < range.start);
+    let end = blanks.partition_point(|span| span.end <= range.end);
+    end.saturating_sub(start)
 }
 
-fn blanks_in(source: &str, range: Range<usize>, alert: bool) -> usize {
-    let Some(region) = source.get(range) else {
-        return 0;
-    };
-    let mut lines: Vec<&str> = region.split('\n').collect();
-    lines.pop();
-    if alert && !lines.is_empty() {
-        lines.remove(0);
+fn leading_blank_run(blanks: &[Range<usize>], range: Range<usize>) -> usize {
+    let mut at = range.start;
+    let mut count = 0;
+    for span in &blanks[blanks.partition_point(|span| span.start < range.start)..] {
+        if span.start != at || span.end > range.end {
+            break;
+        }
+        at = span.end;
+        count += 1;
     }
-    lines
-        .into_iter()
-        .filter(|line| blank_in_container(line))
-        .count()
+    count
 }
 
-fn trailing_blanks(source: &str, range: Range<usize>, previous_terminated: bool) -> usize {
-    let Some(region) = source.get(range) else {
-        return 0;
-    };
-    if region.is_empty() {
-        return 0;
+fn trailing_blank_run(blanks: &[Range<usize>], range: Range<usize>) -> (usize, usize) {
+    let mut at = range.end;
+    let mut count = 0;
+    let head = blanks.partition_point(|span| span.end <= range.end);
+    for span in blanks[..head].iter().rev() {
+        if span.end != at || span.start < range.start {
+            break;
+        }
+        at = span.start;
+        count += 1;
     }
-    let mut lines: Vec<&str> = region.split('\n').collect();
-    if region.ends_with('\n') {
-        lines.pop();
+    (at, count)
+}
+
+fn after_the_previous_line(source: &str, at: usize) -> usize {
+    if !ends_with_newline(source, at) && source.as_bytes().get(at) == Some(&b'\n') {
+        at + 1
+    } else {
+        at
     }
-    if !previous_terminated && lines.first().is_some_and(|line| line.is_empty()) {
-        lines.remove(0);
-    }
-    lines
-        .into_iter()
-        .rev()
-        .take_while(|line| blank_in_container(line))
-        .count()
+}
+
+fn first_line_end(source: &str, at: usize) -> Option<usize> {
+    let rest = source.get(at..)?;
+    rest.find('\n').map(|offset| at + offset + 1)
 }
 
 fn blank_line_width(line: &str) -> Option<usize> {
@@ -983,24 +985,6 @@ fn item_trailing_blanks(source: &str, range: Range<usize>, indent: usize) -> usi
     count
 }
 
-fn gap_blanks(source: &str, range: Range<usize>, previous_terminated: bool) -> usize {
-    let Some(region) = source.get(range) else {
-        return 0;
-    };
-    if region.is_empty() {
-        return 0;
-    }
-    let mut lines: Vec<&str> = region.split('\n').collect();
-    lines.pop();
-    if !previous_terminated && lines.first().is_some_and(|line| line.is_empty()) {
-        lines.remove(0);
-    }
-    lines
-        .into_iter()
-        .take_while(|line| blank_in_container(line))
-        .count()
-}
-
 fn ends_with_newline(source: &str, end: usize) -> bool {
     end > 0 && source.as_bytes().get(end - 1) == Some(&b'\n')
 }
@@ -1026,31 +1010,48 @@ fn content_end(source: &str, child: &NodeRef<'_, '_>) -> Option<usize> {
     Some(end)
 }
 
-fn container_gaps(source: &str, node: &NodeRef<'_, '_>, alert: bool) -> Vec<usize> {
-    gaps_for(source, node, node.span(), alert)
+fn container_gaps(
+    blanks: &[Range<usize>],
+    source: &str,
+    node: &NodeRef<'_, '_>,
+    alert: bool,
+) -> Vec<usize> {
+    gaps_for(blanks, source, node, node.span(), alert)
 }
 
-fn root_gaps(source: &str, root: &NodeRef<'_, '_>) -> Vec<usize> {
+fn root_gaps(blanks: &[Range<usize>], source: &str, root: &NodeRef<'_, '_>) -> Vec<usize> {
     let span = root.span();
     let span = if span.end == source.len() {
         span
     } else {
         0..source.len()
     };
-    gaps_for(source, root, span, false)
+    gaps_for(blanks, source, root, span, false)
 }
 
-fn gaps_for(source: &str, node: &NodeRef<'_, '_>, span: Range<usize>, alert: bool) -> Vec<usize> {
+fn gaps_for(
+    blanks: &[Range<usize>],
+    source: &str,
+    node: &NodeRef<'_, '_>,
+    span: Range<usize>,
+    alert: bool,
+) -> Vec<usize> {
     let children: Vec<NodeRef<'_, '_>> = node.children().collect();
     if children.is_empty() {
-        return vec![blanks_in(source, span, alert)];
+        return vec![count_blank(blanks, span)];
     }
     let kids: Vec<Range<usize>> = children.iter().map(|child| child.span()).collect();
     let mut gaps = Vec::with_capacity(kids.len() + 1);
-    gaps.push(leading_blanks(source, span.start..kids[0].start, alert));
+    let head = if alert {
+        first_line_end(source, span.start).unwrap_or(kids[0].start)
+    } else {
+        span.start
+    };
+    gaps.push(leading_blank_run(blanks, head..kids[0].start));
     for (index, pair) in kids.windows(2).enumerate() {
         let end = content_end(source, &children[index]).unwrap_or(pair[0].end);
-        let count = gap_blanks(source, end..pair[1].start, ends_with_newline(source, end));
+        let start = after_the_previous_line(source, end);
+        let count = leading_blank_run(blanks, start..pair[1].start);
         gaps.push(count.saturating_sub(1));
     }
     let last = kids[kids.len() - 1].end;
@@ -1063,7 +1064,9 @@ fn gaps_for(source: &str, node: &NodeRef<'_, '_>, span: Range<usize>, alert: boo
             item_trailing_blanks(source, span, indent)
         })
         .unwrap_or(0);
-    let trailing = trailing_blanks(source, last..span.end, ends_with_newline(source, last));
+    let start = after_the_previous_line(source, last);
+    let (trail_start, trailing) = trailing_blank_run(blanks, start..span.end);
+    let trailing = if trail_start == start { trailing } else { 0 };
     gaps.push(trailing.saturating_sub(claimed));
     gaps
 }
@@ -1348,4 +1351,72 @@ fn blank_line_before(source: &str, at: usize) -> bool {
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn blanks(pairs: &[(usize, usize)]) -> Vec<Range<usize>> {
+        pairs.iter().map(|&(start, end)| start..end).collect()
+    }
+
+    #[test]
+    fn count_blank_counts_every_blank_line_in_the_range() {
+        let list = blanks(&[(2, 3), (3, 4), (9, 10)]);
+        assert_eq!(count_blank(&list, 0..10), 3);
+        assert_eq!(count_blank(&list, 2..4), 2);
+        assert_eq!(count_blank(&list, 4..9), 0);
+        assert_eq!(count_blank(&list, 0..3), 1);
+    }
+
+    #[test]
+    fn a_leading_run_stops_at_the_first_non_blank_line() {
+        let list = blanks(&[(0, 3), (3, 6), (9, 10)]);
+        assert_eq!(leading_blank_run(&list, 0..10), 2);
+        assert_eq!(leading_blank_run(&list, 3..10), 1);
+        assert_eq!(leading_blank_run(&list, 6..10), 0);
+    }
+
+    #[test]
+    fn a_leading_run_ignores_a_blank_line_that_is_not_at_the_edge() {
+        let list = blanks(&[(9, 10)]);
+        assert_eq!(leading_blank_run(&list, 0..10), 0);
+        assert_eq!(leading_blank_run(&list, 9..10), 1);
+    }
+
+    #[test]
+    fn a_trailing_run_stops_at_the_first_non_blank_line() {
+        let list = blanks(&[(0, 1), (4, 7), (7, 10)]);
+        assert_eq!(trailing_blank_run(&list, 0..10), (4, 2));
+        assert_eq!(trailing_blank_run(&list, 7..10), (7, 1));
+        assert_eq!(trailing_blank_run(&list, 0..7), (4, 1));
+    }
+
+    #[test]
+    fn a_trailing_run_that_does_not_reach_the_content_is_ignored() {
+        let list = blanks(&[(4, 5), (12, 13), (13, 14)]);
+        assert_eq!(trailing_blank_run(&list, 4..14), (12, 2));
+    }
+
+    #[test]
+    fn a_blank_line_that_only_terminates_the_previous_line_is_stepped_over() {
+        let source = "```\nx\n```\n\n\np\n";
+        assert_eq!(after_the_previous_line(source, 9), 10);
+        assert_eq!(after_the_previous_line(source, 10), 10);
+        assert_eq!(after_the_previous_line(source, 12), 12);
+    }
+
+    #[test]
+    fn a_terminated_line_is_not_stepped_over_twice() {
+        assert_eq!(after_the_previous_line("a\n\nb\n", 2), 2);
+        assert_eq!(after_the_previous_line("a\n\nb\n", 1), 2);
+    }
+
+    #[test]
+    fn the_alert_marker_line_is_not_part_of_the_leading_run() {
+        assert_eq!(first_line_end("> [!NOTE]\n> hi\n", 0), Some(10));
+        assert_eq!(first_line_end("> [!NOTE]", 0), None);
+        assert_eq!(first_line_end("> hi\n", 0), Some(5));
+    }
 }
