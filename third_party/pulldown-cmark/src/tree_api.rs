@@ -16,7 +16,9 @@
 //! `next` chain of `Tree<Item>`, content reads go through the `Index` impl on
 //! `Allocations`; the tree is not copied and no parent array is built.
 
-use crate::parse::{eager_parse, Allocations, BrokenLinkCallback, Item, ItemBody, RefDefs};
+use crate::parse::{
+    eager_parse, Allocations, BlankLine, BrokenLinkCallback, Item, ItemBody, RefDefs,
+};
 use crate::strings::CowStr;
 use crate::tree::{Tree, TreeIndex};
 use crate::{Alignment, BlockQuoteKind, HeadingLevel, LinkType, MetadataBlockKind, Options};
@@ -34,6 +36,7 @@ pub struct Parsed<'input> {
     text: &'input str,
     tree: Tree<Item>,
     allocs: Allocations<'input>,
+    blank_lines: Vec<BlankLine>,
 }
 
 impl core::fmt::Debug for Parsed<'_> {
@@ -58,8 +61,13 @@ impl<'input> Parsed<'input> {
         options: Options,
         broken_link_callback: Option<F>,
     ) -> Self {
-        let (tree, allocs) = eager_parse(text, options, broken_link_callback);
-        Parsed { text, tree, allocs }
+        let (tree, allocs, blank_lines) = eager_parse(text, options, broken_link_callback);
+        Parsed {
+            text,
+            tree,
+            allocs,
+            blank_lines,
+        }
     }
 
     /// Parse inline only: treat `text` as the content of a single paragraph.
@@ -146,8 +154,32 @@ impl<'input> Parsed<'input> {
         self.tree.nodes().len()
     }
 
+    pub fn blank_lines(&self) -> impl Iterator<Item = BlankLineRef<'_, 'input>> + '_ {
+        self.blank_lines.iter().map(|line| BlankLineRef {
+            span: line.span.clone(),
+            container: line.container.map(|ix| NodeRef {
+                parsed: self,
+                ix: Some(ix),
+            }),
+        })
+    }
+
     fn node(&self, ix: TreeIndex) -> &crate::tree::Node<Item> {
         &self.tree.nodes()[ix.get()]
+    }
+}
+
+pub struct BlankLineRef<'a, 'input> {
+    pub span: Range<usize>,
+    pub container: Option<NodeRef<'a, 'input>>,
+}
+
+impl core::fmt::Debug for BlankLineRef<'_, '_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("BlankLineRef")
+            .field("span", &self.span)
+            .field("container", &self.container.is_some())
+            .finish()
     }
 }
 

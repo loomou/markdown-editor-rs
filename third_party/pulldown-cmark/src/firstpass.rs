@@ -5,8 +5,8 @@ use std::cmp::max;
 use std::ops::Range;
 
 use crate::parse::{
-    scan_containers, Allocations, FootnoteDef, HeadingAttributes, Item, ItemBody, LinkDef,
-    LINK_MAX_NESTED_PARENS,
+    scan_containers, Allocations, BlankLine, FootnoteDef, HeadingAttributes, Item, ItemBody,
+    LinkDef, LINK_MAX_NESTED_PARENS,
 };
 use crate::strings::CowStr;
 use crate::tree::{Tree, TreeIndex};
@@ -21,7 +21,10 @@ use unicase::UniCase;
 
 /// Runs the first pass, which resolves the block structure of the document,
 /// and returns the resulting tree.
-pub(crate) fn run_first_pass(text: &str, options: Options) -> (Tree<Item>, Allocations<'_>) {
+pub(crate) fn run_first_pass(
+    text: &str,
+    options: Options,
+) -> (Tree<Item>, Allocations<'_>, Vec<BlankLine>) {
     // This is a very naive heuristic for the number of nodes
     // we'll need.
     let start_capacity = max(128, text.len() / 32);
@@ -36,6 +39,7 @@ pub(crate) fn run_first_pass(text: &str, options: Options) -> (Tree<Item>, Alloc
         lookup_table,
         brace_context_next: 0,
         brace_context_stack: Vec::new(),
+        blank_lines: Vec::new(),
     };
     first_pass.run()
 }
@@ -63,10 +67,11 @@ struct FirstPass<'a, 'b> {
     /// Math environment brace nesting.
     brace_context_stack: Vec<u8>,
     brace_context_next: usize,
+    blank_lines: Vec<BlankLine>,
 }
 
 impl<'a, 'b> FirstPass<'a, 'b> {
-    fn run(mut self) -> (Tree<Item>, Allocations<'a>) {
+    fn run(mut self) -> (Tree<Item>, Allocations<'a>, Vec<BlankLine>) {
         let mut ix = 0;
         while ix < self.text.len() {
             ix = self.parse_block(ix);
@@ -74,7 +79,23 @@ impl<'a, 'b> FirstPass<'a, 'b> {
         while self.tree.spine_len() > 0 {
             self.pop(ix);
         }
-        (self.tree, self.allocs)
+        (self.tree, self.allocs, self.blank_lines)
+    }
+
+    fn record_blank_lines(&mut self, range: Range<usize>) {
+        let bytes = self.text.as_bytes();
+        let container = self.tree.peek_up();
+        let mut at = range.start;
+        while at < range.end {
+            let end = at + scan_nextline(&bytes[at..]).min(range.end - at);
+            if let Some(n) = scan_blank_line(&bytes[at..end]) {
+                self.blank_lines.push(BlankLine {
+                    span: at..at + n,
+                    container,
+                });
+            }
+            at = end;
+        }
     }
 
     /// Returns offset after block.
@@ -277,7 +298,12 @@ impl<'a, 'b> FirstPass<'a, 'b> {
         let ix = start_ix + line_start.bytes_scanned();
 
         if let Some(n) = scan_blank_line(&bytes[ix..]) {
-            if let Some(node_ix) = self.tree.peek_up() {
+            let container = self.tree.peek_up();
+            self.blank_lines.push(BlankLine {
+                span: start_ix..ix + n,
+                container,
+            });
+            if let Some(node_ix) = container {
                 match &mut self.tree[node_ix].item.body {
                     ItemBody::BlockQuote(..) => (),
                     ItemBody::ListItem(indent) | ItemBody::DefinitionListDefinition(indent)
@@ -1360,6 +1386,9 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             self.tree[child].item.end = last_nonblank_ix;
         }
         self.pop(end_ix);
+        if ix > last_nonblank_ix {
+            self.record_blank_lines(last_nonblank_ix..ix);
+        }
         ix
     }
 

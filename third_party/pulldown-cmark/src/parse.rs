@@ -183,6 +183,12 @@ pub struct BrokenLink<'a> {
     pub reference: CowStr<'a>,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct BlankLine {
+    pub span: Range<usize>,
+    pub container: Option<TreeIndex>,
+}
+
 /// Markdown event iterator.
 pub struct Parser<'input, F = DefaultBrokenLinkCallback> {
     text: &'input str,
@@ -191,6 +197,7 @@ pub struct Parser<'input, F = DefaultBrokenLinkCallback> {
     allocs: Allocations<'input>,
     broken_link_callback: Option<F>,
     html_scan_guard: HtmlScanGuard,
+    blank_lines: Vec<BlankLine>,
 
     // https://github.com/pulldown-cmark/pulldown-cmark/issues/844
     // Consider this example:
@@ -268,7 +275,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
         options: Options,
         broken_link_callback: Option<F>,
     ) -> Self {
-        let (mut tree, allocs) = run_first_pass(text, options);
+        let (mut tree, allocs, blank_lines) = run_first_pass(text, options);
         tree.reset();
         let inline_stack = Default::default();
         let link_stack = Default::default();
@@ -284,6 +291,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
             link_stack,
             wikilink_stack,
             html_scan_guard,
+            blank_lines,
             // always allow 100KiB
             link_ref_expansion_limit: text.len().max(100_000),
             code_delims: CodeDelims::new(),
@@ -2476,12 +2484,17 @@ pub(crate) fn eager_parse<'input, F: BrokenLinkCallback<'input>>(
     text: &'input str,
     options: Options,
     broken_link_callback: Option<F>,
-) -> (Tree<Item>, Allocations<'input>) {
+) -> (Tree<Item>, Allocations<'input>, Vec<BlankLine>) {
     let mut parser = Parser::new_with_broken_link_callback(text, options, broken_link_callback);
     parser.resolve_all_inlines();
     parser.tree.reset();
-    let Parser { tree, allocs, .. } = parser;
-    (tree, allocs)
+    let Parser {
+        tree,
+        allocs,
+        blank_lines,
+        ..
+    } = parser;
+    (tree, allocs, blank_lines)
 }
 
 #[cfg(test)]

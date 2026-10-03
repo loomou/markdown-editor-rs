@@ -104,8 +104,8 @@ pub use crate::parse::{
 pub use crate::strings::{CowStr, InlineStr};
 #[cfg(feature = "tree")]
 pub use crate::tree_api::{
-    Children, CodeBlockInfo, HeadingInfo, LinkInfo, ListInfo, ListItemInfo, NodeKind, NodeRef,
-    Parsed,
+    BlankLineRef, Children, CodeBlockInfo, HeadingInfo, LinkInfo, ListInfo, ListItemInfo, NodeKind,
+    NodeRef, Parsed,
 };
 pub use crate::utils::*;
 
