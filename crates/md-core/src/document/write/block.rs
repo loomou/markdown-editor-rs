@@ -260,7 +260,7 @@ where
     }
 }
 
-pub(super) fn is_blank_paragraph<D: MarkdownExport>(doc: &D, id: NodeId) -> bool {
+pub(crate) fn is_blank_paragraph<D: MarkdownExport>(doc: &D, id: NodeId) -> bool {
     doc.kind(id) == Some(BlockKind::Paragraph)
         && matches!(doc.extra(id), NodeExtra::None | NodeExtra::CursorLine)
         && doc.display(id).is_empty()

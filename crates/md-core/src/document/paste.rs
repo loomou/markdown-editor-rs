@@ -251,7 +251,7 @@ impl Document {
         } else {
             self.display(id).len()
         };
-        let consumes_blank = off == 0 && normalize::is_blank_paragraph(self, id);
+        let consumes_blank = off == 0 && write::is_blank_paragraph(self, id);
         let splice_before;
         let caret_src;
         let mut inserted;

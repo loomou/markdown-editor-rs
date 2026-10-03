@@ -12,6 +12,7 @@ mod tests;
 
 use block::{run, run_item};
 
+pub(crate) use block::is_blank_paragraph;
 pub(crate) use block::needs_blank_between;
 
 pub(super) use inline::phrasing_source;

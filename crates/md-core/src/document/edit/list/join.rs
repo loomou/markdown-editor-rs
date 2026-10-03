@@ -4,6 +4,7 @@ use crate::document::arena::NodeId;
 use crate::document::change::DocChange;
 use crate::document::edit::path::Path;
 use crate::document::edit::{Caret, normalize};
+use crate::document::write::is_blank_paragraph;
 
 pub(super) fn is_text_leaf(doc: &Document, id: NodeId) -> bool {
     doc.arena.get(id).is_some_and(|n| n.kind.is_text_leaf())
@@ -75,7 +76,7 @@ fn join_prev(doc: &mut Document, path: &Path, prev_item: NodeId) -> Caret {
             offset: join_at,
         };
     } else if path.simple_empty_item(doc)
-        && normalize::is_blank_paragraph(doc, leaf)
+        && is_blank_paragraph(doc, leaf)
         && let Some(prev_leaf) = doc.prev_text_leaf(leaf)
     {
         let end = doc.caret_text(prev_leaf).len();
