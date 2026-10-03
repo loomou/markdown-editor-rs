@@ -350,3 +350,58 @@ fn r5_a_blank_line_between_two_paragraphs_costs_exactly_one_line(cx: &mut TestAp
         );
     });
 }
+
+#[gpui::test]
+fn r6_a_soft_break_at_the_end_of_a_line_adds_exactly_one_line(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let theme = DocumentTheme::one_dark();
+        let shaper = shaper(window, app, &theme);
+        let env = BoxLayoutEnvironment::default();
+        let snap = SnapOperator::new(1.0);
+        let mut doc = Doc::new(load_markdown("132\n", editor_options()));
+        let first = doc.first_text_leaf().unwrap();
+        let mut at = Cursor {
+            block: first,
+            offset: 3,
+        };
+        for pressed in 1..=3usize {
+            at = doc.apply(Sel::collapsed(at), Command::SoftBreak);
+            let frame = compose(
+                FrameContext {
+                    doc: &doc,
+                    env,
+                    shaper: &shaper,
+                    snap: &snap,
+                    theme: &theme,
+                },
+                &FrameRequest {
+                    viewport: (env.viewport_width, 2000.0),
+                    scroll: 0.0,
+                    cursor: at,
+                    selection: None,
+                    marked: None,
+                    search_query: "",
+                    search_skip: None,
+                },
+                &FallbackSolver,
+                None,
+            );
+            let pieces: Vec<_> = frame.snapshot.texts.iter().collect();
+            let advance = pieces[0].art.row_advance;
+            let first_top = pieces[0].content_origin_device.1;
+            let last = pieces.last().unwrap();
+            let last_row_top =
+                last.content_origin_device.1 + last.art.rows.saturating_sub(1) as f64 * advance;
+            assert_eq!(
+                last_row_top,
+                first_top + pressed as f64 * advance,
+                "press {pressed} must leave one more line than the press before it"
+            );
+            assert_eq!(
+                at.block, last.block,
+                "press {pressed} must leave the caret on the last line"
+            );
+        }
+    });
+}

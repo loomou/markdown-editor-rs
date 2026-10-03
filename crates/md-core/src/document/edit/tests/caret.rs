@@ -101,7 +101,7 @@ fn a_second_soft_break_beside_the_first_starts_a_paragraph() {
     assert_eq!(out.offset, 0);
     assert_eq!(doc.text_of(leaf).unwrap(), "123");
     assert_eq!(doc.text_of(out.block).unwrap(), "456");
-    assert_eq!(doc.to_markdown(), "123\n\n456\n");
+    assert_eq!(doc.to_markdown(), "123\n\n\n456\n");
     let end = doc.text_of(leaf).unwrap().len();
     let cleared = apply(
         &mut doc,

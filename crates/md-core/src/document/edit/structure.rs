@@ -128,9 +128,22 @@ fn break_paragraph_at_a_line_boundary(doc: &mut Document, at: Caret) -> Option<C
         return None;
     }
     let (_, right) = doc.split_leaf(at.block, off);
+    let left_ends = doc
+        .text_of(at.block)
+        .is_some_and(|text| text.ends_with('\n'));
+    let right_starts = doc
+        .text_of(right)
+        .is_some_and(|text| text.starts_with('\n'));
     trim_one_line_break(doc, at.block, right);
+    if !left_ends && !right_starts {
+        return Some(Caret {
+            block: right,
+            offset: 0,
+        });
+    }
+    let (_, tail) = doc.split_leaf(right, 0);
     Some(Caret {
-        block: right,
+        block: if left_ends { tail } else { right },
         offset: 0,
     })
 }
