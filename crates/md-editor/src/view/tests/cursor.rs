@@ -315,6 +315,51 @@ fn down_arrow_never_stalls_on_the_row_it_left(cx: &mut TestAppContext) {
     );
 }
 
+fn caret_row(editor: &gpui::Entity<EditorView>, cx: &mut VisualTestContext) -> (f64, f64) {
+    let drawn = cx.draw(
+        point(px(0.0), px(0.0)),
+        size(px(800.0), px(600.0)),
+        |_, _| EditorElement {
+            state: editor.clone(),
+        },
+    );
+    let f = &drawn.1.frame;
+    let advance = f
+        .texts
+        .first()
+        .expect("the fixture paints at least one text piece")
+        .art
+        .row_advance;
+    let y = f.caret_device.expect("the caret must be painted").1;
+    (y, advance)
+}
+
+#[gpui::test]
+fn each_soft_break_at_the_end_of_a_line_adds_a_line(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc("132\n", cx);
+    focus_editor(&editor, cx);
+    place_caret(&editor, cx, 0, 3);
+    let (mut previous, advance) = caret_row(&editor, cx);
+    assert!(advance > 0.0, "the fixture paints no line height");
+    for pressed in 1..=3usize {
+        cx.simulate_keystrokes("shift-enter");
+        settle(&editor, cx);
+        let (y, _) = caret_row(&editor, cx);
+        assert_eq!(
+            y,
+            previous + advance,
+            "press {pressed} must carry the caret exactly one line further down"
+        );
+        previous = y;
+        let md = cx.update(|_, app| editor.read(app).state.doc.document.to_markdown());
+        assert_eq!(
+            md.matches('\n').count(),
+            pressed,
+            "press {pressed} must leave one more line in the document than the press before it"
+        );
+    }
+}
+
 fn cell_sweep_doc() -> String {
     let unit = "lorem ipsum dolor sit amet consectetur adipiscing ".repeat(2);
     let fixed = "fixed tail that keeps the second column wide ".repeat(2);
