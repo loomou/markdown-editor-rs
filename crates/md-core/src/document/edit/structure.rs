@@ -136,16 +136,10 @@ fn break_paragraph_at_a_line_boundary(doc: &mut Document, at: Caret) -> Option<C
 }
 
 fn trim_one_line_break(doc: &mut Document, left: BlockId, right: BlockId) {
-    if let Some(len) = doc.text_of(left).map(str::len)
-        && doc.text_of(left).is_some_and(|text| text.ends_with('\n'))
-    {
-        let _ = doc.replace_text(left, len - 1..len, "");
-    }
-    if doc
-        .text_of(right)
-        .is_some_and(|text| text.starts_with('\n'))
-    {
-        let _ = doc.replace_text(right, 0..1, "");
+    let mut changes = Vec::new();
+    doc.trim_the_line_break_between(left, right, &mut changes);
+    if !changes.is_empty() {
+        doc.push_changes(changes);
     }
 }
 

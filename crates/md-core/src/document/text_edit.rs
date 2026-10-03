@@ -1070,6 +1070,35 @@ impl Document {
         (text_changed, new_id)
     }
 
+    pub(crate) fn trim_the_line_break_between(
+        &mut self,
+        left: BlockId,
+        right: BlockId,
+        changes: &mut Vec<DocChange>,
+    ) {
+        if let Some(id) = self.live_id(left)
+            && let Some(len) = self.text_of(left).map(str::len)
+            && self.text_of(left).is_some_and(|text| text.ends_with('\n'))
+        {
+            let (mut head, _) = self.rewrite_text(id, len - 1..len, "");
+            changes.append(&mut head);
+        }
+        self.trim_the_leading_line_break(right, changes);
+    }
+
+    pub(crate) fn trim_the_leading_line_break(
+        &mut self,
+        id: BlockId,
+        changes: &mut Vec<DocChange>,
+    ) {
+        if let Some(live) = self.live_id(id)
+            && self.text_of(id).is_some_and(|text| text.starts_with('\n'))
+        {
+            let (mut tail, _) = self.rewrite_text(live, 0..1, "");
+            changes.append(&mut tail);
+        }
+    }
+
     pub fn split_leaf(&mut self, index: BlockId, offset: usize) -> (ChangeSet, BlockId) {
         let before = self.revision;
         let Some(id) = self.live_id(index) else {
