@@ -4525,6 +4525,7 @@ fn spec_test_305() {
 }
 
 #[test]
+#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
 fn spec_test_306() {
     let original = r##"- foo
 
@@ -4602,6 +4603,7 @@ fn spec_test_308() {
 }
 
 #[test]
+#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
 fn spec_test_309() {
     let original = r##"-   foo
 
@@ -4655,6 +4657,7 @@ fn spec_test_310() {
 }
 
 #[test]
+#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
 fn spec_test_311() {
     let original = r##"1. a
 
@@ -4699,6 +4702,7 @@ fn spec_test_312() {
 }
 
 #[test]
+#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
 fn spec_test_313() {
     let original = r##"1. a
 
@@ -4722,6 +4726,7 @@ fn spec_test_313() {
 }
 
 #[test]
+#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
 fn spec_test_314() {
     let original = r##"- a
 - b
@@ -4745,6 +4750,7 @@ fn spec_test_314() {
 }
 
 #[test]
+#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
 fn spec_test_315() {
     let original = r##"* a
 *
@@ -4978,6 +4984,7 @@ fn spec_test_325() {
 }
 
 #[test]
+#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
 fn spec_test_326() {
     let original = r##"- a
   - b

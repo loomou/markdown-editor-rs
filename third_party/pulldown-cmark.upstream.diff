@@ -2,13 +2,16 @@
 #      (commit 38e4d08f14ec4bd9783270e9623db7681ebed968)
 # b/ = third_party/pulldown-cmark, the vendored fork in this repository:
 #      upstream plus a read-only tree API behind the `tree` feature
-#      (src/tree_api.rs, tests/tree_api.rs)
+#      (src/tree_api.rs, tests/tree_api.rs), and an `editor-mode` feature where
+#      a blank line between two items ends the list instead of turning that one
+#      list loose (off by default, so `tests/suite` still asserts CommonMark;
+#      on, the cases that spell a loose list with a blank line are ignored).
 # Apply on a clean checkout of the a/ side with `git apply` or `patch -p1`.
 # Do not edit by hand.
 # LICENSE is not patched: upstream ships it as a repo-root symlink; the
 # vendored copy materializes the same MIT text.
 diff --git a/Cargo.toml b/Cargo.toml
-index 13c86f0..b6b3ea2 100644
+index 13c86f0..41236e5 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -12,7 +12,6 @@ keywords = ["markdown", "commonmark"]
@@ -28,17 +31,83 @@ index 13c86f0..b6b3ea2 100644
  
  [dev-dependencies]
  lazy_static = "1.4"
-@@ -78,6 +77,8 @@ bincode = "1.3.1"
+@@ -78,6 +77,14 @@ bincode = "1.3.1"
  
  [features]
  default = ["getopts", "html"]
 +# Read-only access to the parse tree (`Parsed` / `NodeRef`), see src/tree_api.rs.
 +tree = []
++# Parse the way this editor's document model is shaped instead of the way CommonMark is
++# written. Today that is one rule: a blank line between two items of the same list ends
++# the list and starts a new one, rather than turning that single list loose. Off by
++# default so `tests/suite/` keeps asserting CommonMark; with it on, the cases that spell
++# a loose list with a blank line are ignored there, naming this feature as the reason.
++editor-mode = []
  gen-tests = []
  simd = ["pulldown-cmark-escape?/simd"]
  html = ["pulldown-cmark-escape"]
+diff --git a/build.rs b/build.rs
+index 55fdd07..b0f47b2 100644
+--- a/build.rs
++++ b/build.rs
+@@ -78,11 +78,17 @@ fn generate_tests_from_spec() {
+             .unwrap();
+ 
+         for (i, testcase) in spec.enumerate() {
++            let number = i + 1;
++            let deviation = if EDITOR_MODE_DEVIATIONS.contains(&(spec_name, number)) {
++                "\n#[cfg_attr(feature = \"editor-mode\", ignore = \"editor mode ends the list where a blank line separates two items\")]"
++            } else {
++                ""
++            };
+             spec_rs
+                 .write_fmt(format_args!(
+                     r###"
+-#[test]
+-fn {}_test_{i}() {{
++#[test]{deviation}
++fn {}_test_{number}() {{
+     let original = r##"{original}"##;
+     let expected = r##"{expected}"##;
+ 
+@@ -90,7 +96,8 @@ fn {}_test_{i}() {{
+ }}
+ "###,
+                     spec_name,
+-                    i = i + 1,
++                    number = number,
++                    deviation = deviation,
+                     original = testcase.original,
+                     expected = testcase.expected,
+                     smart_punct = testcase.smart_punct,
+@@ -134,6 +141,25 @@ fn {}_test_{i}() {{
+     }
+ }
+ 
++#[cfg(feature = "gen-tests")]
++const EDITOR_MODE_DEVIATIONS: &[(&str, usize)] = &[
++    ("footnotes", 15),
++    ("math", 26),
++    ("regression", 8),
++    ("regression", 64),
++    ("regression", 70),
++    ("regression", 109),
++    ("regression", 110),
++    ("regression", 187),
++    ("spec", 306),
++    ("spec", 309),
++    ("spec", 311),
++    ("spec", 313),
++    ("spec", 314),
++    ("spec", 315),
++    ("spec", 326),
++];
++
+ #[cfg(feature = "gen-tests")]
+ pub struct Spec<'a> {
+     spec: &'a str,
 diff --git a/src/firstpass.rs b/src/firstpass.rs
-index fc8abed..835ed46 100644
+index fc8abed..fe2bb79 100644
 --- a/src/firstpass.rs
 +++ b/src/firstpass.rs
 @@ -5,8 +5,8 @@ use std::cmp::max;
@@ -146,6 +215,24 @@ index fc8abed..835ed46 100644
          ix
      }
  
+@@ -1562,11 +1593,14 @@ impl<'a, 'b> FirstPass<'a, 'b> {
+         if let Some(node_ix) = self.tree.peek_up() {
+             if let ItemBody::List(ref mut is_tight, existing_ch, _) = self.tree[node_ix].item.body {
+                 if existing_ch == ch {
+-                    if self.last_line_blank {
++                    if !self.last_line_blank {
++                        return;
++                    }
++                    self.last_line_blank = false;
++                    if !cfg!(feature = "editor-mode") {
+                         *is_tight = false;
+-                        self.last_line_blank = false;
++                        return;
+                     }
+-                    return;
+                 }
+             }
+             // TODO: this is not the best choice for end; maybe get end from last list item.
 diff --git a/src/lib.rs b/src/lib.rs
 index 6e17a91..bae8c05 100644
 --- a/src/lib.rs
@@ -910,6 +997,142 @@ index 0000000..06e7116
 +        true
 +    }
 +}
+diff --git a/tests/suite/footnotes.rs b/tests/suite/footnotes.rs
+index dd9b15e..7c92655 100644
+--- a/tests/suite/footnotes.rs
++++ b/tests/suite/footnotes.rs
+@@ -340,6 +340,7 @@ An unordered list before the footnotes:
+ }
+ 
+ #[test]
++#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
+ fn footnotes_test_15() {
+     let original = r##"Songs that simply loop are a popular way to annoy people. [^examples]
+ 
+diff --git a/tests/suite/math.rs b/tests/suite/math.rs
+index f5d595b..12f3e4f 100644
+--- a/tests/suite/math.rs
++++ b/tests/suite/math.rs
+@@ -448,6 +448,7 @@ fn math_test_25() {
+ }
+ 
+ #[test]
++#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
+ fn math_test_26() {
+     let original = r##"- $a$
+ 
+diff --git a/tests/suite/regression.rs b/tests/suite/regression.rs
+index b3be073..7726318 100644
+--- a/tests/suite/regression.rs
++++ b/tests/suite/regression.rs
+@@ -107,6 +107,7 @@ fn regression_test_7() {
+ }
+ 
+ #[test]
++#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
+ fn regression_test_8() {
+     let original = r##"<!-- <dl> -->
+ - **foo** (u8, u8)
+@@ -873,6 +874,7 @@ fn regression_test_63() {
+ }
+ 
+ #[test]
++#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
+ fn regression_test_64() {
+     let original = r##"* A list.
+ 
+@@ -995,6 +997,7 @@ fn regression_test_69() {
+ }
+ 
+ #[test]
++#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
+ fn regression_test_70() {
+     let original = r##"* [ ] foo
+ 
+@@ -1599,6 +1602,7 @@ Things
+ }
+ 
+ #[test]
++#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
+ fn regression_test_109() {
+     let original = r##"-
+ 
+@@ -1623,6 +1627,7 @@ fn regression_test_109() {
+ }
+ 
+ #[test]
++#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
+ fn regression_test_110() {
+     let original = r##"-
+ 
+@@ -2957,6 +2962,7 @@ fn regression_test_186() {
+ }
+ 
+ #[test]
++#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
+ fn regression_test_187() {
+     let original = r##"-     test
+ 
+diff --git a/tests/suite/spec.rs b/tests/suite/spec.rs
+index da3374f..eeb1422 100644
+--- a/tests/suite/spec.rs
++++ b/tests/suite/spec.rs
+@@ -4525,6 +4525,7 @@ fn spec_test_305() {
+ }
+ 
+ #[test]
++#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
+ fn spec_test_306() {
+     let original = r##"- foo
+ 
+@@ -4602,6 +4603,7 @@ fn spec_test_308() {
+ }
+ 
+ #[test]
++#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
+ fn spec_test_309() {
+     let original = r##"-   foo
+ 
+@@ -4655,6 +4657,7 @@ fn spec_test_310() {
+ }
+ 
+ #[test]
++#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
+ fn spec_test_311() {
+     let original = r##"1. a
+ 
+@@ -4699,6 +4702,7 @@ fn spec_test_312() {
+ }
+ 
+ #[test]
++#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
+ fn spec_test_313() {
+     let original = r##"1. a
+ 
+@@ -4722,6 +4726,7 @@ fn spec_test_313() {
+ }
+ 
+ #[test]
++#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
+ fn spec_test_314() {
+     let original = r##"- a
+ - b
+@@ -4745,6 +4750,7 @@ fn spec_test_314() {
+ }
+ 
+ #[test]
++#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
+ fn spec_test_315() {
+     let original = r##"* a
+ *
+@@ -4978,6 +4984,7 @@ fn spec_test_325() {
+ }
+ 
+ #[test]
++#[cfg_attr(feature = "editor-mode", ignore = "editor mode ends the list where a blank line separates two items")]
+ fn spec_test_326() {
+     let original = r##"- a
+   - b
 diff --git a/tests/tree_api.rs b/tests/tree_api.rs
 new file mode 100644
 index 0000000..82d70b7
