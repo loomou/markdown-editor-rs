@@ -225,7 +225,7 @@ fn visit<'a, 'i>(
             builder.parents.push(id);
             let trailing = match innermost_trailing_item(source, &node) {
                 Some(item) if item.span() == span => {
-                    item_trailing_blanks(source, span, width as usize)
+                    item_trailing_blanks(blanks, source, span, width as usize)
                 }
                 _ => 0,
             };
@@ -911,27 +911,13 @@ fn first_line_end(source: &str, at: usize) -> Option<usize> {
     rest.find('\n').map(|offset| at + offset + 1)
 }
 
-fn blank_line_width(line: &str) -> Option<usize> {
+fn blank_line_width(source: &str, span: &Range<usize>) -> Option<usize> {
+    let line = source.get(span.clone())?;
+    let line = line.strip_suffix('\n').unwrap_or(line);
     if !blank_in_container(line) {
         return None;
     }
     Some(line.len())
-}
-
-fn last_content_end(source: &str, range: &Range<usize>) -> usize {
-    let Some(region) = source.get(range.clone()) else {
-        return range.start;
-    };
-    let mut at = range.start;
-    let mut end = range.start;
-    for line in region.split('\n') {
-        let line_end = at + line.len();
-        if !blank_in_container(line) {
-            end = line_end;
-        }
-        at = line_end + 1;
-    }
-    end
 }
 
 fn ends_with_a_list(node: &NodeRef<'_, '_>) -> bool {
@@ -963,27 +949,24 @@ fn innermost_trailing_item<'a, 'i>(
     }
 }
 
-fn item_trailing_blanks(source: &str, range: Range<usize>, indent: usize) -> usize {
-    let end = last_content_end(source, &range);
-    let Some(region) = source.get(end..range.end) else {
-        return 0;
-    };
-    if region.is_empty() {
-        return 0;
-    }
-    let mut lines: Vec<&str> = region.split('\n').collect();
-    if region.ends_with('\n') {
-        lines.pop();
-    }
-    if !ends_with_newline(source, end) && lines.first().is_some_and(|line| line.is_empty()) {
-        lines.remove(0);
-    }
+fn item_trailing_blanks(
+    blanks: &[Range<usize>],
+    source: &str,
+    range: Range<usize>,
+    indent: usize,
+) -> usize {
     let mut count = 0usize;
-    for line in lines.into_iter().rev() {
-        match blank_line_width(line) {
+    let mut at = range.end;
+    let head = blanks.partition_point(|span| span.end <= range.end);
+    for span in blanks[..head].iter().rev() {
+        if span.end != at || span.start < range.start {
+            break;
+        }
+        match blank_line_width(source, span) {
             Some(width) if width >= indent => count += 1,
             _ => break,
         }
+        at = span.start;
     }
     count
 }
@@ -1064,7 +1047,7 @@ fn gaps_for(
         .map(|item| {
             let span = item.span();
             let indent = super::item_host_indent(source, span.start) as usize;
-            item_trailing_blanks(source, span, indent)
+            item_trailing_blanks(blanks, source, span, indent)
         })
         .unwrap_or(0);
     let start = after_the_previous_line(source, last);
