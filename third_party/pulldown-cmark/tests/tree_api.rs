@@ -487,3 +487,55 @@ fn inline_only_single_paragraph_exit() {
         .collect();
     assert!(kinds.iter().filter(|k| **k).count() >= 3, "{kinds:?}");
 }
+
+#[test]
+fn blank_line_spans_cover_whole_whitespace_lines_in_order() {
+    for (name, opts) in option_sets() {
+        for (path, src) in spec_files() {
+            let parsed = Parsed::new(&src, opts);
+            let mut previous = 0usize;
+            let mut count = 0usize;
+            for line in parsed.blank_lines() {
+                let span = line.span.clone();
+                let text = &src[span.clone()];
+                assert!(
+                    span.start >= previous,
+                    "{name} {path}: {span:?} overlaps the previous span"
+                );
+                assert!(!text.is_empty(), "{name} {path}: empty span {span:?}");
+                assert!(
+                    text.chars()
+                        .all(|c| matches!(c, ' ' | '\t' | '\r' | '\n' | '>')),
+                    "{name} {path}: {text:?} is not a blank line"
+                );
+                previous = span.end;
+                count += 1;
+            }
+            let newlines = src.matches('\n').count();
+            assert!(
+                count <= newlines + 1,
+                "{name} {path}: {count} blank lines for {newlines} newlines"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_blank_line_names_the_container_it_sits_in() {
+    let src = "a\n\n> b\n> \n> \n> c\n";
+    let parsed = Parsed::new(src, Options::all());
+    let spans: Vec<(usize, usize)> = parsed
+        .blank_lines()
+        .map(|line| (line.span.start, line.span.end))
+        .collect();
+    assert_eq!(spans, vec![(2, 3), (7, 10), (10, 13)]);
+    let owners: Vec<String> = parsed
+        .blank_lines()
+        .map(|line| {
+            line.container
+                .map(|node| kind_name(&node.kind()))
+                .unwrap_or_else(|| "none".into())
+        })
+        .collect();
+    assert_eq!(owners, vec!["none", "BlockQuote", "BlockQuote"]);
+}
