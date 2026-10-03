@@ -134,6 +134,10 @@ impl Document {
         self.leaf_source(id)
     }
 
+    pub fn is_blank_paragraph(&self, id: NodeId) -> bool {
+        super::write::is_blank_paragraph(self, id)
+    }
+
     pub(crate) fn caret_text(&self, id: NodeId) -> &str {
         let kind = self.arena.get(id).map(|n| n.kind);
         if kind.is_some_and(|kind| kind.text_edit_strategy() == TextEditStrategy::BlockSource) {

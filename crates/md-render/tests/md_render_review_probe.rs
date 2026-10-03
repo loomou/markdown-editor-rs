@@ -303,3 +303,50 @@ fn r4_list_looseness_refreshes_existing_flow_gaps(cx: &mut TestAppContext) {
         );
     });
 }
+
+#[gpui::test]
+fn r5_a_blank_line_between_two_paragraphs_costs_exactly_one_line(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let theme = DocumentTheme::one_dark();
+        let shaper = shaper(window, app, &theme);
+        let env = BoxLayoutEnvironment::default();
+        let snap = SnapOperator::new(1.0);
+        let doc = Doc::new(load_markdown("a\n\n\nb\n", editor_options()));
+        let first = doc.first_text_leaf().unwrap();
+        let frame = compose(
+            FrameContext {
+                doc: &doc,
+                env,
+                shaper: &shaper,
+                snap: &snap,
+                theme: &theme,
+            },
+            &FrameRequest {
+                viewport: (env.viewport_width, 2000.0),
+                scroll: 0.0,
+                cursor: Cursor {
+                    block: first,
+                    offset: 0,
+                },
+                selection: None,
+                marked: None,
+                search_query: "",
+                search_skip: None,
+            },
+            &FallbackSolver,
+            None,
+        );
+        let pieces: Vec<_> = frame.snapshot.texts.iter().collect();
+        assert_eq!(pieces.len(), 3, "a, the blank paragraph, b");
+        let advance = pieces[0].art.row_advance;
+        assert_eq!(pieces[1].art.row_advance, advance);
+        let top_a = pieces[0].content_origin_device.1;
+        let top_b = pieces[2].content_origin_device.1;
+        assert_eq!(
+            top_b - top_a,
+            2.0 * advance,
+            "one blank line costs one line and nothing else, or the caret cannot reach it"
+        );
+    });
+}

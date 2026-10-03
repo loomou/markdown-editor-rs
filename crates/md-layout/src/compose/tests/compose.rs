@@ -720,3 +720,31 @@ fn wrapper_lead_takes_the_container_prose_top() {
     assert_eq!(lead, BlockKind::Paragraph);
     assert_eq!(block_top(&tree, block, lead), 9.0, "footnote lead");
 }
+
+#[test]
+fn a_blank_paragraph_takes_one_line_and_no_margin() {
+    let theme = spacing_theme(|kind| match kind {
+        BlockKind::Paragraph => 20.0,
+        _ => 0.0,
+    });
+    let tops = |source: &str| {
+        let doc = load_markdown(source, editor_options());
+        let tree = compose(&doc, &theme);
+        doc.preorder()
+            .into_iter()
+            .filter(|&id| doc.kind(id.index) == Some(BlockKind::Paragraph))
+            .map(|id| block_top(&tree, id.index, BlockKind::Paragraph))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(tops("a\n\nb\n"), vec![0.0, 20.0]);
+    assert_eq!(
+        tops("a\n\n\nb\n"),
+        vec![0.0, 0.0, 0.0],
+        "a blank line must cost one line and nothing else, or the caret cannot reach it"
+    );
+    assert_eq!(
+        tops("- a\n\n\n- b\n"),
+        vec![0.0, 0.0, 0.0],
+        "a blank line inside a list item must not borrow the paragraph margin either"
+    );
+}
