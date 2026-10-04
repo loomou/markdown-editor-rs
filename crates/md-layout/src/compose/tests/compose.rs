@@ -748,3 +748,68 @@ fn a_blank_paragraph_takes_one_line_and_no_margin() {
         "a blank line inside a list item must not borrow the paragraph margin either"
     );
 }
+
+#[test]
+fn the_cursor_line_keeps_the_paragraph_margin() {
+    use md_core::block::NodeExtra;
+    use md_core::doc::Doc;
+    use md_core::document::{Caret, Command, Sel};
+
+    let theme = spacing_theme(|kind| match kind {
+        BlockKind::Paragraph => 20.0,
+        _ => 0.0,
+    });
+    let tops = |doc: &Document| {
+        let tree = compose(doc, &theme);
+        doc.preorder()
+            .into_iter()
+            .filter(|&id| doc.kind(id.index) == Some(BlockKind::Paragraph))
+            .map(|id| block_top(&tree, id.index, BlockKind::Paragraph))
+            .collect::<Vec<_>>()
+    };
+
+    let mut doc = Doc::new(load_markdown("abc\n", editor_options()));
+    doc.enable_trailing_blank();
+    let leaf = doc.text_leaves()[0];
+    let caret = doc.apply(
+        Sel::collapsed(Caret {
+            block: leaf,
+            offset: 3,
+        }),
+        Command::Break,
+    );
+    let blank = doc.document.live_id(caret.block).expect("live cursor line");
+    assert!(
+        doc.document.is_blank_paragraph(blank),
+        "the fixture starts blank"
+    );
+    assert_eq!(
+        doc.document.extra(blank),
+        NodeExtra::CursorLine,
+        "the fixture is the cursor line"
+    );
+    assert_eq!(
+        tops(&doc.document),
+        vec![0.0, 20.0],
+        "the cursor line is a paragraph, so it keeps the paragraph margin"
+    );
+
+    assert_eq!(
+        tops(&load_markdown("a\n\n\nb\n", editor_options())),
+        vec![0.0, 0.0, 0.0],
+        "a document blank line still costs one line and nothing else"
+    );
+    assert_eq!(
+        tops(&load_markdown("- a\n\n\n- b\n", editor_options())),
+        vec![0.0, 0.0, 0.0],
+        "a document blank line inside a list still costs one line and nothing else"
+    );
+
+    let mut doc = Doc::new(load_markdown("abc\n\n", editor_options()));
+    doc.enable_trailing_blank();
+    assert_eq!(
+        tops(&doc.document),
+        vec![0.0, 0.0, 0.0],
+        "a cursor line that continues a blank run stays flush"
+    );
+}

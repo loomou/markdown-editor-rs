@@ -315,6 +315,46 @@ fn down_arrow_never_stalls_on_the_row_it_left(cx: &mut TestAppContext) {
     );
 }
 
+fn text_origins(editor: &gpui::Entity<EditorView>, cx: &mut VisualTestContext) -> Vec<(f64, f64)> {
+    let drawn = cx.draw(
+        point(px(0.0), px(0.0)),
+        size(px(800.0), px(600.0)),
+        |_, _| EditorElement {
+            state: editor.clone(),
+        },
+    );
+    drawn
+        .1
+        .frame
+        .texts
+        .iter()
+        .map(|t| (t.content_origin_device.1, t.view_height))
+        .collect()
+}
+
+#[gpui::test]
+fn a_paragraph_enter_opens_keeps_its_place_when_you_type(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc("abc\n", cx);
+    focus_editor(&editor, cx);
+    place_caret(&editor, cx, 0, 3);
+    cx.simulate_keystrokes("enter");
+    settle(&editor, cx);
+    let opened = text_origins(&editor, cx);
+    cx.simulate_keystrokes("x");
+    settle(&editor, cx);
+    let typed = text_origins(&editor, cx);
+    assert!(
+        (opened[1].0 - typed[1].0).abs() < 0.5,
+        "typing into the paragraph enter opened moved it from {} to {}",
+        opened[1].0,
+        typed[1].0
+    );
+    assert!(
+        opened[1].0 - opened[0].0 > opened[0].1,
+        "enter must open the paragraph past the line it left, not flush against it"
+    );
+}
+
 fn caret_row(editor: &gpui::Entity<EditorView>, cx: &mut VisualTestContext) -> (f64, f64) {
     let drawn = cx.draw(
         point(px(0.0), px(0.0)),

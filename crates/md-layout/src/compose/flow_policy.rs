@@ -147,7 +147,9 @@ pub(super) fn flow_top_margin(
     id: NodeId,
     kind: BlockKind,
 ) -> md_core::Px {
-    if doc.is_blank_paragraph(id) || follows_a_blank_paragraph(doc, id) {
+    if (doc.is_blank_paragraph(id) && doc.extra(id) != NodeExtra::CursorLine)
+        || follows_a_blank_paragraph(doc, id)
+    {
         return 0.0;
     }
     let base = if matches!(kind, BlockKind::Heading(_) | BlockKind::Table) {
