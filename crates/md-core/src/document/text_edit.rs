@@ -565,18 +565,6 @@ impl Document {
         self.apply_source_edit(id, s_prev, s_caret, "", true)
     }
 
-    pub(crate) fn add_a_line_after_the_break(
-        &mut self,
-        id: NodeId,
-        after_the_break: usize,
-    ) -> DocChange {
-        let s2d = self.visual_s2d(id);
-        let at = bind::display_to_source_first(&s2d, after_the_break);
-        let at = at.min(self.leaf_source(id).len());
-        let (change, _) = self.apply_source_edit(id, at, at, "\\\n", true);
-        change
-    }
-
     pub(crate) fn rewrite_text(
         &mut self,
         id: NodeId,

@@ -407,7 +407,7 @@ fn r6_a_soft_break_at_the_end_of_a_line_adds_exactly_one_line(cx: &mut TestAppCo
 }
 
 #[gpui::test]
-fn r7_a_soft_break_at_a_seam_keeps_the_paragraph(cx: &mut TestAppContext) {
+fn r7_a_soft_break_at_a_seam_adds_a_line(cx: &mut TestAppContext) {
     let cx = cx.add_empty_window();
     cx.update(|window, app| {
         let theme = DocumentTheme::one_dark();
@@ -435,18 +435,16 @@ fn r7_a_soft_break_at_a_seam_keeps_the_paragraph(cx: &mut TestAppContext) {
         hot.apply_changes(&doc.document, &changes);
         hot.assemble_incremental(ScrollAnchor::top(), 2000.0, &live_shaper, &FallbackSolver);
 
-        assert_eq!(
-            at.offset, 3,
-            "the caret lands at the start of the line that moved down"
-        );
+        assert_eq!(at.offset, 0, "the caret lands on the line the press added");
         assert_eq!(
             doc.text_leaves().len(),
-            1,
-            "the seam must stay one paragraph"
+            3,
+            "the seam becomes its own empty paragraph"
         );
-        assert_eq!(doc.text(first).unwrap(), "a\n\nb");
+        assert_eq!(doc.text(first).unwrap(), "a");
+        assert_eq!(doc.text(at.block).unwrap(), "");
         let saved = doc.document.to_markdown();
-        assert_eq!(saved, "a\n\\\nb\n");
+        assert_eq!(saved, "a\n\n\nb\n");
 
         let frame = compose(
             FrameContext {
@@ -469,30 +467,38 @@ fn r7_a_soft_break_at_a_seam_keeps_the_paragraph(cx: &mut TestAppContext) {
             None,
         );
         let pieces: Vec<_> = frame.snapshot.texts.iter().collect();
-        assert_eq!(
-            pieces.len(),
-            1,
-            "the blank line must not become its own block"
-        );
-        assert_eq!(pieces[0].art.rows, 3);
+        assert_eq!(pieces.len(), 3, "the added line must be its own block");
         let advance = pieces[0].art.row_advance;
-        let first_top = pieces[0].content_origin_device.1;
+        let tops: Vec<f64> = pieces
+            .iter()
+            .map(|piece| piece.content_origin_device.1)
+            .collect();
+        for (i, piece) in pieces.iter().enumerate() {
+            assert_eq!(piece.art.rows, 1, "piece {i} must be one line");
+        }
+        for i in 1..tops.len() {
+            assert_eq!(
+                tops[i] - tops[i - 1],
+                advance,
+                "the three lines must stay as tight as one paragraph"
+            );
+        }
         let caret_y = frame
             .snapshot
             .caret_device
             .expect("the caret must be painted")
             .1;
-        let caret_row = (caret_y - first_top) / advance;
+        let caret_row = (caret_y - tops[0]) / advance;
         assert_eq!(
             caret_row.round(),
-            2.0,
-            "the caret must sit two row advances below the first line"
+            1.0,
+            "the caret must sit on the line the press added"
         );
 
         let reloaded = Doc::new(load_markdown(&saved, editor_options()));
-        assert_eq!(reloaded.text_leaves().len(), 1);
-        let reloaded_leaf = reloaded.text_leaves()[0];
-        assert_eq!(reloaded.text(reloaded_leaf).unwrap(), "a\n\nb");
+        assert_eq!(reloaded.text_leaves().len(), 3);
+        let reloaded_leaf = reloaded.text_leaves()[1];
+        assert_eq!(reloaded.text(reloaded_leaf).unwrap(), "");
         let cold_shaper = shaper(window, app, &theme);
         let mut cold = IncrementalEngine::new(
             &reloaded.document,
@@ -506,5 +512,131 @@ fn r7_a_soft_break_at_a_seam_keeps_the_paragraph(cx: &mut TestAppContext) {
             cold.total_height(),
             "the live paragraph must be spaced like the saved file"
         );
+    });
+}
+
+#[gpui::test]
+fn r8_a_soft_break_and_a_hard_break_are_one_shape_to_the_renderer(cx: &mut TestAppContext) {
+    struct BreakFact {
+        spelling: &'static str,
+        trailing: bool,
+        source: &'static str,
+        saved: String,
+        display: String,
+        rows: usize,
+        caret_rows: Vec<usize>,
+    }
+
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let theme = DocumentTheme::one_dark();
+        let env = BoxLayoutEnvironment::default();
+        let snap = SnapOperator::new(1.0);
+        let spellings: [(&str, &str); 3] = [
+            ("soft", "a\nb\n"),
+            ("hard-backslash", "a\\\nb\n"),
+            ("hard-two-spaces", "a  \nb\n"),
+        ];
+        let mut facts: Vec<BreakFact> = Vec::new();
+        for (spelling, source) in spellings {
+            for trailing in [false, true] {
+                let mut doc = Doc::new(load_markdown(source, editor_options()));
+                if trailing {
+                    doc.enable_trailing_blank();
+                }
+                let leaf = doc.first_text_leaf().expect("one prose leaf");
+                let display = doc.text(leaf).expect("display text").to_string();
+                let saved = doc.document.to_markdown();
+                let shaper = shaper(window, app, &theme);
+                let mut caret_rows = Vec::new();
+                let mut rows = 0usize;
+                for offset in 0..=display.len() {
+                    let frame = compose(
+                        FrameContext {
+                            doc: &doc,
+                            env,
+                            shaper: &shaper,
+                            snap: &snap,
+                            theme: &theme,
+                        },
+                        &FrameRequest {
+                            viewport: (env.viewport_width, 2000.0),
+                            scroll: 0.0,
+                            cursor: Cursor {
+                                block: leaf,
+                                offset,
+                            },
+                            selection: None,
+                            marked: None,
+                            search_query: "",
+                            search_skip: None,
+                        },
+                        &FallbackSolver,
+                        None,
+                    );
+                    let pieces: Vec<_> = frame.snapshot.texts.iter().collect();
+                    rows = pieces[0].art.rows as usize;
+                    let advance = pieces[0].art.row_advance;
+                    let first_top = pieces[0].content_origin_device.1;
+                    let caret_y = frame
+                        .snapshot
+                        .caret_device
+                        .expect("the caret must be painted")
+                        .1;
+                    caret_rows.push(((caret_y - first_top) / advance).round() as usize);
+                }
+                facts.push(BreakFact {
+                    spelling,
+                    trailing,
+                    source,
+                    saved,
+                    display,
+                    rows,
+                    caret_rows,
+                });
+            }
+        }
+
+        for fact in &facts {
+            println!(
+                "{:<16} trailing={:<5} source={:?} saved={:?} display={:?} rows={} caret_rows={:?}",
+                fact.spelling,
+                fact.trailing,
+                fact.source,
+                fact.saved,
+                fact.display,
+                fact.rows,
+                fact.caret_rows
+            );
+        }
+
+        for trailing in [false, true] {
+            let group: Vec<&BreakFact> = facts.iter().filter(|f| f.trailing == trailing).collect();
+            let first = group[0];
+            assert_eq!(first.display, "a\nb", "the fixture must hold one break");
+            assert_eq!(first.rows, 2, "the fixture must paint two rows");
+            assert_eq!(
+                first.caret_rows,
+                vec![0, 0, 1, 1],
+                "display offsets 0 and 1 sit on the first row, 2 and 3 on the second"
+            );
+            for fact in &group[1..] {
+                assert_eq!(
+                    fact.display, first.display,
+                    "{} and {} must bind to the same display text",
+                    fact.spelling, first.spelling
+                );
+                assert_eq!(
+                    fact.rows, first.rows,
+                    "{} and {} must paint the same number of rows",
+                    fact.spelling, first.spelling
+                );
+                assert_eq!(
+                    fact.caret_rows, first.caret_rows,
+                    "{} and {} must place the caret on the same row for the same display offset",
+                    fact.spelling, first.spelling
+                );
+            }
+        }
     });
 }

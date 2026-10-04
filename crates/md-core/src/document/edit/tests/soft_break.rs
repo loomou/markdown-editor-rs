@@ -105,7 +105,7 @@ fn a_soft_break_at_the_start_starts_a_paragraph() {
 }
 
 #[test]
-fn a_soft_break_on_either_side_of_a_break_keeps_one_paragraph() {
+fn a_soft_break_on_either_side_of_a_break_adds_a_line() {
     for offset in [2, 3] {
         let mut doc = load_markdown("hi\nx\n", editor_options());
         let leaf = doc.text_leaves()[0];
@@ -115,10 +115,10 @@ fn a_soft_break_on_either_side_of_a_break_keeps_one_paragraph() {
             Sel::collapsed(caret(leaf, offset)),
             Command::SoftBreak,
         );
-        assert_eq!(doc.text_leaves(), vec![leaf], "offset={offset}");
-        assert_eq!(doc.text_of(leaf), Some("hi\n\nx"), "offset={offset}");
-        assert_eq!(out, caret(leaf, 4), "offset={offset}");
-        assert_eq!(doc.to_markdown(), "hi\n\\\nx\n", "offset={offset}");
+        assert_eq!(doc.text_of(leaf), Some("hi"), "offset={offset}");
+        assert_eq!(doc.text_of(out.block), Some(""), "offset={offset}");
+        assert_eq!(out.offset, 0, "offset={offset}");
+        assert_eq!(doc.to_markdown(), "hi\n\n\nx\n", "offset={offset}");
         assert_eq!(
             shape(&reload(&doc.to_markdown())),
             shape(&doc),
@@ -128,15 +128,15 @@ fn a_soft_break_on_either_side_of_a_break_keeps_one_paragraph() {
 }
 
 #[test]
-fn a_soft_break_at_a_seam_inside_a_list_item_keeps_the_item() {
+fn a_soft_break_at_a_seam_inside_a_list_item_adds_a_line() {
     let mut doc = load_markdown("- a\n  b\n", editor_options());
     let leaf = doc.text_leaves()[0];
     assert_eq!(doc.text_of(leaf), Some("a\nb"));
     let out = apply(&mut doc, Sel::collapsed(caret(leaf, 2)), Command::SoftBreak);
-    assert_eq!(doc.text_leaves(), vec![leaf]);
-    assert_eq!(doc.text_of(leaf), Some("a\n\nb"));
-    assert_eq!(out, caret(leaf, 3));
-    assert_eq!(doc.to_markdown(), "- a\n  \\\n  b\n");
+    assert_eq!(doc.text_of(leaf), Some("a"));
+    assert_eq!(doc.text_of(out.block), Some(""));
+    assert_eq!(out.offset, 0);
+    assert_eq!(doc.to_markdown(), "- a\n  \n  \n  b\n");
     assert_eq!(shape(&reload(&doc.to_markdown())), shape(&doc));
 }
 

@@ -127,52 +127,18 @@ fn break_paragraph_at_a_line_boundary(doc: &mut Document, at: Caret) -> Option<C
     if !at_a_boundary {
         return None;
     }
-    if let Some(caret) = add_a_line_beside_the_break(doc, id, &display, off) {
-        return Some(caret);
-    }
     let (_, right) = doc.split_leaf(at.block, off);
-    let left_ends = doc
-        .text_of(at.block)
-        .is_some_and(|text| text.ends_with('\n'));
-    let right_starts = doc
-        .text_of(right)
-        .is_some_and(|text| text.starts_with('\n'));
-    trim_one_line_break(doc, at.block, right);
-    if !left_ends && !right_starts {
+    if off == 0 {
         return Some(Caret {
             block: right,
             offset: 0,
         });
     }
+    trim_one_line_break(doc, at.block, right);
     let (_, tail) = doc.split_leaf(right, 0);
     Some(Caret {
-        block: if left_ends { tail } else { right },
+        block: if off < len { right } else { tail },
         offset: 0,
-    })
-}
-
-fn add_a_line_beside_the_break(
-    doc: &mut Document,
-    id: crate::document::NodeId,
-    display: &str,
-    off: usize,
-) -> Option<Caret> {
-    let len = display.len();
-    let seam = if off > 0 && display.as_bytes()[off - 1] == b'\n' {
-        off
-    } else if off < len && display.as_bytes()[off] == b'\n' {
-        off + 1
-    } else {
-        return None;
-    };
-    if seam == 0 || seam >= len || display[..seam - 1].is_empty() || display[seam..].is_empty() {
-        return None;
-    }
-    let change = doc.add_a_line_after_the_break(id, seam);
-    doc.push_changes(vec![change]);
-    Some(Caret {
-        block: id.index,
-        offset: seam + 1,
     })
 }
 
