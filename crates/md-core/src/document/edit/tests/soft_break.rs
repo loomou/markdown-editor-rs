@@ -136,7 +136,7 @@ fn a_soft_break_at_a_seam_inside_a_list_item_adds_a_line() {
     assert_eq!(doc.text_of(leaf), Some("a"));
     assert_eq!(doc.text_of(out.block), Some(""));
     assert_eq!(out.offset, 0);
-    assert_eq!(doc.to_markdown(), "- a\n  \n  \n  b\n");
+    assert_eq!(doc.to_markdown(), "- a\n\n\n  b\n");
     assert_eq!(shape(&reload(&doc.to_markdown())), shape(&doc));
 }
 

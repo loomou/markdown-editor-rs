@@ -302,19 +302,19 @@ fn a_first_block_that_fits_after_the_marker_shares_its_line() {
         "10. ***\n",
         "10) ***\n",
         "- ***\n- b\n",
-        "- ***\n  \n  p\n",
-        "- ***\n  \n  ***\n",
+        "- ***\n\n  p\n",
+        "- ***\n\n  ***\n",
         "- [^1]: n\n",
         "- [^1]: n\n- b\n",
-        "- [^1]: n\n  \n  p\n",
-        "- [^1]: n\n  \n  q\n  \n  r\n",
-        "- ![a](u)\n  \n  p\n",
+        "- [^1]: n\n\n  p\n",
+        "- [^1]: n\n\n  q\n\n  r\n",
+        "- ![a](u)\n\n  p\n",
         "- ![a](u)\n\n- b\n",
         "> - ***\n",
-        "> - ***\n>   \n>   p\n",
+        "> - ***\n> \n>   p\n",
         "> - [^1]: n\n",
-        "> - [^1]: n\n>   \n>   p\n",
-        "> - ![a](u)\n>   \n>   p\n",
+        "> - [^1]: n\n> \n>   p\n",
+        "> - ![a](u)\n> \n>   p\n",
         "- - ***\n",
         "- - [^1]: n\n",
         "- 1. ***\n",
@@ -336,8 +336,8 @@ fn a_thematic_break_the_marker_would_absorb_and_a_task_item_keep_the_marker_line
         "- \n  ---\n",
         "* \n  ***\n",
         "- \n  - - -\n",
-        "- \n  ---\n  \n  p\n",
-        "* \n  ***\n  \n  p\n",
+        "- \n  ---\n\n  p\n",
+        "* \n  ***\n\n  p\n",
         "- - \n    ---\n",
         "> - \n>   ---\n",
         "> * \n>   ***\n",
@@ -495,13 +495,13 @@ fn an_ordered_list_renumbers_its_items_from_the_start_number() {
 }
 
 #[test]
-fn a_blank_line_inside_a_list_item_carries_the_item_indentation() {
+fn a_blank_line_inside_a_list_item_is_not_indented() {
     for (source, saved) in [
-        ("- a\n\n  z\n", "- a\n  \n  z\n"),
-        ("- p\n\n  p\n", "- p\n  \n  p\n"),
-        ("1. a\n\n   z\n", "1. a\n   \n   z\n"),
-        ("1. a\n\n\n   z\n", "1. a\n   \n   \n   z\n"),
-        ("> - a\n>\n>   z\n", "> - a\n>   \n>   z\n"),
+        ("- a\n\n  z\n", "- a\n\n  z\n"),
+        ("- p\n\n  p\n", "- p\n\n  p\n"),
+        ("1. a\n\n   z\n", "1. a\n\n   z\n"),
+        ("1. a\n\n\n   z\n", "1. a\n\n\n   z\n"),
+        ("> - a\n>\n>   z\n", "> - a\n> \n>   z\n"),
     ] {
         let doc = load_markdown(source, editor_options());
         assert_eq!(doc.to_markdown(), saved, "source={source:?}");
@@ -529,9 +529,9 @@ fn a_loose_list_keeps_its_items_adjacent() {
     for (source, saved) in [
         ("- a\n- b\n", "- a\n- b\n"),
         ("- a\n\n- b\n", "- a\n\n- b\n"),
-        ("- a\n- b\n\n  c\n", "- a\n- b\n  \n  c\n"),
-        ("- a\n- b\n- c\n\n  d\n", "- a\n- b\n- c\n  \n  d\n"),
-        ("1. a\n1. b\n\n   c\n", "1. a\n2. b\n   \n   c\n"),
+        ("- a\n- b\n\n  c\n", "- a\n- b\n\n  c\n"),
+        ("- a\n- b\n- c\n\n  d\n", "- a\n- b\n- c\n\n  d\n"),
+        ("1. a\n1. b\n\n   c\n", "1. a\n2. b\n\n   c\n"),
     ] {
         let doc = load_markdown(source, editor_options());
         assert_eq!(doc.to_markdown(), saved, "source={source:?}");
@@ -570,7 +570,7 @@ fn a_paragraph_line_that_would_open_a_new_block_is_left_unprefixed() {
         ("[^1]: n\n| a |\n| --- |\n", "[^1]: n\n| a |\n| --- |\n"),
         ("[^1]: q\n===\n", "[^1]: q\n===\n"),
         ("[^1]: q\n--\n", "[^1]: q\n--\n"),
-        ("- a\n  \n  | a |\n| --- |\n", "- a\n  \n  | a |\n| --- |\n"),
+        ("- a\n  \n  | a |\n| --- |\n", "- a\n\n  | a |\n| --- |\n"),
         ("> q\n> plain\n", "> q\n> plain\n"),
         ("- a\n  z\n", "- a\n  z\n"),
         ("- q\n  ===\n", "- q\n  ===\n"),

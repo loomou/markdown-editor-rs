@@ -1234,7 +1234,7 @@ fn multiline_insert_splice_in_list_item_roundtrips() {
         },
     );
     let saved = doc.document.to_markdown();
-    assert_eq!(saved, "- it\n  \n  > [!TIP]\n  > body\n  \n  em\n");
+    assert_eq!(saved, "- it\n\n  > [!TIP]\n  > body\n\n  em\n");
     let reloaded = load_markdown(&saved, editor_options());
     assert_eq!(reloaded.to_markdown(), saved, "resave must be byte-stable");
     assert_loose_in_sync(&doc.document, &reloaded);
@@ -1252,7 +1252,7 @@ fn paste_fragment_splice_in_list_item_roundtrips() {
         },
     );
     let saved = doc.document.to_markdown();
-    assert_eq!(saved, "- it\n  \n  > [!TIP]\n  > body\n  \n  em\n");
+    assert_eq!(saved, "- it\n\n  > [!TIP]\n  > body\n\n  em\n");
     let reloaded = load_markdown(&saved, editor_options());
     assert_eq!(reloaded.to_markdown(), saved, "resave must be byte-stable");
     assert_loose_in_sync(&doc.document, &reloaded);
@@ -1269,7 +1269,7 @@ fn multiline_insert_nested_list_in_item_roundtrips() {
         },
     );
     let saved = doc.document.to_markdown();
-    assert_eq!(saved, "- it\n  \n  - n1\n  - n2\n  \n  em\n");
+    assert_eq!(saved, "- it\n\n  - n1\n  - n2\n\n  em\n");
     let reloaded = load_markdown(&saved, editor_options());
     assert_eq!(reloaded.to_markdown(), saved, "resave must be byte-stable");
     assert_loose_in_sync(&doc.document, &reloaded);

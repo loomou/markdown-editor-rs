@@ -232,7 +232,7 @@ fn joining_items_redo_keeps_the_migrated_children() {
         (
             "- parent\n  - a\n  - b\n  - c\n- tail\n",
             4,
-            "- parent\n  \n  - a\n  - b\n  - c\n  \n  tail\n",
+            "- parent\n\n  - a\n  - b\n  - c\n\n  tail\n",
         ),
         ("- a\n- b\n  - c\n  - d\n", 1, "- ab\n  - c\n  - d\n"),
     ] {

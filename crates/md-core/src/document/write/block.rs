@@ -529,7 +529,7 @@ where
                 steps.push(Step::Newline);
                 if loose || needs_blank_between(doc, previous, rest_id) {
                     steps.push(Step::BlankLine {
-                        prefix: rest.clone(),
+                        prefix: prefix.clone(),
                     });
                 }
             }
@@ -549,16 +549,21 @@ where
         if !previous_blank {
             steps.push(Step::Newline);
         }
+        let blank_prefix = if index < kids.len() {
+            prefix.clone()
+        } else {
+            rest.clone()
+        };
         for &blank in &kids[start..index] {
             steps.push(Step::Block {
                 id: blank,
-                prefix: rest.clone(),
+                prefix: blank_prefix.clone(),
             });
             steps.push(Step::Newline);
         }
         if index < kids.len() {
             steps.push(Step::HardBlank {
-                prefix: rest.clone(),
+                prefix: prefix.clone(),
             });
         }
         previous = kids[index - 1];

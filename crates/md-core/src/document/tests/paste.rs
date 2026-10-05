@@ -324,19 +324,19 @@ fn pasted_paragraphs_inside_a_tight_item_keep_their_boundary() {
         (
             "a\n\nb",
             PasteIntent::PlainText,
-            "- itema\n  \n  b\n",
+            "- itema\n\n  b\n",
             vec![BlockKind::Paragraph, BlockKind::Paragraph],
         ),
         (
             "a\n\n---",
             PasteIntent::PlainText,
-            "- itema\n  \n  \\-\\-\\-\n",
+            "- itema\n\n  \\-\\-\\-\n",
             vec![BlockKind::Paragraph, BlockKind::Paragraph],
         ),
         (
             "a\n\nb",
             PasteIntent::IndependentFragment,
-            "- item\n  \n  a\n  \n  b\n",
+            "- item\n\n  a\n\n  b\n",
             vec![
                 BlockKind::Paragraph,
                 BlockKind::Paragraph,

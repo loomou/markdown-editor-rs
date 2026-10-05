@@ -570,14 +570,14 @@ fn a_file_of_nothing_but_whitespace_loads_as_an_empty_document() {
 #[test]
 fn a_list_item_keeps_the_blank_lines_between_its_blocks() {
     for source in [
-        "- p\n  \n  \n  p\n",
-        "- p\n  \n  \n  \n  p\n",
-        "- p\n  q\n  \n  \n  r\n",
-        "1. a\n   \n   \n   b\n",
-        "- # h\n  \n  \n  p\n",
-        "- p\n  \n  p\n",
+        "- p\n\n\n  p\n",
+        "- p\n\n\n\n  p\n",
+        "- p\n  q\n\n\n  r\n",
+        "1. a\n\n\n   b\n",
+        "- # h\n\n\n  p\n",
+        "- p\n\n  p\n",
         "- > p\n  > \n  > \n  > p\n",
-        "- a\n  - p\n    \n    \n    p\n",
+        "- a\n  - p\n  \n  \n    p\n",
     ] {
         let before = load_markdown(source, editor_options());
         let saved = before.to_markdown();
