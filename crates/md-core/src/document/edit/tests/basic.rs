@@ -105,7 +105,7 @@ fn each_soft_break_in_an_empty_paragraph_starts_another_one() {
 #[test]
 fn an_empty_paragraph_in_a_container_gains_a_blank_line_per_soft_break() {
     for (src, saved) in [
-        ("> ", "> \n> \n"),
+        ("> ", "> \n>\n> \n"),
         ("- ", "- \n  \n"),
         ("1. ", "1. \n   \n"),
         ("> - ", "> - \n>   \n"),
@@ -206,7 +206,7 @@ fn enter_at_the_end_of_an_image_starts_a_new_paragraph() {
     assert_eq!(out.offset, 0);
     assert_eq!(doc.kind(out.block), Some(BlockKind::Paragraph));
     assert_eq!(doc.text_of(out.block), Some(""));
-    assert_eq!(doc.to_markdown(), "> ![a](u)\n> \n");
+    assert_eq!(doc.to_markdown(), "> ![a](u)\n>\n> \n");
 }
 
 #[test]

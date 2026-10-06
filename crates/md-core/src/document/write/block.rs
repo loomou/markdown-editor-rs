@@ -106,7 +106,7 @@ where
             Step::BlankLine { prefix } => blank_line(out, &prefix)?,
             Step::HardBlank { prefix } => {
                 if !prefix.is_plain() {
-                    prefix.write_open(out)?;
+                    prefix.write_open_bare(out)?;
                 }
                 out.write_str("\n")?;
             }
@@ -375,14 +375,25 @@ where
         if previous.is_some() {
             steps.push(Step::Newline);
         }
-        for &blank in &kids[start..index] {
+        let run = &kids[start..index];
+        for (position, &blank) in run.iter().enumerate() {
+            if prefix.quotes() && (position > 0 || previous.is_some()) {
+                steps.push(Step::HardBlank {
+                    prefix: prefix.clone(),
+                });
+            }
             steps.push(Step::Block {
                 id: blank,
                 prefix: prefix.clone(),
             });
             steps.push(Step::Newline);
+            if prefix.quotes() && position + 1 == run.len() && index < count {
+                steps.push(Step::HardBlank {
+                    prefix: prefix.clone(),
+                });
+            }
         }
-        if start > 0 && index < count {
+        if start > 0 && index < count && !prefix.quotes() {
             steps.push(Step::HardBlank {
                 prefix: prefix.clone(),
             });

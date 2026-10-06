@@ -1276,7 +1276,7 @@ mod tests {
             },
             Command::DeleteBackward,
         );
-        assert_eq!(doc.document.to_markdown(), "> \n> tail\n");
+        assert_eq!(doc.document.to_markdown(), "> \n>\n> tail\n");
     }
 
     #[test]

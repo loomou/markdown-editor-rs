@@ -233,6 +233,26 @@ impl Prefix {
         self.tip.is_none()
     }
 
+    fn quotes(&self) -> bool {
+        let mut node = self.tip.as_deref();
+        while let Some(n) = node {
+            if n.seg == PrefixSeg::Quote {
+                return true;
+            }
+            node = n.parent.as_deref();
+        }
+        false
+    }
+
+    fn write_open_bare(&self, out: &mut impl fmt::Write) -> fmt::Result {
+        let flat = self.flat();
+        if self.quotes() {
+            out.write_str(flat.trim_end())
+        } else {
+            out.write_str(&flat)
+        }
+    }
+
     fn flat(&self) -> String {
         let mut segs = Vec::new();
         let mut node = self.tip.as_deref();
@@ -409,7 +429,7 @@ fn blank_line<W: fmt::Write>(out: &mut MarkdownWriter<W>, prefix: &Prefix) -> fm
         out.write_str("\n")?;
     }
     if !prefix.is_plain() {
-        prefix.write_open(out)?;
+        prefix.write_open_bare(out)?;
         out.write_str("\n")?;
     } else if out.nl_run < 2 {
         out.write_str("\n")?;

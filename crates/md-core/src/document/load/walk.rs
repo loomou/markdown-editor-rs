@@ -113,6 +113,18 @@ pub(super) fn document_of(parsed: &Parsed<'_>, source: String) -> Document {
     builder.finish(source, reference_definitions)
 }
 
+fn gap_between_blanks(count: usize, quoted: bool) -> usize {
+    if quoted {
+        count.saturating_sub(1) / 2
+    } else {
+        count.saturating_sub(1)
+    }
+}
+
+fn gap_edge_blanks(count: usize, quoted: bool) -> usize {
+    if quoted { (count + 1) / 2 } else { count }
+}
+
 fn walk_all(builder: &mut Builder, source: &str, parsed: &Parsed<'_>, blanks: &[Range<usize>]) {
     let mut stack: Vec<Item<'_, '_>> = Vec::new();
     stack.push(Item::CloseRoot {
@@ -1023,8 +1035,10 @@ fn gaps_for(
     alert: bool,
 ) -> Vec<usize> {
     let children: Vec<NodeRef<'_, '_>> = node.children().collect();
+    let quoted = matches!(node.kind(), NodeKind::BlockQuote(..));
     if children.is_empty() {
-        return vec![count_blank(blanks, source, span)];
+        let count = count_blank(blanks, source, span);
+        return vec![if quoted { (count + 1) / 2 } else { count }];
     }
     let kids: Vec<Range<usize>> = children.iter().map(|child| child.span()).collect();
     let mut gaps = Vec::with_capacity(kids.len() + 1);
@@ -1033,12 +1047,15 @@ fn gaps_for(
     } else {
         span.start
     };
-    gaps.push(leading_blank_run(blanks, source, head..kids[0].start));
+    gaps.push(gap_edge_blanks(
+        leading_blank_run(blanks, source, head..kids[0].start),
+        quoted,
+    ));
     for (index, pair) in kids.windows(2).enumerate() {
         let end = content_end(source, &children[index]).unwrap_or(pair[0].end);
         let start = after_the_previous_line(source, end);
         let count = leading_blank_run(blanks, source, start..pair[1].start);
-        gaps.push(count.saturating_sub(1));
+        gaps.push(gap_between_blanks(count, quoted));
     }
     let last = kids[kids.len() - 1].end;
     let last_child = &children[children.len() - 1];
@@ -1053,7 +1070,7 @@ fn gaps_for(
     let start = after_the_previous_line(source, last);
     let (trail_start, trailing) = trailing_blank_run(blanks, start..span.end);
     let trailing = if trail_start == start { trailing } else { 0 };
-    gaps.push(trailing.saturating_sub(claimed));
+    gaps.push(gap_edge_blanks(trailing, quoted).saturating_sub(claimed));
     gaps
 }
 
@@ -1522,12 +1539,12 @@ mod tests {
         for (source, tag, want) in [
             ("a\n\n\nb\n", None, vec![0, 1, 0]),
             ("a\n\nb\n", None, vec![0, 0, 0]),
-            ("> a\n> \n> \n> b\n", Some("quote"), vec![0, 1, 0]),
-            ("> a\n> \n> b\n", Some("quote"), vec![0, 0, 0]),
+            ("> a\n>\n> \n>\n> b\n", Some("quote"), vec![0, 1, 0]),
+            ("> a\n>\n> b\n", Some("quote"), vec![0, 0, 0]),
             ("- a\n  \n  \n  b\n", Some("item"), vec![0, 1, 0]),
             ("    code\n\n\npara\n", None, vec![0, 1, 0]),
             ("[^1]: x\n\n\nz\n", None, vec![0, 1, 0]),
-            ("> [!NOTE]\n> \n> hi\n", Some("quote"), vec![1, 0]),
+            ("> [!NOTE]\n> \n>\n> hi\n", Some("quote"), vec![1, 0]),
         ] {
             assert_eq!(gaps_of(source, tag), want, "{source:?} {tag:?}");
         }

@@ -148,7 +148,7 @@ fn a_soft_break_at_the_end_of_a_quoted_paragraph_starts_a_paragraph() {
     let out = apply(&mut doc, Sel::collapsed(at), Command::SoftBreak);
     assert_eq!(doc.text_of(leaf), Some("hi"));
     assert_eq!(doc.text_of(out.block), Some(""));
-    assert_eq!(doc.to_markdown(), "> hi\n> \n> \n");
+    assert_eq!(doc.to_markdown(), "> hi\n>\n> \n>\n> \n");
     assert_eq!(shape(&reload(&doc.to_markdown())), shape(&doc));
 }
 
