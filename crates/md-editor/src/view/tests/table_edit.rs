@@ -135,18 +135,18 @@ fn backspace_at_origin_of_empty_table_deletes_it(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn table_enter_is_noop_in_cell(cx: &mut TestAppContext) {
+fn table_enter_steps_down_a_column(cx: &mut TestAppContext) {
     let (editor, cx) = editor_with_doc(TABLE_2X2, cx);
     focus_editor(&editor, cx);
     place_table_caret(&editor, cx, "a", 1);
     cx.simulate_keystrokes("enter");
     cx.update(|_, app| {
         let view = editor.read(app);
-        let cell = table_leaf(&view.state.doc, "a");
+        let cell = table_leaf(&view.state.doc, "c");
         assert_eq!(view.state.cursor.block, cell);
-        assert_eq!(view.state.cursor.offset, 1);
+        assert_eq!(view.state.cursor.offset, 0);
         assert_eq!(view.state.doc.kind(cell), Some(BlockKind::TableCell));
-        assert_eq!(view.state.doc.text(cell), Some("a"));
+        assert_eq!(view.state.doc.text(cell), Some("c"));
     });
 }
 
