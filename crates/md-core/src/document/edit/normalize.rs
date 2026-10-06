@@ -350,8 +350,8 @@ impl Document {
         );
     }
 
-    pub(crate) fn ensure_trailing_blank_at(&mut self, caret: Caret) -> Caret {
-        ensure_trailing_blank_paragraph(self, caret)
+    pub(crate) fn ensure_trailing_blank_at(&mut self, caret: Caret, collapse: bool) -> Caret {
+        ensure_trailing_blank_paragraph(self, caret, collapse)
     }
 
     pub(crate) fn clamp_live_caret(&self, caret: Caret) -> Caret {
@@ -392,14 +392,19 @@ fn unmark_cursor_line(doc: &mut Document, id: NodeId, changes: &mut Vec<DocChang
     changes.push(doc.attrs_change(id, BlockKind::Paragraph, old));
 }
 
-pub(crate) fn ensure_trailing_blank_paragraph(doc: &mut Document, caret: Caret) -> Caret {
+pub(crate) fn ensure_trailing_blank_paragraph(
+    doc: &mut Document,
+    caret: Caret,
+    collapse: bool,
+) -> Caret {
     let root = doc.root;
     let before_rev = doc.revision();
     let mut changes = Vec::new();
     loop {
         let last = doc.arena.get(root).and_then(|n| n.last_child);
         let prev = last.and_then(|id| doc.arena.get(id).and_then(|n| n.prev_sibling));
-        let redundant = prev.is_some_and(|id| caret.block == id.index)
+        let redundant = collapse
+            && prev.is_some_and(|id| caret.block == id.index)
             && last.is_some_and(|id| is_blank_paragraph(doc, id))
             && prev.is_some_and(|id| is_blank_paragraph(doc, id));
         if !redundant {

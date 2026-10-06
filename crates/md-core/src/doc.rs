@@ -155,8 +155,9 @@ impl Doc {
 
     fn apply_inner(&mut self, sel: Sel, cmd: Command) -> Cursor {
         if self.keep_trailing_blank {
+            let collapse = !matches!(cmd, Command::SoftBreak);
             let c = crate::document::apply(&mut self.document, sel, cmd);
-            let c = self.document.ensure_trailing_blank_at(c);
+            let c = self.document.ensure_trailing_blank_at(c, collapse);
             self.document.clamp_live_caret(c)
         } else {
             crate::document::apply(&mut self.document, sel, cmd)

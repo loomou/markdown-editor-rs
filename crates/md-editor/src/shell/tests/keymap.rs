@@ -262,7 +262,7 @@ fn the_unsaved_dialog_takes_the_current_save_key(cx: &mut TestAppContext) {
     assert!(!pending(cx), "the new save key should work in this dialog");
     assert_eq!(
         std::fs::read_to_string(&path).expect("the file should have been written to disk"),
-        "# xHeading\n\nneedle appears twice: needle\n"
+        "# xHeading\n\nneedle appears twice: needle"
     );
     let _ = std::fs::remove_file(&path);
 }

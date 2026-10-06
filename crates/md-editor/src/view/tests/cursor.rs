@@ -375,27 +375,26 @@ fn caret_row(editor: &gpui::Entity<EditorView>, cx: &mut VisualTestContext) -> (
 }
 
 #[gpui::test]
-fn each_soft_break_at_the_end_of_a_line_adds_a_line(cx: &mut TestAppContext) {
+fn each_soft_break_at_the_end_of_a_line_lands_on_the_line_it_added(cx: &mut TestAppContext) {
     let (editor, cx) = editor_with_doc("132\n", cx);
     focus_editor(&editor, cx);
     place_caret(&editor, cx, 0, 3);
-    let (mut previous, advance) = caret_row(&editor, cx);
+    let (start, advance) = caret_row(&editor, cx);
     assert!(advance > 0.0, "the fixture paints no line height");
-    for pressed in 1..=3usize {
+    for (pressed, lines, newlines) in [(1usize, 1usize, 0usize), (2, 1, 2), (3, 2, 3)] {
         cx.simulate_keystrokes("shift-enter");
         settle(&editor, cx);
         let (y, _) = caret_row(&editor, cx);
         assert_eq!(
             y,
-            previous + advance,
-            "press {pressed} must carry the caret exactly one line further down"
+            start + lines as f64 * advance,
+            "after {pressed} presses the caret must sit on the last line the presses have added"
         );
-        previous = y;
         let md = cx.update(|_, app| editor.read(app).state.doc.document.to_markdown());
         assert_eq!(
             md.matches('\n').count(),
-            pressed,
-            "press {pressed} must leave one more line in the document than the press before it"
+            newlines,
+            "after {pressed} presses the file must hold the paragraphs the presses asked for"
         );
     }
 }

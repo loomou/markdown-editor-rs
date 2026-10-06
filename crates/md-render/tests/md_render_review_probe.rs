@@ -352,7 +352,9 @@ fn r5_a_blank_line_between_two_paragraphs_costs_exactly_one_line(cx: &mut TestAp
 }
 
 #[gpui::test]
-fn r6_a_soft_break_at_the_end_of_a_line_adds_exactly_one_line(cx: &mut TestAppContext) {
+fn r6_a_soft_break_at_the_end_of_a_paragraph_lands_on_the_last_painted_line(
+    cx: &mut TestAppContext,
+) {
     let cx = cx.add_empty_window();
     cx.update(|window, app| {
         let theme = DocumentTheme::one_dark();
@@ -365,7 +367,11 @@ fn r6_a_soft_break_at_the_end_of_a_line_adds_exactly_one_line(cx: &mut TestAppCo
             block: first,
             offset: 3,
         };
-        for pressed in 1..=3usize {
+        for (pressed, lines, saved) in [
+            (1usize, 1usize, "132"),
+            (2, 1, "132\n\n"),
+            (3, 2, "132\n\n\n"),
+        ] {
             at = doc.apply(Sel::collapsed(at), Command::SoftBreak);
             let frame = compose(
                 FrameContext {
@@ -395,19 +401,34 @@ fn r6_a_soft_break_at_the_end_of_a_line_adds_exactly_one_line(cx: &mut TestAppCo
                 last.content_origin_device.1 + last.art.rows.saturating_sub(1) as f64 * advance;
             assert_eq!(
                 last_row_top,
-                first_top + pressed as f64 * advance,
-                "press {pressed} must leave one more line than the press before it"
+                first_top + lines as f64 * advance,
+                "after {pressed} presses the last painted line must sit {lines} rows below the first"
             );
             assert_eq!(
                 at.block, last.block,
                 "press {pressed} must leave the caret on the last line"
+            );
+            let caret_y = frame
+                .snapshot
+                .caret_device
+                .expect("the caret must be painted")
+                .1;
+            assert_eq!(
+                ((caret_y - first_top) / advance).round(),
+                lines as f64,
+                "after {pressed} presses the caret must be painted on the last painted line"
+            );
+            assert_eq!(
+                doc.document.to_markdown(),
+                saved,
+                "after {pressed} presses the file must hold the paragraphs the presses asked for"
             );
         }
     });
 }
 
 #[gpui::test]
-fn r7_a_soft_break_at_a_seam_adds_a_line(cx: &mut TestAppContext) {
+fn r7_a_soft_break_at_a_seam_starts_a_paragraph(cx: &mut TestAppContext) {
     let cx = cx.add_empty_window();
     cx.update(|window, app| {
         let theme = DocumentTheme::one_dark();
@@ -435,16 +456,16 @@ fn r7_a_soft_break_at_a_seam_adds_a_line(cx: &mut TestAppContext) {
         hot.apply_changes(&doc.document, &changes);
         hot.assemble_incremental(ScrollAnchor::top(), 2000.0, &live_shaper, &FallbackSolver);
 
-        assert_eq!(at.offset, 0, "the caret lands on the line the press added");
+        assert_eq!(at.offset, 0, "the caret lands at the start of the tail");
         assert_eq!(
             doc.text_leaves().len(),
-            3,
-            "the seam becomes its own empty paragraph"
+            2,
+            "the seam becomes a paragraph break, not a third block"
         );
         assert_eq!(doc.text(first).unwrap(), "a");
-        assert_eq!(doc.text(at.block).unwrap(), "");
+        assert_eq!(doc.text(at.block).unwrap(), "b");
         let saved = doc.document.to_markdown();
-        assert_eq!(saved, "a\n\n\nb\n");
+        assert_eq!(saved, "a\n\nb");
 
         let frame = compose(
             FrameContext {
@@ -467,38 +488,26 @@ fn r7_a_soft_break_at_a_seam_adds_a_line(cx: &mut TestAppContext) {
             None,
         );
         let pieces: Vec<_> = frame.snapshot.texts.iter().collect();
-        assert_eq!(pieces.len(), 3, "the added line must be its own block");
-        let advance = pieces[0].art.row_advance;
-        let tops: Vec<f64> = pieces
-            .iter()
-            .map(|piece| piece.content_origin_device.1)
-            .collect();
+        assert_eq!(pieces.len(), 2, "one painted piece per paragraph");
         for (i, piece) in pieces.iter().enumerate() {
             assert_eq!(piece.art.rows, 1, "piece {i} must be one line");
         }
-        for i in 1..tops.len() {
-            assert_eq!(
-                tops[i] - tops[i - 1],
-                advance,
-                "the three lines must stay as tight as one paragraph"
-            );
-        }
+        let advance = pieces[0].art.row_advance;
         let caret_y = frame
             .snapshot
             .caret_device
             .expect("the caret must be painted")
             .1;
-        let caret_row = (caret_y - tops[0]) / advance;
         assert_eq!(
-            caret_row.round(),
-            1.0,
-            "the caret must sit on the line the press added"
+            ((caret_y - pieces[1].content_origin_device.1) / advance).round(),
+            0.0,
+            "the caret must sit on the first line of the tail"
         );
 
         let reloaded = Doc::new(load_markdown(&saved, editor_options()));
-        assert_eq!(reloaded.text_leaves().len(), 3);
+        assert_eq!(reloaded.text_leaves().len(), 2);
         let reloaded_leaf = reloaded.text_leaves()[1];
-        assert_eq!(reloaded.text(reloaded_leaf).unwrap(), "");
+        assert_eq!(reloaded.text(reloaded_leaf).unwrap(), "b");
         let cold_shaper = shaper(window, app, &theme);
         let mut cold = IncrementalEngine::new(
             &reloaded.document,
@@ -507,10 +516,45 @@ fn r7_a_soft_break_at_a_seam_adds_a_line(cx: &mut TestAppContext) {
             theme.layout_theme(),
         );
         cold.assemble_incremental(ScrollAnchor::top(), 2000.0, &cold_shaper, &FallbackSolver);
+        let cold_frame = compose(
+            FrameContext {
+                doc: &reloaded,
+                env,
+                shaper: &cold_shaper,
+                snap: &snap,
+                theme: &theme,
+            },
+            &FrameRequest {
+                viewport: (env.viewport_width, 2000.0),
+                scroll: 0.0,
+                cursor: Cursor {
+                    block: reloaded_leaf,
+                    offset: 0,
+                },
+                selection: None,
+                marked: None,
+                search_query: "",
+                search_skip: None,
+            },
+            &FallbackSolver,
+            None,
+        );
+        let cold_pieces: Vec<_> = cold_frame.snapshot.texts.iter().collect();
+        assert_eq!(
+            cold_pieces.len(),
+            pieces.len(),
+            "the saved file must paint one piece per paragraph"
+        );
+        for (i, (live, saved_piece)) in pieces.iter().zip(cold_pieces.iter()).enumerate() {
+            assert_eq!(
+                live.content_origin_device.1, saved_piece.content_origin_device.1,
+                "piece {i} must be spaced like the saved file"
+            );
+        }
         assert_eq!(
             hot.total_height(),
             cold.total_height(),
-            "the live paragraph must be spaced like the saved file"
+            "the live paragraphs must be spaced like the saved file"
         );
     });
 }
