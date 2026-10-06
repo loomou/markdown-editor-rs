@@ -1042,3 +1042,113 @@ fn a_paragraph_typed_into_a_blank_line_is_spaced_like_the_saved_file(cx: &mut Te
         "the fixture never exercised the paragraph margin ({live:?})"
     );
 }
+
+fn key_event(key: &str, shift: bool, is_held: bool) -> gpui::KeyDownEvent {
+    gpui::KeyDownEvent {
+        keystroke: gpui::Keystroke {
+            modifiers: gpui::Modifiers {
+                shift,
+                ..Default::default()
+            },
+            key: key.to_string(),
+            key_char: None,
+        },
+        is_held,
+        prefer_character_input: false,
+    }
+}
+
+fn document_shape(
+    editor: &gpui::Entity<EditorView>,
+    cx: &mut VisualTestContext,
+) -> (usize, usize, String) {
+    let (tops, _) = painted_line_tops(editor, cx);
+    let (blocks, saved) = cx.update(|_, app| {
+        let d = &editor.read(app).state.doc.document;
+        (d.arena.children(d.root).count(), d.to_markdown())
+    });
+    (blocks, tops.len(), saved)
+}
+
+#[gpui::test]
+fn a_held_enter_still_opens_another_paragraph(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc("", cx);
+    focus_editor(&editor, cx);
+    settle(&editor, cx);
+    cx.simulate_input("123");
+    settle(&editor, cx);
+    cx.simulate_event(key_event("enter", false, false));
+    settle(&editor, cx);
+    let pressed = document_shape(&editor, cx);
+    cx.simulate_event(key_event("enter", false, true));
+    settle(&editor, cx);
+    assert_ne!(
+        document_shape(&editor, cx),
+        pressed,
+        "holding enter stopped opening paragraphs"
+    );
+}
+
+#[gpui::test]
+fn two_deliberate_shift_enters_split_the_paragraph_and_drop_the_soft_break(
+    cx: &mut TestAppContext,
+) {
+    let (editor, cx) = editor_with_doc("", cx);
+    focus_editor(&editor, cx);
+    settle(&editor, cx);
+    cx.simulate_input("甲");
+    settle(&editor, cx);
+    cx.simulate_event(key_event("enter", true, false));
+    settle(&editor, cx);
+    assert_eq!(
+        document_shape(&editor, cx).2,
+        "甲",
+        "the fixture never opened a soft break"
+    );
+
+    cx.simulate_event(key_event("enter", true, false));
+    settle(&editor, cx);
+    let (blocks, lines, saved) = document_shape(&editor, cx);
+    assert_eq!(
+        saved, "甲\n\n",
+        "the second shift-enter did not split the paragraph"
+    );
+    assert_eq!(
+        blocks, 3,
+        "the split did not leave a blank paragraph of its own"
+    );
+    assert_eq!(
+        lines, 3,
+        "the split did not repaint as two paragraphs plus the caret line"
+    );
+    let first = cx.update(|_, app| {
+        let d = &editor.read(app).state.doc.document;
+        let id = d.arena.children(d.root).next().expect("a root child");
+        (d.display(id).to_string(), d.block_source(id).to_string())
+    });
+    assert_eq!(
+        first,
+        ("甲".to_string(), "甲".to_string()),
+        "the soft break stayed inside the first paragraph"
+    );
+}
+
+#[gpui::test]
+fn a_shift_enter_reported_as_held_still_opens_the_first_soft_break(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc("", cx);
+    focus_editor(&editor, cx);
+    settle(&editor, cx);
+    cx.simulate_input("甲");
+    settle(&editor, cx);
+    cx.simulate_event(key_event("enter", true, true));
+    settle(&editor, cx);
+    let display = cx.update(|_, app| {
+        let d = &editor.read(app).state.doc.document;
+        let id = d.arena.children(d.root).next().expect("a root child");
+        d.display(id).to_string()
+    });
+    assert_eq!(
+        display, "甲\n",
+        "a keyboard that reports every keydown as held could not open a soft break"
+    );
+}
