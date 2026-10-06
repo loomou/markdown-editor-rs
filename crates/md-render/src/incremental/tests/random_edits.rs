@@ -9,7 +9,7 @@ use md_layout::spine::FlowItemKind;
 use md_layout::style::{BoxLayoutEnvironment, BoxLayoutStyle};
 use std::fmt::Write;
 
-const INITIAL_MARKDOWN: &str = "# heading\n\nalpha **bold** beta\n\n- first item\n- second item\n\n> quoted text\n\n| a | b |\n| --- | --- |\n| c | d |\n\n```rust\nfn main() {}\n```\n\ntail\n";
+const INITIAL_MARKDOWN: &str = "# heading\n\nalpha **bold** beta\n\n- first item\n- second item\n\n> quoted text\n\n| a | b |\n| --- | --- |\n| c | d |\n\n```rust\nfn main() {}\n```\n\ntail";
 
 #[derive(Clone, Copy, Debug)]
 enum EditOp {
