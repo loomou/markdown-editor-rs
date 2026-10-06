@@ -306,7 +306,8 @@ where
         blank_line(&mut w, &Prefix::default())?;
     }
     run(doc, doc.root(), &mut w, &Prefix::default())?;
-    if !definitions.is_empty() && !definitions_first {
+    let definitions_last = !definitions.is_empty() && !definitions_first;
+    if definitions_last {
         blank_line(&mut w, &Prefix::default())?;
         for (index, definition) in definitions.iter().enumerate() {
             if index > 0 && w.nl_run == 0 {
@@ -315,10 +316,48 @@ where
             w.write_str(definition.trim_end_matches(['\n', '\r']))?;
         }
     }
-    if w.written && w.nl_run == 0 {
+    if w.written && w.nl_run == 0 && (definitions_last || trailing_line_break_wanted(doc)) {
         w.write_str("\n")?;
     }
     Ok(())
+}
+
+fn trailing_line_break_wanted<D: MarkdownExport>(doc: &D) -> bool {
+    let mut kids: Vec<NodeId> = doc.children(doc.root()).collect();
+    if kids
+        .last()
+        .is_some_and(|&id| block::is_dropped_cursor_line(doc, id))
+    {
+        kids.pop();
+    }
+    let Some(&last) = kids.last() else {
+        return false;
+    };
+    let mut last = last;
+    while holds_blocks(doc.kind(last)) {
+        let Some(next) = doc.children(last).last() else {
+            break;
+        };
+        last = next;
+    }
+    matches!(
+        doc.kind(last),
+        Some(
+            BlockKind::CodeBlock
+                | BlockKind::Mermaid
+                | BlockKind::ThematicBreak
+                | BlockKind::Table
+                | BlockKind::Math
+                | BlockKind::FootnoteDefinition
+        )
+    )
+}
+
+fn holds_blocks(kind: Option<BlockKind>) -> bool {
+    matches!(
+        kind,
+        Some(BlockKind::BlockQuote | BlockKind::List | BlockKind::ListItem)
+    )
 }
 
 fn tail_swallows_appended_definitions<D: MarkdownExport>(doc: &D) -> bool {

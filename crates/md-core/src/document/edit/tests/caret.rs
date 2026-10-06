@@ -101,7 +101,7 @@ fn a_second_soft_break_beside_the_first_starts_a_paragraph() {
     assert_eq!(out.offset, 0);
     assert_eq!(doc.text_of(leaf).unwrap(), "123");
     assert_eq!(doc.text_of(out.block).unwrap(), "456");
-    assert_eq!(doc.to_markdown(), "123\n\n456\n");
+    assert_eq!(doc.to_markdown(), "123\n\n456");
     let reloaded = load_markdown(&doc.to_markdown(), editor_options());
     assert_eq!(reloaded.to_markdown(), doc.to_markdown());
     assert_eq!(reloaded.text_leaves().len(), 2);
@@ -280,7 +280,7 @@ fn list_marker_on_a_soft_line_preserves_inline_source() {
     let id = doc.live_id(out.block).expect("list paragraph");
     assert_eq!(doc.leaf_source(id), "**hi**");
     assert!(has_list(&doc));
-    assert_eq!(doc.to_markdown(), "hello\n\n- **hi**\n");
+    assert_eq!(doc.to_markdown(), "hello\n\n- **hi**");
 }
 
 #[test]
@@ -367,7 +367,7 @@ fn cross_block_delete_preserves_inline_source_in_the_suffix() {
             .iter()
             .any(|run| run.marks.contains(InlineMarks::STRONG))
     );
-    assert_eq!(doc.to_markdown(), "a**bold**\n");
+    assert_eq!(doc.to_markdown(), "a**bold**");
 }
 
 #[test]

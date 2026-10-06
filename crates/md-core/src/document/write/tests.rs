@@ -126,7 +126,7 @@ fn trailing_blank_paragraph_is_present_but_not_serialized() {
     let last = *leaves.last().expect("last");
     assert_eq!(doc.kind(last), Some(BlockKind::Paragraph));
     assert_eq!(doc.text_of(last).unwrap_or("x"), "");
-    assert_eq!(doc.to_markdown(), "# hi\n");
+    assert_eq!(doc.to_markdown(), "# hi");
 }
 
 #[test]
@@ -260,11 +260,11 @@ fn fenced_code_marker_styles_round_trip() {
 #[test]
 fn a_fenced_block_needs_no_blank_line_before_the_next_block() {
     for source in [
-        "- hi\n  ```\n  abc\n  ```\n  z\n",
-        "- hi\n  ```\n  abc\n  ```\n  # h\n",
-        "- hi\n  ```\n  abc\n  ```\n- w\n",
+        "- hi\n  ```\n  abc\n  ```\n  z",
+        "- hi\n  ```\n  abc\n  ```\n  # h",
+        "- hi\n  ```\n  abc\n  ```\n- w",
         "- hi\n  ```\n  abc\n  ```\n  | a |\n  | --- |\n",
-        "- hi\n  ```mermaid\n  graph\n  ```\n  z\n",
+        "- hi\n  ```mermaid\n  graph\n  ```\n  z",
     ] {
         let doc = load_markdown(source, editor_options());
         assert_eq!(doc.to_markdown(), source, "source={source:?}");
@@ -285,11 +285,11 @@ fn a_first_block_that_fits_after_the_marker_shares_its_line() {
         "-     abc\n",
         "- ```mermaid\n  graph\n  ```\n",
         "- | a |\n  | --- |\n",
-        "- > q\n",
-        "- - a\n  - b\n",
+        "- > q",
+        "- - a\n  - b",
         "- $$\n  x\n  $$\n",
         "1. ```\n   abc\n   ```\n",
-        "1. > q\n",
+        "1. > q",
         "1. | a |\n   | --- |\n",
         "> - ```\n>   abc\n>   ```\n",
         "- ***\n",
@@ -301,20 +301,20 @@ fn a_first_block_that_fits_after_the_marker_shares_its_line() {
         "1. ---\n",
         "10. ***\n",
         "10) ***\n",
-        "- ***\n- b\n",
-        "- ***\n\n  p\n",
+        "- ***\n- b",
+        "- ***\n\n  p",
         "- ***\n\n  ***\n",
         "- [^1]: n\n",
-        "- [^1]: n\n- b\n",
-        "- [^1]: n\n\n  p\n",
-        "- [^1]: n\n\n  q\n\n  r\n",
-        "- ![a](u)\n\n  p\n",
-        "- ![a](u)\n\n- b\n",
+        "- [^1]: n\n- b",
+        "- [^1]: n\n\n  p",
+        "- [^1]: n\n\n  q\n\n  r",
+        "- ![a](u)\n\n  p",
+        "- ![a](u)\n\n- b",
         "> - ***\n",
-        "> - ***\n>\n>   p\n",
+        "> - ***\n>\n>   p",
         "> - [^1]: n\n",
-        "> - [^1]: n\n>\n>   p\n",
-        "> - ![a](u)\n>\n>   p\n",
+        "> - [^1]: n\n>\n>   p",
+        "> - ![a](u)\n>\n>   p",
         "- - ***\n",
         "- - [^1]: n\n",
         "- 1. ***\n",
@@ -336,14 +336,14 @@ fn a_thematic_break_the_marker_would_absorb_and_a_task_item_keep_the_marker_line
         "- \n  ---\n",
         "* \n  ***\n",
         "- \n  - - -\n",
-        "- \n  ---\n\n  p\n",
-        "* \n  ***\n\n  p\n",
+        "- \n  ---\n\n  p",
+        "* \n  ***\n\n  p",
         "- - \n    ---\n",
         "> - \n>   ---\n",
         "> * \n>   ***\n",
         "- [ ] \n  ```\n  abc\n  ```\n",
-        "- [x] \n  > q\n",
-        "- [ ] \n  - a\n",
+        "- [x] \n  > q",
+        "- [ ] \n  - a",
     ] {
         let doc = load_markdown(source, editor_options());
         assert_eq!(doc.to_markdown(), source, "source={source:?}");
@@ -404,14 +404,14 @@ fn a_blank_line_is_needed_only_where_the_loader_would_merge_the_blocks() {
 #[test]
 fn a_tight_item_keeps_its_shape_where_the_loader_would_not_merge_the_blocks() {
     for source in [
-        "- # h\n  z\n",
+        "- # h\n  z",
         "- # h\n  ***\n",
         "- > q\n  ***\n",
         "- - b\n  ***\n",
         "- | a |\n  | --- |\n  ***\n",
         "- a\n  ***\n",
-        "- # h\n  - b\n",
-        "- # h\n  > q\n",
+        "- # h\n  - b",
+        "- # h\n  > q",
         "- # h\n  ```\n  abc\n  ```\n",
         "- # h\n  $$\n  x\n  $$\n",
     ] {
@@ -429,18 +429,18 @@ fn a_tight_item_keeps_its_shape_where_the_loader_would_not_merge_the_blocks() {
 #[test]
 fn sibling_blocks_are_separated_by_exactly_one_blank_line() {
     for (source, saved) in [
-        ("p\n# h\n", "p\n\n# h\n"),
-        ("# h\n- a\n", "# h\n\n- a\n"),
-        ("# h\n## h2\n", "# h\n\n## h2\n"),
-        ("p\n> q\n", "p\n\n> q\n"),
+        ("p\n# h\n", "p\n\n# h"),
+        ("# h\n- a\n", "# h\n\n- a"),
+        ("# h\n## h2\n", "# h\n\n## h2"),
+        ("p\n> q\n", "p\n\n> q"),
         ("p\n```\nx\n```\n", "p\n\n```\nx\n```\n"),
         ("p\n***\n", "p\n\n***\n"),
         ("- a\n***\n", "- a\n\n***\n"),
         ("p\n| a |\n| - |\n| b |\n", "p\n\n| a |\n| --- |\n| b |\n"),
-        ("> q\n> # h\n", "> q\n>\n> # h\n"),
-        ("> q\n> - a\n", "> q\n>\n> - a\n"),
-        ("> ```\n> x\n> ```\n> p\n", "> ```\n> x\n> ```\n>\n> p\n"),
-        ("p\n\n\n# h\n", "p\n\n\n# h\n"),
+        ("> q\n> # h\n", "> q\n>\n> # h"),
+        ("> q\n> - a\n", "> q\n>\n> - a"),
+        ("> ```\n> x\n> ```\n> p\n", "> ```\n> x\n> ```\n>\n> p"),
+        ("p\n\n\n# h\n", "p\n\n\n# h"),
     ] {
         let doc = load_markdown(source, editor_options());
         assert_eq!(doc.to_markdown(), saved, "source={source:?}");
@@ -466,12 +466,12 @@ fn sibling_blocks_are_separated_by_exactly_one_blank_line() {
 #[test]
 fn an_ordered_list_renumbers_its_items_from_the_start_number() {
     for (source, saved) in [
-        ("1. a\n1. a\n", "1. a\n2. a\n"),
-        ("1. a\n2. b\n", "1. a\n2. b\n"),
-        ("5. a\n5. b\n5. c\n", "5. a\n6. b\n7. c\n"),
-        ("0. a\n0. b\n", "0. a\n1. b\n"),
-        ("10. a\n10. b\n", "10. a\n11. b\n"),
-        ("1) a\n1) b\n", "1) a\n2) b\n"),
+        ("1. a\n1. a\n", "1. a\n2. a"),
+        ("1. a\n2. b", "1. a\n2. b"),
+        ("5. a\n5. b\n5. c\n", "5. a\n6. b\n7. c"),
+        ("0. a\n0. b\n", "0. a\n1. b"),
+        ("10. a\n10. b\n", "10. a\n11. b"),
+        ("1) a\n1) b\n", "1) a\n2) b"),
     ] {
         let doc = load_markdown(source, editor_options());
         assert_eq!(doc.to_markdown(), saved, "source={source:?}");
@@ -497,11 +497,11 @@ fn an_ordered_list_renumbers_its_items_from_the_start_number() {
 #[test]
 fn a_blank_line_inside_a_list_item_is_not_indented() {
     for (source, saved) in [
-        ("- a\n\n  z\n", "- a\n\n  z\n"),
-        ("- p\n\n  p\n", "- p\n\n  p\n"),
-        ("1. a\n\n   z\n", "1. a\n\n   z\n"),
-        ("1. a\n\n\n   z\n", "1. a\n\n\n   z\n"),
-        ("> - a\n> \n>   z\n", "> - a\n>\n>   z\n"),
+        ("- a\n\n  z", "- a\n\n  z"),
+        ("- p\n\n  p\n", "- p\n\n  p"),
+        ("1. a\n\n   z\n", "1. a\n\n   z"),
+        ("1. a\n\n\n   z\n", "1. a\n\n\n   z"),
+        ("> - a\n> \n>   z\n", "> - a\n>\n>   z"),
     ] {
         let doc = load_markdown(source, editor_options());
         assert_eq!(doc.to_markdown(), saved, "source={source:?}");
@@ -527,11 +527,11 @@ fn a_blank_line_inside_a_list_item_is_not_indented() {
 #[test]
 fn a_loose_list_keeps_its_items_adjacent() {
     for (source, saved) in [
-        ("- a\n- b\n", "- a\n- b\n"),
-        ("- a\n\n- b\n", "- a\n\n- b\n"),
-        ("- a\n- b\n\n  c\n", "- a\n- b\n\n  c\n"),
-        ("- a\n- b\n- c\n\n  d\n", "- a\n- b\n- c\n\n  d\n"),
-        ("1. a\n1. b\n\n   c\n", "1. a\n2. b\n\n   c\n"),
+        ("- a\n- b\n", "- a\n- b"),
+        ("- a\n\n- b\n", "- a\n\n- b"),
+        ("- a\n- b\n\n  c\n", "- a\n- b\n\n  c"),
+        ("- a\n- b\n- c\n\n  d\n", "- a\n- b\n- c\n\n  d"),
+        ("1. a\n1. b\n\n   c\n", "1. a\n2. b\n\n   c"),
     ] {
         let doc = load_markdown(source, editor_options());
         assert_eq!(doc.to_markdown(), saved, "source={source:?}");
@@ -557,24 +557,24 @@ fn a_loose_list_keeps_its_items_adjacent() {
 #[test]
 fn a_paragraph_line_that_would_open_a_new_block_is_left_unprefixed() {
     for (source, saved) in [
-        ("> q\n| a |\n| --- |\n", "> q\n| a |\n| --- |\n"),
-        ("> q\n===\n", "> q\n===\n"),
-        ("> q\n--\n", "> q\n--\n"),
-        ("> > q\n| a |\n| --- |\n", "> > q\n| a |\n| --- |\n"),
-        ("> > q\n===\n", "> > q\n===\n"),
-        ("- a\n| a |\n| --- |\n", "- a\n| a |\n| --- |\n"),
-        ("- | a |\n| --- |\n", "- | a |\n| --- |\n"),
-        ("- q\n===\n", "- q\n===\n"),
-        ("- q\n--\n", "- q\n--\n"),
-        ("> - a\n| a |\n| --- |\n", "> - a\n| a |\n| --- |\n"),
+        ("> q\n| a |\n| --- |\n", "> q\n| a |\n| --- |"),
+        ("> q\n===\n", "> q\n==="),
+        ("> q\n--\n", "> q\n--"),
+        ("> > q\n| a |\n| --- |\n", "> > q\n| a |\n| --- |"),
+        ("> > q\n===\n", "> > q\n==="),
+        ("- a\n| a |\n| --- |\n", "- a\n| a |\n| --- |"),
+        ("- | a |\n| --- |\n", "- | a |\n| --- |"),
+        ("- q\n===\n", "- q\n==="),
+        ("- q\n--\n", "- q\n--"),
+        ("> - a\n| a |\n| --- |\n", "> - a\n| a |\n| --- |"),
         ("[^1]: n\n| a |\n| --- |\n", "[^1]: n\n| a |\n| --- |\n"),
         ("[^1]: q\n===\n", "[^1]: q\n===\n"),
         ("[^1]: q\n--\n", "[^1]: q\n--\n"),
-        ("- a\n  \n  | a |\n| --- |\n", "- a\n\n  | a |\n| --- |\n"),
-        ("> q\n> plain\n", "> q\n> plain\n"),
-        ("- a\n  z\n", "- a\n  z\n"),
-        ("- q\n  ===\n", "- q\n  ===\n"),
-        ("> q\n> a | b\n> --- | ---\n", "> q\n> a | b\n> --- | ---\n"),
+        ("- a\n  \n  | a |\n| --- |\n", "- a\n\n  | a |\n| --- |"),
+        ("> q\n> plain\n", "> q\n> plain"),
+        ("- a\n  z\n", "- a\n  z"),
+        ("- q\n  ===\n", "- q\n  ==="),
+        ("> q\n> a | b\n> --- | ---\n", "> q\n> a | b\n> --- | ---"),
         ("> q\n> | a |\n> | --- |\n", "> q\n>\n> | a |\n> | --- |\n"),
         ("- | a |\n  | --- |\n", "- | a |\n  | --- |\n"),
     ] {
@@ -641,7 +641,7 @@ fn indented_code_blocks_stay_indented() {
     for source in [
         "    code\n",
         "    first\n    second\n",
-        "before\n\n    code\n\nafter\n",
+        "before\n\n    code\n\nafter",
     ] {
         let doc = load_markdown(source, editor_options());
         assert_eq!(doc.to_markdown(), source);
@@ -652,7 +652,7 @@ fn indented_code_blocks_stay_indented() {
 
 #[test]
 fn setext_headings_round_trip_byte_for_byte() {
-    for md in ["Title\n=====\n", "Title\n-----\n"] {
+    for md in ["Title\n=====", "Title\n-----"] {
         let doc = load_markdown(md, editor_options());
         assert_eq!(doc.to_markdown(), md, "source={md:?}");
         let again = load_markdown(&doc.to_markdown(), editor_options());
@@ -804,7 +804,7 @@ fn a_delimiter_row_is_always_written_in_canonical_form() {
 
 #[test]
 fn pristine_standalone_images_keep_line_padding() {
-    let source = "  ![cap](u)  \n";
+    let source = "  ![cap](u)  ";
     let mut doc = load_markdown(source, editor_options());
 
     assert_eq!(doc.to_markdown(), source);
@@ -901,7 +901,7 @@ fn wide_table_alignment_survives_an_edit_and_snapshot_write() {
 
 #[test]
 fn loose_task_markers_do_not_accumulate_on_save() {
-    let source = "- [ ] a\n\n- [x] b\n";
+    let source = "- [ ] a\n\n- [x] b";
     let mut markdown = source.to_string();
     for _ in 0..3 {
         let doc = load_markdown(&markdown, editor_options());
@@ -914,7 +914,7 @@ fn loose_task_markers_do_not_accumulate_on_save() {
 
 #[test]
 fn ordered_task_items_keep_their_numbers() {
-    let source = "3. [ ] todo\n4. [x] done\n";
+    let source = "3. [ ] todo\n4. [x] done";
     let doc = load_markdown(source, editor_options());
 
     assert_eq!(doc.to_markdown(), source);
@@ -923,13 +923,13 @@ fn ordered_task_items_keep_their_numbers() {
 #[test]
 fn list_marker_styles_round_trip() {
     for source in [
-        "* a\n* b\n",
-        "+ a\n+ b\n",
-        "3) a\n4) b\n",
-        "* [ ] todo\n* [x] done\n",
-        "3) [ ] todo\n4) [x] done\n",
-        "> * quoted\n> * list\n",
-        "+ outer\n  + inner\n",
+        "* a\n* b",
+        "+ a\n+ b",
+        "3) a\n4) b",
+        "* [ ] todo\n* [x] done",
+        "3) [ ] todo\n4) [x] done",
+        "> * quoted\n> * list",
+        "+ outer\n  + inner",
     ] {
         let doc = load_markdown(source, editor_options());
         assert_eq!(doc.to_markdown(), source, "source={source:?}");
@@ -939,9 +939,9 @@ fn list_marker_styles_round_trip() {
 #[test]
 fn alert_label_case_and_blank_separator_round_trip() {
     for source in [
-        "> [!note]\n> body\n",
-        "> [!NoTe]\n> body\n",
-        "> [!warning]\n> \n>\n> body\n",
+        "> [!note]\n> body",
+        "> [!NoTe]\n> body",
+        "> [!warning]\n> \n>\n> body",
     ] {
         let doc = load_markdown(source, editor_options());
         assert_eq!(doc.to_markdown(), source, "source={source:?}");
@@ -950,7 +950,7 @@ fn alert_label_case_and_blank_separator_round_trip() {
 
 #[test]
 fn block_quote_continuation_prefixes_stay_out_of_leaf_source() {
-    let source = "> line one\n> **line two**\n";
+    let source = "> line one\n> **line two**";
     let doc = load_markdown(source, editor_options());
     let leaf = doc.live_id(doc.text_leaves()[0]).expect("quote leaf");
     assert_eq!(doc.leaf_source(leaf), "line one\n**line two**");
@@ -967,7 +967,7 @@ fn block_quote_continuation_prefixes_stay_out_of_leaf_source() {
 #[test]
 fn continuation_indents_do_not_accumulate_across_saves() {
     for (source, canonical) in [
-        ("- a\n  b\n", "- a\n  b\n"),
+        ("- a\n  b\n", "- a\n  b"),
         ("[^1]: a\n    b\n", "[^1]: a\n    b\n"),
     ] {
         let mut markdown = source.to_string();
@@ -1028,9 +1028,9 @@ fn reference_link_definitions_survive_save_and_reload() {
 #[test]
 fn html_blocks_keep_their_original_source() {
     for source in [
-        "<div align=\"center\">\n</div>\n",
-        "<div align=\"center\">\nhello\n</div>\n",
-        "before\n\n<section data-x=\"1\">\ninside\n</section>\n\nafter\n",
+        "<div align=\"center\">\n</div>",
+        "<div align=\"center\">\nhello\n</div>",
+        "before\n\n<section data-x=\"1\">\ninside\n</section>\n\nafter",
     ] {
         let doc = load_markdown(source, editor_options());
         assert_eq!(doc.to_markdown(), source, "{source:?}");
@@ -1051,7 +1051,7 @@ fn typing_a_dash_rule_on_the_first_line_opens_front_matter() {
     assert_eq!(out.block, leaf);
     assert_eq!(out.offset, 0);
     assert_eq!(doc.display(doc.live_id(leaf).unwrap()), "");
-    assert_eq!(doc.to_markdown(), "---\n\n---\n");
+    assert_eq!(doc.to_markdown(), "---\n\n---");
 
     let again = load_markdown(&doc.to_markdown(), editor_options());
     assert_eq!(
@@ -1070,7 +1070,7 @@ fn a_five_dash_rule_on_the_first_line_opens_front_matter() {
 
     assert_eq!(doc.kind(leaf), Some(BlockKind::MetadataBlock));
     assert_eq!(out.offset, 0);
-    assert_eq!(doc.to_markdown(), "-----\n\n-----\n");
+    assert_eq!(doc.to_markdown(), "-----\n\n-----");
 
     let again = load_markdown(&doc.to_markdown(), editor_options());
     assert_eq!(tree_with_sources(&doc), tree_with_sources(&again));
@@ -1085,7 +1085,7 @@ fn the_front_matter_body_is_typed_where_the_caret_lands() {
     let typed = type_chars(&mut doc, out, "title: hi");
 
     assert_eq!(typed.offset, 9);
-    assert_eq!(doc.to_markdown(), "---\ntitle: hi\n---\n");
+    assert_eq!(doc.to_markdown(), "---\ntitle: hi\n---");
 
     let again = load_markdown(&doc.to_markdown(), editor_options());
     assert_eq!(tree_with_sources(&doc), tree_with_sources(&again));
@@ -1094,12 +1094,12 @@ fn the_front_matter_body_is_typed_where_the_caret_lands() {
 #[test]
 fn front_matter_hides_its_delimiters_like_a_code_fence() {
     for (source, body) in [
-        ("---\ntitle: hi\n---\n", "title: hi"),
+        ("---\ntitle: hi\n---", "title: hi"),
         (
-            "---\ntitle: hi\ntags:\n  - rust\n---\n",
+            "---\ntitle: hi\ntags:\n  - rust\n---",
             "title: hi\ntags:\n  - rust",
         ),
-        ("+++\ntitle = \"hi\"\n+++\n", "title = \"hi\""),
+        ("+++\ntitle = \"hi\"\n+++", "title = \"hi\""),
     ] {
         let doc = load_markdown(source, editor_options());
         let id = doc.live_id(doc.text_leaves()[0]).expect("leaf");
@@ -1144,7 +1144,7 @@ fn enter_inside_front_matter_adds_a_line_instead_of_splitting_it() {
         1,
         "Enter must not spawn a second front matter"
     );
-    assert_eq!(doc.to_markdown(), "---\ntitle: hi\n\n---\n");
+    assert_eq!(doc.to_markdown(), "---\ntitle: hi\n\n---");
 
     let again = load_markdown(&doc.to_markdown(), editor_options());
     assert_eq!(tree_with_sources(&doc), tree_with_sources(&again));
@@ -1153,11 +1153,11 @@ fn enter_inside_front_matter_adds_a_line_instead_of_splitting_it() {
 #[test]
 fn metadata_blocks_keep_delimiters_and_content() {
     for source in [
-        "---\ntitle: hello\ntags:\n  - rust\n---\n",
-        "---\ntitle: hello\n---\n# Body\n",
-        "---\ntitle: hello\n---\n\n# Body\n",
-        "+++\ntitle = \"hello\"\ndraft = false\n+++\n",
-        "+++\ntitle = \"hello\"\n+++\nBody\n",
+        "---\ntitle: hello\ntags:\n  - rust\n---",
+        "---\ntitle: hello\n---\n# Body",
+        "---\ntitle: hello\n---\n\n# Body",
+        "+++\ntitle = \"hello\"\ndraft = false\n+++",
+        "+++\ntitle = \"hello\"\n+++\nBody",
     ] {
         let doc = load_markdown(source, editor_options());
         let block = doc.text_leaves()[0];
@@ -1177,10 +1177,10 @@ fn metadata_blocks_keep_delimiters_and_content() {
 #[test]
 fn colon_lines_round_trip_byte_for_byte() {
     for md in [
-        "term\n: desc\n",
-        "term\n\n: desc\n",
-        "Alpha\n: one\n: two\n",
-        "term\n\n: desc\n\nmore\n",
+        "term\n: desc",
+        "term\n\n: desc",
+        "Alpha\n: one\n: two",
+        "term\n\n: desc\n\nmore",
     ] {
         let doc = load_markdown(md, editor_options());
         assert_eq!(doc.to_markdown(), md, "source {md:?}");
@@ -1776,7 +1776,7 @@ fn ordered_list_numbers_stay_within_marker_limits() {
     let doc = load_markdown("999999999. a\n1. b\n", editor_options());
     let saved = doc.to_markdown();
     let reloaded = load_markdown(&saved, editor_options());
-    assert_eq!(saved, "999999999. a\n999999999. b\n");
+    assert_eq!(saved, "999999999. a\n999999999. b");
     let texts: Vec<_> = reloaded
         .text_leaves()
         .into_iter()
@@ -1866,7 +1866,7 @@ fn fence_marker_lines_inside_a_paragraph_are_escaped_on_save() {
     let leaves = doc.text_leaves();
     let _ = doc.replace_text(leaves[0], 6..6, "\n\n```rust\nfn\n```");
     let saved = doc.to_markdown();
-    assert_eq!(saved, "before\n\n\\```rust\nfn\n\\```\n\nafter\n");
+    assert_eq!(saved, "before\n\n\\```rust\nfn\n\\```\n\nafter");
 
     let reloaded = load_markdown(&saved, editor_options());
     let kinds: Vec<BlockKind> = reloaded
@@ -1892,7 +1892,7 @@ fn indented_and_tilde_fence_lines_are_escaped_too() {
     let leaves = doc.text_leaves();
     let _ = doc.replace_text(leaves[0], 4..4, "\n\na\n~~~txt\nx\n~~~");
     let saved = doc.to_markdown();
-    assert_eq!(saved, "body\n\na\n\\~~~txt\nx\n\\~~~\n");
+    assert_eq!(saved, "body\n\na\n\\~~~txt\nx\n\\~~~");
 
     let reloaded = load_markdown(&saved, editor_options());
     let kinds: Vec<BlockKind> = reloaded
@@ -1926,7 +1926,7 @@ fn a_literal_dash_marker_inside_a_list_item_survives_saving() {
     let _ = type_chars(&mut doc, at, "- ");
 
     let markdown = doc.to_markdown();
-    assert_eq!(markdown, "- \\- \n");
+    assert_eq!(markdown, "- \\- ");
 
     let again = load_markdown(&markdown, editor_options());
     assert_eq!(
@@ -1995,7 +1995,7 @@ fn thematic_break_text_typed_at_the_root_stays_a_paragraph_across_saves() {
         );
 
         let markdown = doc.to_markdown();
-        assert_eq!(markdown, format!("\\{text}\n"), "text={text:?}");
+        assert_eq!(markdown, format!("\\{text}"), "text={text:?}");
 
         let again = load_markdown(&markdown, editor_options());
         assert_eq!(
@@ -2071,7 +2071,7 @@ fn trailing_blank_does_not_hide_an_unterminated_html_tail_from_the_writer() {
 
 #[test]
 fn a_leading_blank_paragraph_writes_exactly_one_line() {
-    for (source, expected) in [("abc\n", "\nabc\n"), ("> abc\n", "> \n>\n> abc\n")] {
+    for (source, expected) in [("abc\n", "\nabc"), ("> abc\n", "> \n>\n> abc")] {
         let mut doc = load_markdown(source, editor_options());
         let leaf = doc.text_leaves()[0];
         let _ = apply(
@@ -2096,15 +2096,15 @@ fn edge_blank_lines_round_trip_byte_for_byte() {
         "> \n",
         "> \n>\n> \n",
         "> \n>\n> \n>\n> \n",
-        "> \n>\n> abc\n",
+        "> \n>\n> abc",
         "> abc\n>\n> \n",
         "> abc\n>\n> \n>\n> \n",
         "> > \n",
         "> [!note]\n> \n",
-        "> [!note]\n> \n>\n> abc\n",
-        "\nabc\n",
-        "\n\nabc\n",
-        "\n\n\nabc\n",
+        "> [!note]\n> \n>\n> abc",
+        "\nabc",
+        "\n\nabc",
+        "\n\n\nabc",
     ] {
         let doc = load_markdown(source, editor_options());
         let saved = doc.to_markdown();
@@ -2116,10 +2116,16 @@ fn edge_blank_lines_round_trip_byte_for_byte() {
 
 #[test]
 fn trailing_blank_lines_at_the_root_round_trip_byte_for_byte() {
-    for source in ["hi\n", "hi\n\n", "hi\n\n\n", "a\n\n\n", "a\n\n\n\n"] {
+    for (source, saved_want) in [
+        ("hi\n", "hi"),
+        ("hi\n\n", "hi\n\n"),
+        ("hi\n\n\n", "hi\n\n\n"),
+        ("a\n\n\n", "a\n\n\n"),
+        ("a\n\n\n\n", "a\n\n\n\n"),
+    ] {
         let doc = load_markdown(source, editor_options());
         let saved = doc.to_markdown();
-        assert_eq!(saved, source, "source={source:?}");
+        assert_eq!(saved, saved_want, "source={source:?}");
         let reloaded = load_markdown(&saved, editor_options());
         assert_eq!(reloaded.to_markdown(), saved, "source={source:?}");
     }
@@ -2128,14 +2134,14 @@ fn trailing_blank_lines_at_the_root_round_trip_byte_for_byte() {
 #[test]
 fn blank_runs_between_blocks_keep_their_length() {
     for source in [
-        "a\n\n\nb\n",
-        "a\n\n\n\nb\n",
-        "a\n\n\n\n\nb\n",
-        "# h\n\n\np\n",
-        "```\nx\n```\n\n\np\n",
-        "> a\n>\n> b\n",
-        "> a\n>\n> \n>\n> b\n",
-        "a\n\n\n> q\n",
+        "a\n\n\nb",
+        "a\n\n\n\nb",
+        "a\n\n\n\n\nb",
+        "# h\n\n\np",
+        "```\nx\n```\n\n\np",
+        "> a\n>\n> b",
+        "> a\n>\n> \n>\n> b",
+        "a\n\n\n> q",
     ] {
         let doc = load_markdown(source, editor_options());
         let saved = doc.to_markdown();
@@ -2162,20 +2168,20 @@ fn an_editor_snapshot_keeps_edge_blank_lines() {
         "",
         "\n",
         "\n\n",
-        "hi\n",
+        "hi",
         "hi\n\n",
         "hi\n\n\n",
-        "a\n\n\nb\n",
-        "a\n\n\n\nb\n",
+        "a\n\n\nb",
+        "a\n\n\n\nb",
         "> - \n>\n> \n",
-        "# h\n\n\np\n",
+        "# h\n\n\np",
         "> \n>\n> \n",
-        "> \n>\n> abc\n",
+        "> \n>\n> abc",
         "> abc\n>\n> \n",
         "> abc\n>\n> \n>\n> \n",
         "> [!note]\n> \n",
-        "\nabc\n",
-        "\n\nabc\n",
+        "\nabc",
+        "\n\nabc",
     ] {
         let mut doc = Doc::new(load_markdown(source, editor_options()));
         doc.enable_trailing_blank();
@@ -2186,7 +2192,7 @@ fn an_editor_snapshot_keeps_edge_blank_lines() {
 
 #[test]
 fn an_editor_snapshot_drops_the_spare_line_it_appended() {
-    for source in ["hi\n", "# h\n", "> q\n", "- a\n"] {
+    for source in ["hi", "# h", "> q", "- a"] {
         let mut doc = Doc::new(load_markdown(source, editor_options()));
         let before = doc.text_leaves().len();
         doc.enable_trailing_blank();
@@ -2230,5 +2236,5 @@ fn replacing_a_whole_document_drops_the_trailing_blank_the_source_had() {
         Sel::collapsed(Caret { block, offset: 0 }),
         Command::Insert { text: "z".into() },
     );
-    assert_eq!(doc.document.to_markdown(), "z\n");
+    assert_eq!(doc.document.to_markdown(), "z");
 }

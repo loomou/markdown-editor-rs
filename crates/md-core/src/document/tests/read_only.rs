@@ -123,11 +123,11 @@ fn leaving_read_only_restores_editing() {
 
     doc.set_read_only(true);
     let _ = doc.apply(Sel::collapsed(caret), Command::Insert { text: "X".into() });
-    assert_eq!(doc.document.to_markdown(), "hello\n");
+    assert_eq!(doc.document.to_markdown(), "hello");
 
     doc.set_read_only(false);
     let _ = doc.apply(Sel::collapsed(caret), Command::Insert { text: "X".into() });
-    assert_eq!(doc.document.to_markdown(), "Xhello\n");
+    assert_eq!(doc.document.to_markdown(), "Xhello");
 }
 
 #[test]

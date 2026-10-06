@@ -151,9 +151,9 @@ where
     match kind {
         BlockKind::DocRoot => {
             let mut kids: Vec<NodeId> = doc.children(id).collect();
-            let trailing_cursor_line = kids.last().is_some_and(|&last| {
-                doc.extra(last) == NodeExtra::CursorLine && is_blank_paragraph(doc, last)
-            });
+            let trailing_cursor_line = kids
+                .last()
+                .is_some_and(|&last| is_dropped_cursor_line(doc, last));
             if trailing_cursor_line {
                 kids.pop();
             }
@@ -261,6 +261,10 @@ pub(crate) fn is_blank_paragraph<D: MarkdownExport>(doc: &D, id: NodeId) -> bool
         && matches!(doc.extra(id), NodeExtra::None | NodeExtra::CursorLine)
         && doc.display(id).is_empty()
         && doc.leaf_source(id).trim().is_empty()
+}
+
+pub(crate) fn is_dropped_cursor_line<D: MarkdownExport>(doc: &D, id: NodeId) -> bool {
+    doc.extra(id) == NodeExtra::CursorLine && is_blank_paragraph(doc, id)
 }
 
 pub(crate) fn needs_blank_between<D: MarkdownExport>(
@@ -1014,7 +1018,7 @@ where
             });
             steps.push(Step::Block {
                 id: *next,
-                prefix: prefix.clone(),
+                prefix: rest.clone(),
             });
         }
     }

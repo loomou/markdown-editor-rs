@@ -904,6 +904,9 @@ fn trailing_blank_run(blanks: &[Range<usize>], range: Range<usize>) -> (usize, u
         if span.end != at || span.start < range.start {
             break;
         }
+        if span.is_empty() {
+            continue;
+        }
         at = span.start;
         count += 1;
     }

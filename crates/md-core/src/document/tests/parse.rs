@@ -626,7 +626,7 @@ fn emptied_headings_beside_other_blocks_keep_their_marker_and_retake_input() {
         "# €",
         "typing into the emptied heading must land after the marker"
     );
-    assert_eq!(doc.document.to_markdown(), "# €\n\n123\n");
+    assert_eq!(doc.document.to_markdown(), "# €\n\n123");
 }
 
 #[test]
@@ -691,7 +691,7 @@ fn bare_hash_heading_takes_input_after_a_space() {
     );
     let id = doc.document.live_id(leaf).expect("live");
     assert_eq!(doc.document.leaf_source(id), "# x");
-    assert_eq!(doc.document.to_markdown(), "# x\n");
+    assert_eq!(doc.document.to_markdown(), "# x");
 }
 
 #[test]
@@ -711,20 +711,20 @@ fn merging_into_a_bare_hash_heading_keeps_the_delimiter() {
     );
     assert_eq!(
         doc.document.to_markdown(),
-        "# alpha beta\n",
+        "# alpha beta",
         "backspacing a paragraph into a bare `#` heading must keep valid ATX"
     );
 
     while doc.undo().is_some() {}
     assert_eq!(
         doc.document.to_markdown(),
-        "#\n\nalpha beta\n",
+        "#\n\nalpha beta",
         "undo must restore the loaded document verbatim"
     );
     while doc.redo().is_some() {}
     assert_eq!(
         doc.document.to_markdown(),
-        "# alpha beta\n",
+        "# alpha beta",
         "redo must replay the merge onto the delimiter, not into the hashes"
     );
 
@@ -739,7 +739,7 @@ fn merging_into_a_bare_hash_heading_keeps_the_delimiter() {
     );
     assert_eq!(
         doc.document.to_markdown(),
-        "# alpha beta\n",
+        "# alpha beta",
         "delete-forward into a bare `#` heading must keep valid ATX"
     );
 }
@@ -749,7 +749,7 @@ fn typing_into_a_bare_hash_heading_undo_restores_the_verbatim_source() {
     use crate::doc::Doc;
     use crate::document::{Caret, Command, PasteIntent, Sel};
 
-    for (load, typed) in [("#\n", "x"), ("###\n", "xyz")] {
+    for (load, typed) in [("#", "x"), ("###", "xyz")] {
         let mut doc = Doc::new(load_markdown(load, editor_options()));
         let heading = doc.text_leaves()[0];
         let _ = doc.apply(
@@ -762,7 +762,7 @@ fn typing_into_a_bare_hash_heading_undo_restores_the_verbatim_source() {
         let hashes = load.trim_end();
         assert_eq!(
             doc.document.to_markdown(),
-            format!("{hashes} {typed}\n"),
+            format!("{hashes} {typed}"),
             "first keystroke must pad a delimiter"
         );
         let _ = doc.undo().expect("undo");
@@ -774,7 +774,7 @@ fn typing_into_a_bare_hash_heading_undo_restores_the_verbatim_source() {
         let _ = doc.redo().expect("redo");
         assert_eq!(
             doc.document.to_markdown(),
-            format!("{hashes} {typed}\n"),
+            format!("{hashes} {typed}"),
             "redo must replay onto the delimiter"
         );
     }
@@ -791,9 +791,9 @@ fn typing_into_a_bare_hash_heading_undo_restores_the_verbatim_source() {
             intent: PasteIntent::PlainText,
         },
     );
-    assert_eq!(doc.document.to_markdown(), "# abc\n");
+    assert_eq!(doc.document.to_markdown(), "# abc");
     let _ = doc.undo().expect("undo");
-    assert_eq!(doc.document.to_markdown(), "#\n");
+    assert_eq!(doc.document.to_markdown(), "#");
 }
 
 #[test]
@@ -825,7 +825,7 @@ fn plain_text_paste_splits_on_blank_lines_and_stays_literal() {
             .paste(leaf, 5..5, " a\n\n**b**\n\n# c", PasteIntent::PlainText);
     assert_eq!(
         doc.document.to_markdown(),
-        "hello a\n\n\\*\\*b\\*\\*\n\n\\# c world\n"
+        "hello a\n\n\\*\\*b\\*\\*\n\n\\# c world"
     );
     let leaves = doc.text_leaves();
     let last = leaves[leaves.len() - 1];
@@ -850,7 +850,7 @@ fn plain_text_paste_splits_on_blank_lines_and_stays_literal() {
     );
     assert_eq!(
         doc.document.to_markdown(),
-        "hello a\n\n\\*\\*b\\*\\*\n\n\\# c world\n"
+        "hello a\n\n\\*\\*b\\*\\*\n\n\\# c world"
     );
 
     let mut doc = Doc::new(load_markdown("x\n", editor_options()));
@@ -865,7 +865,7 @@ fn plain_text_paste_splits_on_blank_lines_and_stays_literal() {
             text: "\n\n\n\nnext".into(),
         },
     );
-    assert_eq!(doc.document.to_markdown(), "x\n\nnext\n");
+    assert_eq!(doc.document.to_markdown(), "x\n\nnext");
 
     let mut doc = Doc::new(load_markdown("hello world\n", editor_options()));
     let leaf = doc.text_leaves()[0];
@@ -882,7 +882,7 @@ fn plain_text_paste_splits_on_blank_lines_and_stays_literal() {
     assert!(doc.undo().is_some(), "the paste must be undoable");
     assert_eq!(
         doc.document.to_markdown(),
-        "hello world\n",
+        "hello world",
         "undo must remove the grafted paragraphs too"
     );
 }
@@ -968,22 +968,22 @@ fn a_container_that_holds_the_caret_loads_with_an_empty_paragraph() {
         (
             "-\n",
             &[BlockKind::List, BlockKind::ListItem, BlockKind::Paragraph],
-            "- \n",
+            "- ",
         ),
         (
             "- \n",
             &[BlockKind::List, BlockKind::ListItem, BlockKind::Paragraph],
-            "- \n",
+            "- ",
         ),
         (
             "1. \n",
             &[BlockKind::List, BlockKind::ListItem, BlockKind::Paragraph],
-            "1. \n",
+            "1. ",
         ),
         (
             "- [ ] \n",
             &[BlockKind::List, BlockKind::ListItem, BlockKind::Paragraph],
-            "- [ ] \n",
+            "- [ ] ",
         ),
         (
             "- -\n",
@@ -994,7 +994,7 @@ fn a_container_that_holds_the_caret_loads_with_an_empty_paragraph() {
                 BlockKind::ListItem,
                 BlockKind::Paragraph,
             ],
-            "- - \n",
+            "- - ",
         ),
         (
             "- a\n- \n",
@@ -1005,7 +1005,7 @@ fn a_container_that_holds_the_caret_loads_with_an_empty_paragraph() {
                 BlockKind::ListItem,
                 BlockKind::Paragraph,
             ],
-            "- a\n- \n",
+            "- a\n- ",
         ),
         (
             "- \n- b\n",
@@ -1016,7 +1016,7 @@ fn a_container_that_holds_the_caret_loads_with_an_empty_paragraph() {
                 BlockKind::ListItem,
                 BlockKind::Paragraph,
             ],
-            "- \n- b\n",
+            "- \n- b",
         ),
         (
             "> \n",
@@ -1036,7 +1036,7 @@ fn a_container_that_holds_the_caret_loads_with_an_empty_paragraph() {
                 BlockKind::ListItem,
                 BlockKind::Paragraph,
             ],
-            "> - \n",
+            "> - ",
         ),
     ];
     for (source, want, markdown) in cases {

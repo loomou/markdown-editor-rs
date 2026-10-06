@@ -265,7 +265,7 @@ fn quote_marker_on_a_soft_line_preserves_inline_source() {
     let id = doc.live_id(out.block).expect("quoted paragraph");
     assert_eq!(doc.leaf_source(id), "**hi**");
     assert_eq!(parent_kind(&doc, id), Some(BlockKind::BlockQuote));
-    assert_eq!(doc.to_markdown(), "hello\n\n> **hi**\n");
+    assert_eq!(doc.to_markdown(), "hello\n\n> **hi**");
 }
 
 #[test]
