@@ -149,6 +149,31 @@ fn caret_at(doc: &Document, cell: NodeId, at_end: bool) -> Caret {
     }
 }
 
+pub(crate) fn enter_or_leave(doc: &mut Document, caret: Caret) -> Option<Caret> {
+    let path = TablePath::at(doc, caret)?;
+    if let Some(below) = step_vertical(doc, &path, true) {
+        return Some(below);
+    }
+    let host = doc.arena.get(path.table).and_then(|node| node.parent)?;
+    let before = doc.revision();
+    let paragraph = doc.alloc_leaf(BlockKind::Paragraph);
+    doc.arena.insert_after(host, Some(path.table), paragraph);
+    doc.bump_structure(host);
+    let _ = doc.commit(
+        before,
+        vec![crate::document::change::DocChange::TreeSpliced {
+            parent: host,
+            before: Some(path.table),
+            removed: Vec::new(),
+            inserted: vec![paragraph],
+        }],
+    );
+    Some(Caret {
+        block: paragraph.index,
+        offset: 0,
+    })
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct TablePath {
     pub(crate) cell: NodeId,

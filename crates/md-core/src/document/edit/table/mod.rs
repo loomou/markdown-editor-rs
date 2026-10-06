@@ -18,6 +18,7 @@ use cols::{delete_column, insert_column, move_column, move_column_to};
 use create::insert_table;
 use lifecycle::delete_table;
 pub(crate) use nav::TablePath;
+pub(crate) use nav::enter_or_leave;
 use rows::{delete_row, insert_row, move_row, move_row_to};
 
 pub use nav::{TableLoc, in_table, table_loc, table_step};

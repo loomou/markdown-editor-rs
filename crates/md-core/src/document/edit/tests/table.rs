@@ -227,7 +227,8 @@ fn fence_line_break_in_a_cell_keeps_the_row_rectangular() {
     let _ = doc.replace_text(cell, 0..1, "```");
     let out = apply(&mut doc, Sel::collapsed(caret(cell, 3)), Command::Break);
 
-    assert_eq!(out, caret(cell, 3));
+    assert_eq!(doc.kind(out.block), Some(BlockKind::Paragraph));
+    assert_eq!(doc.text_of(out.block), Some(""));
     assert_eq!(doc.kind(cell), Some(BlockKind::TableCell));
     assert_eq!(doc.text_of(cell), Some("```"));
     assert_eq!(dims(&doc), (2, 2));
@@ -1880,4 +1881,32 @@ fn a_pipe_header_after_a_soft_break_undoes_to_one_paragraph() {
     assert_eq!(d.document.kind(leaf), Some(BlockKind::Paragraph));
     assert_eq!(d.document.text_of(leaf), Some("hi\n|a|b|"));
     assert_eq!(d.document.text_leaves().len(), 1);
+}
+
+#[test]
+fn enter_steps_down_a_column_and_leaves_the_table_from_its_last_row() {
+    let mut d = Doc::new(load_markdown(
+        "| a | b |\n| --- | --- |\n| c | d |\n",
+        editor_options(),
+    ));
+    let cell = d
+        .text_leaves()
+        .into_iter()
+        .find(|&id| d.document.text_of(id) == Some("a"))
+        .expect("cell a");
+
+    let at = d.apply(Sel::collapsed(caret(cell, 0)), Command::Break);
+    assert_eq!(d.document.text_of(at.block), Some("c"));
+    assert_eq!(
+        d.document.to_markdown(),
+        "| a | b |\n| --- | --- |\n| c | d |\n"
+    );
+
+    let at = d.apply(Sel::collapsed(at), Command::Break);
+    assert_eq!(d.document.kind(at.block), Some(BlockKind::Paragraph));
+    assert_eq!(d.document.text_of(at.block), Some(""));
+    assert_eq!(
+        d.document.to_markdown(),
+        "| a | b |\n| --- | --- |\n| c | d |\n\n"
+    );
 }

@@ -999,11 +999,11 @@ where
         for next in more {
             steps.push(Step::Newline);
             steps.push(Step::BlankLine {
-                prefix: rest.clone(),
+                prefix: prefix.clone(),
             });
             steps.push(Step::Block {
                 id: *next,
-                prefix: rest.clone(),
+                prefix: prefix.clone(),
             });
         }
     }

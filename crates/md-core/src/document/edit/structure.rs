@@ -20,7 +20,10 @@ pub(super) fn break_block(doc: &mut Document, sel: Sel) -> Caret {
         return at;
     }
     if doc.kind(at.block) == Some(BlockKind::TableCell) {
-        return at;
+        return super::table::enter_or_leave(doc, at).unwrap_or(at);
+    }
+    if let Some(caret) = doc.leave_footnote(at) {
+        return caret;
     }
     let leaf_kind = doc.kind(at.block);
     if let Some(id) = doc.live_id(at.block)
@@ -89,6 +92,9 @@ pub(super) fn soft_break(doc: &mut Document, sel: Sel) -> Caret {
     }
     if doc.kind(at.block) == Some(BlockKind::Image) {
         return at;
+    }
+    if let Some(caret) = doc.leave_footnote(at) {
+        return caret;
     }
     if is_fence_leaf(doc.kind(at.block))
         && let Some(id) = doc.live_id(at.block)

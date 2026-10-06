@@ -125,7 +125,7 @@ fn an_empty_paragraph_in_a_container_gains_a_blank_line_per_soft_break() {
 }
 
 #[test]
-fn apply_break_is_noop_in_table_cell() {
+fn apply_break_leaves_the_table_from_its_last_row() {
     let mut doc = load_markdown("| a | b |\n| --- | --- |\n| cd | e |\n", editor_options());
     let cell = doc
         .text_leaves()
@@ -134,10 +134,25 @@ fn apply_break_is_noop_in_table_cell() {
         .expect("cell");
     let at = caret(cell, 1);
     let out = apply(&mut doc, Sel::collapsed(at), Command::Break);
-    assert_eq!(out, at);
+    assert_eq!(doc.kind(out.block), Some(BlockKind::Paragraph));
+    assert_eq!(doc.text_of(out.block), Some(""));
     assert_eq!(doc.kind(cell), Some(BlockKind::TableCell));
     assert_eq!(doc.text_of(cell).unwrap(), "cd");
-    assert_eq!(doc.to_markdown(), "| a | b |\n| --- | --- |\n| cd | e |\n");
+    assert_eq!(
+        doc.to_markdown(),
+        "| a | b |\n| --- | --- |\n| cd | e |\n\n"
+    );
+}
+
+#[test]
+fn apply_break_and_soft_break_leave_the_footnote_body() {
+    for command in [Command::Break, Command::SoftBreak] {
+        let mut doc = load_markdown("[^1]: 甲\n", editor_options());
+        let leaf = doc.text_leaves()[0];
+        let out = apply(&mut doc, Sel::collapsed(caret(leaf, 3)), command.clone());
+        assert_eq!(doc.kind(out.block), Some(BlockKind::Paragraph));
+        assert_eq!(doc.to_markdown(), "[^1]: 甲\n\n", "command={command:?}");
+    }
 }
 
 #[test]

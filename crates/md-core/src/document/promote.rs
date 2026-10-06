@@ -450,6 +450,43 @@ impl Document {
         matches!(kind, BlockKind::BlockQuote | BlockKind::FootnoteDefinition)
     }
 
+    pub(crate) fn leave_footnote(&mut self, at: Caret) -> Option<Caret> {
+        let id = self.live_id(at.block)?;
+        let wrapper = self.arena.get(id).and_then(|n| n.parent)?;
+        if self.arena.get(wrapper).map(|n| n.kind) != Some(BlockKind::FootnoteDefinition) {
+            return None;
+        }
+        let host = self.arena.get(wrapper).and_then(|n| n.parent)?;
+        let (_, tail) = self.split_leaf(at.block, at.offset);
+        let tail = self.live_id(tail)?;
+        let before = self.revision;
+        self.arena.detach(tail);
+        self.arena.insert_after(host, Some(wrapper), tail);
+        self.bump_structure(wrapper);
+        self.bump_structure(host);
+        let _ = self.commit(
+            before,
+            vec![
+                DocChange::TreeSpliced {
+                    parent: wrapper,
+                    before: None,
+                    removed: vec![tail],
+                    inserted: Vec::new(),
+                },
+                DocChange::TreeSpliced {
+                    parent: host,
+                    before: Some(wrapper),
+                    removed: Vec::new(),
+                    inserted: vec![tail],
+                },
+            ],
+        );
+        Some(Caret {
+            block: tail.index,
+            offset: 0,
+        })
+    }
+
     pub(crate) fn try_lift_empty_wrapper(&mut self, id: NodeId) -> Option<Caret> {
         if !self.display(id).is_empty() {
             return None;
