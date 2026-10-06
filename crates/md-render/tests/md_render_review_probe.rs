@@ -367,11 +367,8 @@ fn r6_a_soft_break_at_the_end_of_a_paragraph_lands_on_the_last_painted_line(
             block: first,
             offset: 3,
         };
-        for (pressed, lines, saved) in [
-            (1usize, 1usize, "132"),
-            (2, 1, "132\n\n"),
-            (3, 2, "132\n\n\n"),
-        ] {
+        let mut previous_caret = None;
+        for (pressed, saved) in [(1usize, "132"), (2, "132\n\n"), (3, "132\n\n\n")] {
             at = doc.apply(Sel::collapsed(at), Command::SoftBreak);
             let frame = compose(
                 FrameContext {
@@ -395,29 +392,29 @@ fn r6_a_soft_break_at_the_end_of_a_paragraph_lands_on_the_last_painted_line(
             );
             let pieces: Vec<_> = frame.snapshot.texts.iter().collect();
             let advance = pieces[0].art.row_advance;
-            let first_top = pieces[0].content_origin_device.1;
             let last = pieces.last().unwrap();
             let last_row_top =
                 last.content_origin_device.1 + last.art.rows.saturating_sub(1) as f64 * advance;
-            assert_eq!(
-                last_row_top,
-                first_top + lines as f64 * advance,
-                "after {pressed} presses the last painted line must sit {lines} rows below the first"
-            );
-            assert_eq!(
-                at.block, last.block,
-                "press {pressed} must leave the caret on the last line"
-            );
             let caret_y = frame
                 .snapshot
                 .caret_device
                 .expect("the caret must be painted")
                 .1;
-            assert_eq!(
-                ((caret_y - first_top) / advance).round(),
-                lines as f64,
+            assert!(
+                caret_y >= last_row_top && caret_y < last_row_top + advance,
                 "after {pressed} presses the caret must be painted on the last painted line"
             );
+            assert_eq!(
+                at.block, last.block,
+                "press {pressed} must leave the caret in the last painted paragraph"
+            );
+            if let Some(previous) = previous_caret {
+                assert!(
+                    caret_y > previous,
+                    "press {pressed} must move the caret down a line"
+                );
+            }
+            previous_caret = Some(caret_y);
             assert_eq!(
                 doc.document.to_markdown(),
                 saved,

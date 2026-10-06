@@ -375,21 +375,48 @@ fn caret_row(editor: &gpui::Entity<EditorView>, cx: &mut VisualTestContext) -> (
 }
 
 #[gpui::test]
-fn each_soft_break_at_the_end_of_a_line_lands_on_the_line_it_added(cx: &mut TestAppContext) {
+fn a_soft_break_at_the_end_of_a_line_opens_a_paragraph_you_can_type_into(cx: &mut TestAppContext) {
     let (editor, cx) = editor_with_doc("132\n", cx);
     focus_editor(&editor, cx);
     place_caret(&editor, cx, 0, 3);
     let (start, advance) = caret_row(&editor, cx);
     assert!(advance > 0.0, "the fixture paints no line height");
-    for (pressed, lines, newlines) in [(1usize, 1usize, 0usize), (2, 1, 2), (3, 2, 3)] {
+
+    cx.simulate_keystrokes("shift-enter");
+    settle(&editor, cx);
+    let (after_first, _) = caret_row(&editor, cx);
+    assert_eq!(
+        after_first,
+        start + advance,
+        "the first soft break opens one line"
+    );
+
+    cx.simulate_keystrokes("shift-enter");
+    settle(&editor, cx);
+    let (after_split, _) = caret_row(&editor, cx);
+    assert!(
+        after_split > after_first && after_split < after_first + advance,
+        "the second soft break must move the caret into the paragraph it opened, by that \
+         paragraph's margin rather than by a whole line"
+    );
+
+    cx.simulate_input("4");
+    settle(&editor, cx);
+    let (after_typing, _) = caret_row(&editor, cx);
+    assert_eq!(
+        after_typing, after_split,
+        "typing into the paragraph the split opened must not move it"
+    );
+}
+
+#[gpui::test]
+fn soft_breaks_at_the_end_of_a_line_ask_for_one_paragraph_break_each_pair(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc("132\n", cx);
+    focus_editor(&editor, cx);
+    place_caret(&editor, cx, 0, 3);
+    for (pressed, newlines) in [(1usize, 0usize), (2, 2), (3, 3)] {
         cx.simulate_keystrokes("shift-enter");
         settle(&editor, cx);
-        let (y, _) = caret_row(&editor, cx);
-        assert_eq!(
-            y,
-            start + lines as f64 * advance,
-            "after {pressed} presses the caret must sit on the last line the presses have added"
-        );
         let md = cx.update(|_, app| editor.read(app).state.doc.document.to_markdown());
         assert_eq!(
             md.matches('\n').count(),

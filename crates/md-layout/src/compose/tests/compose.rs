@@ -809,7 +809,8 @@ fn the_cursor_line_keeps_the_paragraph_margin() {
     doc.enable_trailing_blank();
     assert_eq!(
         tops(&doc.document),
-        vec![0.0, 0.0, 0.0],
-        "a cursor line that continues a blank run stays flush"
+        vec![0.0, 20.0, 0.0],
+        "the paragraph the document ends on keeps the paragraph margin, \
+         and a cursor line that continues a blank run stays flush"
     );
 }

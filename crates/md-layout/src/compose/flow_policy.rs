@@ -147,7 +147,9 @@ pub(super) fn flow_top_margin(
     id: NodeId,
     kind: BlockKind,
 ) -> md_core::Px {
-    if (doc.is_blank_paragraph(id) && doc.extra(id) != NodeExtra::CursorLine)
+    if (doc.is_blank_paragraph(id)
+        && !is_trailing_blank_paragraph(doc, id)
+        && doc.extra(id) != NodeExtra::CursorLine)
         || follows_a_blank_paragraph(doc, id)
     {
         return 0.0;
@@ -188,6 +190,20 @@ fn follows_a_blank_paragraph(doc: &Document, id: NodeId) -> bool {
         .get(id)
         .and_then(|node| node.prev_sibling)
         .is_some_and(|prev| doc.is_blank_paragraph(prev))
+}
+
+fn is_trailing_blank_paragraph(doc: &Document, id: NodeId) -> bool {
+    if !doc.is_blank_paragraph(id) {
+        return false;
+    }
+    let mut next = doc.arena.get(id).and_then(|node| node.next_sibling);
+    while let Some(sibling) = next {
+        if !doc.is_blank_paragraph(sibling) {
+            return false;
+        }
+        next = doc.arena.get(sibling).and_then(|node| node.next_sibling);
+    }
+    true
 }
 
 pub(super) fn type_slot_for(
