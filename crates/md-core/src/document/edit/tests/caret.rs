@@ -91,7 +91,7 @@ fn mid_enter_then_type_on_first_leaf_keeps_prefix() {
 }
 
 #[test]
-fn a_second_soft_break_beside_the_first_adds_a_line() {
+fn a_second_soft_break_beside_the_first_starts_a_paragraph() {
     let (mut doc, leaf) = fresh();
     let _ = type_chars(&mut doc, caret(leaf, 0), "123456");
     let mid = apply(&mut doc, Sel::collapsed(caret(leaf, 3)), Command::SoftBreak);
@@ -100,11 +100,11 @@ fn a_second_soft_break_beside_the_first_adds_a_line() {
     assert_ne!(out.block, leaf);
     assert_eq!(out.offset, 0);
     assert_eq!(doc.text_of(leaf).unwrap(), "123");
-    assert_eq!(doc.text_of(out.block).unwrap(), "");
-    assert_eq!(doc.to_markdown(), "123\n\n\n456\n");
+    assert_eq!(doc.text_of(out.block).unwrap(), "456");
+    assert_eq!(doc.to_markdown(), "123\n\n456\n");
     let reloaded = load_markdown(&doc.to_markdown(), editor_options());
     assert_eq!(reloaded.to_markdown(), doc.to_markdown());
-    assert_eq!(reloaded.text_leaves().len(), 3);
+    assert_eq!(reloaded.text_leaves().len(), 2);
 }
 
 #[test]

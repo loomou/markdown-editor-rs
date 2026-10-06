@@ -62,7 +62,7 @@ fn a_soft_break_at_the_end_keeps_the_line_until_the_next_character() {
 }
 
 #[test]
-fn a_soft_break_beside_a_break_adds_a_line() {
+fn a_soft_break_beside_a_break_starts_a_paragraph() {
     let mut doc = load_markdown("hi\n", editor_options());
     let leaf = doc.text_leaves()[0];
     let at = apply(&mut doc, Sel::collapsed(caret(leaf, 2)), Command::SoftBreak);
@@ -71,7 +71,7 @@ fn a_soft_break_beside_a_break_adds_a_line() {
     assert_eq!(out.offset, 0);
     assert_eq!(doc.text_of(leaf), Some("hi"));
     assert_eq!(doc.text_of(out.block), Some(""));
-    assert_eq!(doc.to_markdown(), "hi\n\n\n");
+    assert_eq!(doc.to_markdown(), "hi\n\n");
     assert_eq!(shape(&reload(&doc.to_markdown())), shape(&doc));
 }
 
@@ -88,7 +88,7 @@ fn a_paragraph_started_by_a_soft_break_takes_the_next_character() {
     assert_eq!(typed.offset, 1);
     assert_eq!(doc.text_of(leaf), Some("hi"));
     assert_eq!(doc.text_of(out.block), Some("x"));
-    assert_eq!(doc.to_markdown(), "hi\n\n\nx\n");
+    assert_eq!(doc.to_markdown(), "hi\n\nx\n");
     assert_eq!(shape(&reload(&doc.to_markdown())), shape(&doc));
 }
 
@@ -105,7 +105,7 @@ fn a_soft_break_at_the_start_starts_a_paragraph() {
 }
 
 #[test]
-fn a_soft_break_on_either_side_of_a_break_adds_a_line() {
+fn a_soft_break_on_either_side_of_a_break_starts_a_paragraph() {
     for offset in [2, 3] {
         let mut doc = load_markdown("hi\nx\n", editor_options());
         let leaf = doc.text_leaves()[0];
@@ -116,9 +116,9 @@ fn a_soft_break_on_either_side_of_a_break_adds_a_line() {
             Command::SoftBreak,
         );
         assert_eq!(doc.text_of(leaf), Some("hi"), "offset={offset}");
-        assert_eq!(doc.text_of(out.block), Some(""), "offset={offset}");
+        assert_eq!(doc.text_of(out.block), Some("x"), "offset={offset}");
         assert_eq!(out.offset, 0, "offset={offset}");
-        assert_eq!(doc.to_markdown(), "hi\n\n\nx\n", "offset={offset}");
+        assert_eq!(doc.to_markdown(), "hi\n\nx\n", "offset={offset}");
         assert_eq!(
             shape(&reload(&doc.to_markdown())),
             shape(&doc),
@@ -128,15 +128,15 @@ fn a_soft_break_on_either_side_of_a_break_adds_a_line() {
 }
 
 #[test]
-fn a_soft_break_at_a_seam_inside_a_list_item_adds_a_line() {
+fn a_soft_break_at_a_seam_inside_a_list_item_starts_a_paragraph() {
     let mut doc = load_markdown("- a\n  b\n", editor_options());
     let leaf = doc.text_leaves()[0];
     assert_eq!(doc.text_of(leaf), Some("a\nb"));
     let out = apply(&mut doc, Sel::collapsed(caret(leaf, 2)), Command::SoftBreak);
     assert_eq!(doc.text_of(leaf), Some("a"));
-    assert_eq!(doc.text_of(out.block), Some(""));
+    assert_eq!(doc.text_of(out.block), Some("b"));
     assert_eq!(out.offset, 0);
-    assert_eq!(doc.to_markdown(), "- a\n\n\n  b\n");
+    assert_eq!(doc.to_markdown(), "- a\n\n  b\n");
     assert_eq!(shape(&reload(&doc.to_markdown())), shape(&doc));
 }
 
@@ -148,7 +148,7 @@ fn a_soft_break_at_the_end_of_a_quoted_paragraph_starts_a_paragraph() {
     let out = apply(&mut doc, Sel::collapsed(at), Command::SoftBreak);
     assert_eq!(doc.text_of(leaf), Some("hi"));
     assert_eq!(doc.text_of(out.block), Some(""));
-    assert_eq!(doc.to_markdown(), "> hi\n>\n> \n>\n> \n");
+    assert_eq!(doc.to_markdown(), "> hi\n>\n> \n");
     assert_eq!(shape(&reload(&doc.to_markdown())), shape(&doc));
 }
 
@@ -160,7 +160,7 @@ fn a_soft_break_at_the_end_of_a_list_item_starts_a_paragraph() {
     let out = apply(&mut doc, Sel::collapsed(at), Command::SoftBreak);
     assert_eq!(doc.text_of(leaf), Some("hi"));
     assert_eq!(doc.text_of(out.block), Some(""));
-    assert_eq!(doc.to_markdown(), "- hi\n  \n  \n");
+    assert_eq!(doc.to_markdown(), "- hi\n  \n");
     assert_eq!(shape(&reload(&doc.to_markdown())), shape(&doc));
 }
 
@@ -246,15 +246,19 @@ fn the_prose_invariant_holds_through_a_scripted_session() {
 }
 
 #[test]
-fn each_soft_break_at_the_end_of_a_line_adds_one_line() {
+fn each_soft_break_at_the_end_starts_another_line() {
     let mut doc = load_markdown("132\n", editor_options());
     let mut at = caret(doc.text_leaves()[0], 3);
     at = apply(&mut doc, Sel::collapsed(at), Command::SoftBreak);
     assert_eq!(prose_rows(&doc), 2);
     assert_eq!(doc.to_markdown(), "132\n");
-    for (pressed, saved) in [(2, "132\n\n\n"), (3, "132\n\n\n\n"), (4, "132\n\n\n\n\n")] {
+    for (pressed, rows, saved) in [
+        (2, 2, "132\n\n"),
+        (3, 3, "132\n\n\n"),
+        (4, 4, "132\n\n\n\n"),
+    ] {
         at = apply(&mut doc, Sel::collapsed(at), Command::SoftBreak);
-        assert_eq!(prose_rows(&doc), pressed + 1, "after {pressed} presses");
+        assert_eq!(prose_rows(&doc), rows, "after {pressed} presses");
         assert_eq!(doc.to_markdown(), saved, "after {pressed} presses");
         assert_eq!(
             doc.text_leaves().last().copied(),

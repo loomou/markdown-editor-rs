@@ -141,9 +141,8 @@ fn break_paragraph_at_a_line_boundary(doc: &mut Document, at: Caret) -> Option<C
         });
     }
     trim_one_line_break(doc, at.block, right);
-    let (_, tail) = doc.split_leaf(right, 0);
     Some(Caret {
-        block: if off < len { right } else { tail },
+        block: right,
         offset: 0,
     })
 }
