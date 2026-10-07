@@ -1116,14 +1116,13 @@ fn front_matter_hides_its_delimiters_like_a_code_fence() {
 
 #[test]
 fn a_star_rule_on_the_first_line_stays_a_thematic_break() {
-    let mut doc = Doc::new(load_markdown("", editor_options()));
-    doc.enable_trailing_blank();
+    let mut doc = load_markdown("", editor_options());
     let leaf = doc.text_leaves()[0];
-    let at = type_chars(&mut doc.document, caret(leaf, 0), "***");
-    let _ = doc.apply(Sel::collapsed(at), Command::Break);
+    let at = type_chars(&mut doc, caret(leaf, 0), "***");
+    let _ = apply(&mut doc, Sel::collapsed(at), Command::Break);
 
     assert_eq!(doc.kind(leaf), Some(BlockKind::ThematicBreak));
-    assert_eq!(doc.document.to_markdown(), "---\n");
+    assert_eq!(doc.to_markdown(), "---\n");
 }
 
 #[test]

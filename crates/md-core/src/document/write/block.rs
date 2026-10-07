@@ -153,10 +153,24 @@ where
     match kind {
         BlockKind::DocRoot => {
             let mut kids: Vec<NodeId> = doc.children(id).collect();
-            let trailing_cursor_line = kids.last().is_some_and(|&last| {
-                doc.extra(last) == NodeExtra::CursorLine && is_blank_paragraph(doc, last)
-            });
-            if trailing_cursor_line {
+            let mut blanks = 0usize;
+            while kids
+                .len()
+                .checked_sub(blanks + 1)
+                .is_some_and(|i| is_blank_paragraph(doc, kids[i]))
+            {
+                blanks += 1;
+            }
+            let first_blank = kids
+                .len()
+                .checked_sub(blanks)
+                .and_then(|i| kids.get(i).copied());
+            let drop = if first_blank == doc.source_tail_blank() {
+                blanks.saturating_sub(doc.source_tail_blanks())
+            } else {
+                usize::from(blanks > 0)
+            };
+            for _ in 0..drop {
                 kids.pop();
             }
             stack.push(Step::Flow {
@@ -262,7 +276,7 @@ where
 
 pub(super) fn is_blank_paragraph<D: MarkdownExport>(doc: &D, id: NodeId) -> bool {
     doc.kind(id) == Some(BlockKind::Paragraph)
-        && matches!(doc.extra(id), NodeExtra::None | NodeExtra::CursorLine)
+        && matches!(doc.extra(id), NodeExtra::None)
         && doc.display(id).is_empty()
         && doc.leaf_source(id).trim().is_empty()
 }

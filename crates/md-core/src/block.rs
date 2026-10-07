@@ -212,7 +212,6 @@ pub enum NodeExtra {
     },
     MathFence,
     IndentedCode,
-    CursorLine,
     FootnoteLabel {
         label: u32,
     },

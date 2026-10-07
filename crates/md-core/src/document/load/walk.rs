@@ -870,21 +870,6 @@ fn leading_blanks(source: &str, range: Range<usize>, alert: bool) -> usize {
         .count()
 }
 
-fn blanks_in(source: &str, range: Range<usize>, alert: bool) -> usize {
-    let Some(region) = source.get(range) else {
-        return 0;
-    };
-    let mut lines: Vec<&str> = region.split('\n').collect();
-    lines.pop();
-    if alert && !lines.is_empty() {
-        lines.remove(0);
-    }
-    lines
-        .into_iter()
-        .filter(|line| blank_in_container(line))
-        .count()
-}
-
 fn trailing_blanks(source: &str, range: Range<usize>, previous_terminated: bool) -> usize {
     let Some(region) = source.get(range) else {
         return 0;
@@ -1043,7 +1028,7 @@ fn root_gaps(source: &str, root: &NodeRef<'_, '_>) -> Vec<usize> {
 fn gaps_for(source: &str, node: &NodeRef<'_, '_>, span: Range<usize>, alert: bool) -> Vec<usize> {
     let children: Vec<NodeRef<'_, '_>> = node.children().collect();
     if children.is_empty() {
-        return vec![blanks_in(source, span, alert)];
+        return vec![leading_blanks(source, span, alert)];
     }
     let kids: Vec<Range<usize>> = children.iter().map(|child| child.span()).collect();
     let mut gaps = Vec::with_capacity(kids.len() + 1);

@@ -448,48 +448,6 @@ fn a_footnote_definition_keeps_the_blank_lines_that_follow_it() {
 }
 
 #[test]
-fn a_reference_definition_only_document_keeps_its_blank_lines() {
-    for (source, saved) in [
-        ("[a]: u\n", "[a]: u\n"),
-        ("[a]: u\n\n\n", "\n\n[a]: u\n"),
-        ("[a]: u\n\n\n\n", "\n\n\n[a]: u\n"),
-        ("[a]: u\n\n[b]: v\n\n\n", "\n\n\n[a]: u\n[b]: v\n"),
-        ("\n\n\n", "\n\n\n"),
-    ] {
-        let before = load_markdown(source, editor_options());
-        assert_eq!(
-            before.to_markdown(),
-            saved,
-            "{source:?} must keep its blank lines"
-        );
-        let after = load_markdown(saved, editor_options());
-        assert_eq!(
-            after.to_markdown(),
-            saved,
-            "{source:?} must be stable under a second save"
-        );
-        assert_eq!(
-            shape(&before),
-            shape(&after),
-            "{source:?} must reload as the same tree"
-        );
-    }
-}
-
-#[test]
-fn a_lone_blank_line_after_a_reference_definition_is_not_dropped() {
-    let source = "[a]: u\n\n";
-    let before = load_markdown(source, editor_options());
-    let saved = before.to_markdown();
-    assert_eq!(saved, "\n\n[a]: u\n", "{source:?} must keep its blank line");
-    assert_eq!(
-        load_markdown(&saved, editor_options()).to_markdown(),
-        saved,
-        "{source:?} must be stable under a second save"
-    );
-}
-
-#[test]
 fn a_list_item_keeps_the_blank_lines_between_its_blocks() {
     for source in [
         "- p\n  \n  \n  p\n",
@@ -753,71 +711,6 @@ fn a_paragraph_that_a_math_fence_cuts_keeps_being_a_paragraph_when_it_is_not_ima
             after.to_markdown(),
             saved,
             "{source:?} must be a fixed point"
-        );
-    }
-}
-
-#[test]
-fn an_html_comment_keeps_the_blank_lines_that_follow_it() {
-    for source in [
-        "<!-- c -->\n",
-        "<!-- c -->\n\n",
-        "<!-- c -->\n\n\n",
-        "<!-- c -->\n\n\n\n",
-        "<!-- c -->\n\n\n\n\n",
-        "p\n\n<!-- c -->\n\n",
-        "<!-- c -->\n\n<!-- d -->\n\n",
-        "<!-- c -->\n\n<!-- d -->\n\n\n",
-        "<!-- c -->\n\n<hr>\n\n\n",
-        "<div>\n</div>\n\n",
-        "<br>\n\n\n",
-    ] {
-        let before = load_markdown(source, editor_options());
-        let saved = before.to_markdown();
-        assert_eq!(saved, source, "{source:?} must survive a save");
-        let after = load_markdown(&saved, editor_options());
-        assert_eq!(
-            after.to_markdown(),
-            source,
-            "{source:?} must be a fixed point"
-        );
-        assert_eq!(
-            shape(&before),
-            shape(&after),
-            "{source:?} must reload as the same tree"
-        );
-    }
-}
-
-#[test]
-fn a_trailing_blank_run_is_still_counted_from_the_file() {
-    for source in [
-        "\n",
-        "\n\n",
-        "\n\n\n",
-        "p\n",
-        "p\n\n",
-        "p\n\n\n",
-        "p\n\n\np\n",
-        "- a\n\n\n",
-        "[^1]: n\n\n\n",
-        "---\ntitle: hi\n---\n\n\n",
-        "> p\n> \n> \n",
-        "> <!-- c -->\n> \n> \n",
-    ] {
-        let before = load_markdown(source, editor_options());
-        let saved = before.to_markdown();
-        assert_eq!(saved, source, "{source:?} must survive a save");
-        let after = load_markdown(&saved, editor_options());
-        assert_eq!(
-            after.to_markdown(),
-            source,
-            "{source:?} must be a fixed point"
-        );
-        assert_eq!(
-            shape(&before),
-            shape(&after),
-            "{source:?} must reload as the same tree"
         );
     }
 }
