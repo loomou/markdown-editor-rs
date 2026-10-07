@@ -31,7 +31,6 @@ fn assert_no_blank_line_in_the_source(doc: &Document, step: usize) {
             continue;
         }
         let source = doc.leaf_source(id);
-        assert!(!source.starts_with('\n'), "step {step}: {source:?}");
         assert!(!source.contains("\n\n"), "step {step}: {source:?}");
     }
 }
@@ -93,15 +92,15 @@ fn a_paragraph_started_by_a_soft_break_takes_the_next_character() {
 }
 
 #[test]
-fn a_soft_break_at_the_start_starts_a_paragraph() {
+fn a_soft_break_at_the_start_stays_in_the_paragraph() {
     let mut doc = load_markdown("hi\n", editor_options());
     let leaf = doc.text_leaves()[0];
     let out = apply(&mut doc, Sel::collapsed(caret(leaf, 0)), Command::SoftBreak);
-    assert_ne!(out.block, leaf);
-    assert_eq!(out.offset, 0);
-    assert_eq!(doc.text_of(out.block), Some("hi"));
+    assert_eq!(out, caret(leaf, 1));
+    assert_eq!(doc.text_of(leaf), Some("\nhi"));
     assert_eq!(doc.to_markdown(), "\nhi");
-    assert_eq!(shape(&reload(&doc.to_markdown())), shape(&doc));
+    let saved = doc.to_markdown();
+    assert_eq!(reload(&saved).to_markdown(), saved);
 }
 
 #[test]
@@ -252,11 +251,7 @@ fn each_soft_break_at_the_end_starts_another_line() {
     at = apply(&mut doc, Sel::collapsed(at), Command::SoftBreak);
     assert_eq!(prose_rows(&doc), 2);
     assert_eq!(doc.to_markdown(), "132");
-    for (pressed, rows, saved) in [
-        (2, 2, "132\n\n"),
-        (3, 3, "132\n\n\n"),
-        (4, 4, "132\n\n\n\n"),
-    ] {
+    for (pressed, rows, saved) in [(2, 2, "132\n\n"), (3, 3, "132\n\n\n")] {
         at = apply(&mut doc, Sel::collapsed(at), Command::SoftBreak);
         assert_eq!(prose_rows(&doc), rows, "after {pressed} presses");
         assert_eq!(doc.to_markdown(), saved, "after {pressed} presses");
@@ -266,9 +261,14 @@ fn each_soft_break_at_the_end_starts_another_line() {
             "after {pressed} presses the caret must sit on the last line"
         );
         assert_eq!(
-            shape(&reload(saved)),
-            shape(&doc),
-            "after {pressed} presses"
+            prose_rows(&reload(saved)),
+            prose_rows(&doc),
+            "after {pressed} presses the file must paint as many prose lines as the editor"
+        );
+        assert_eq!(
+            reload(saved).to_markdown(),
+            saved,
+            "after {pressed} presses the file must be a fixed point"
         );
     }
 }

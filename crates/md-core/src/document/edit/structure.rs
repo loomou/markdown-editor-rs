@@ -3,7 +3,7 @@ use super::typing::{insert, split_promotable_line};
 use super::{Caret, Sel, list, path};
 use crate::block::{BlockId, BlockKind};
 use crate::document::syntax::line_range;
-use crate::document::{Document, PasteIntent};
+use crate::document::{Document, NodeId, PasteIntent};
 
 fn is_fence_leaf(kind: Option<BlockKind>) -> bool {
     matches!(
@@ -127,24 +127,22 @@ fn break_paragraph_at_a_line_boundary(doc: &mut Document, at: Caret) -> Option<C
     let display = doc.display(id).to_string();
     let off = crate::document::chars::floor_char_boundary(&display, at.offset.min(display.len()));
     let len = display.len();
-    let at_a_boundary = off == 0
-        || (off > 0 && display.as_bytes()[off - 1] == b'\n')
-        || (off < len && display.as_bytes()[off] == b'\n');
+    let at_a_boundary = (off > 0 && display.as_bytes()[off - 1] == b'\n')
+        || (off < len && display.as_bytes()[off] == b'\n')
+        || (off == 0 && a_leading_line_break_has_no_encoding(doc, id));
     if !at_a_boundary {
         return None;
     }
     let (_, right) = doc.split_leaf(at.block, off);
-    if off == 0 {
-        return Some(Caret {
-            block: right,
-            offset: 0,
-        });
-    }
     trim_one_line_break(doc, at.block, right);
     Some(Caret {
         block: right,
         offset: 0,
     })
+}
+
+fn a_leading_line_break_has_no_encoding(doc: &Document, id: NodeId) -> bool {
+    doc.arena.get(id).and_then(|node| node.parent) != Some(doc.root)
 }
 
 fn trim_one_line_break(doc: &mut Document, left: BlockId, right: BlockId) {

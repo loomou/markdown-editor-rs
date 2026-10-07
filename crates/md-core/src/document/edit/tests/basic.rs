@@ -89,16 +89,15 @@ fn apply_soft_break_inserts_newline() {
 }
 
 #[test]
-fn each_soft_break_in_an_empty_paragraph_starts_another_one() {
+fn each_soft_break_in_an_empty_paragraph_adds_one_line() {
     let mut doc = load_markdown("", editor_options());
     let leaf = doc.text_leaves()[0];
     let mut at = caret(leaf, 0);
-    for (want, leaves) in [("\n\n", 2), ("\n\n\n", 3), ("\n\n\n\n", 4)] {
+    for (want, saved) in [("\n", "\n"), ("", "\n\n"), ("\n", "\n\n")] {
         at = apply(&mut doc, Sel::collapsed(at), Command::SoftBreak);
-        assert_eq!(at.offset, 0);
-        assert_eq!(doc.text_of(at.block).unwrap(), "");
-        assert_eq!(doc.text_leaves().len(), leaves);
-        assert_eq!(doc.to_markdown(), want);
+        let id = doc.live_id(at.block).expect("live");
+        assert_eq!(doc.display(id), want);
+        assert_eq!(doc.to_markdown(), saved);
     }
 }
 
