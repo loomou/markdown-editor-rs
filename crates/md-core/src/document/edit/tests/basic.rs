@@ -35,8 +35,8 @@ fn blank_document_inserts_into_seeded_paragraph() {
 }
 
 #[test]
-fn a_document_of_blank_lines_keeps_one_paragraph_per_line() {
-    for (source, want) in [("\n", 1), ("\n\n", 2), ("\n\n\n", 3)] {
+fn a_document_of_blank_lines_folds_whole_pairs_into_paragraphs() {
+    for (source, want) in [("\n", 1), ("\n\n", 1), ("\n\n\n", 1), ("\n\n\n\n", 2)] {
         let mut doc = load_markdown(source, editor_options());
         let leaves = doc.text_leaves();
         assert_eq!(leaves.len(), want, "source={source:?}");
@@ -632,7 +632,7 @@ fn delete_spanning_a_table_endpoint_removes_the_rules_between() {
     );
     assert_eq!(
         doc.to_markdown(),
-        "\n|  | y |\n| --- | --- |\n",
+        "\n\n|  | y |\n| --- | --- |\n",
         "partial tail table keeps the last cell, drops the rule"
     );
 

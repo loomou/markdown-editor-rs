@@ -1021,12 +1021,12 @@ fn a_container_that_holds_the_caret_loads_with_an_empty_paragraph() {
         (
             "> \n",
             &[BlockKind::BlockQuote, BlockKind::Paragraph],
-            "> \n",
+            "> \n> \n",
         ),
         (
             ">\n",
             &[BlockKind::BlockQuote, BlockKind::Paragraph],
-            "> \n",
+            "> \n> \n",
         ),
         (
             "> - \n",

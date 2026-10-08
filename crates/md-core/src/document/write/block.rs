@@ -390,17 +390,18 @@ where
         while index < count && is_blank_paragraph(doc, kids[index]) {
             index += 1;
         }
-        if previous.is_some() {
+        let blanks = index - start;
+        let lines = if start == 0 {
+            blanks * 2
+        } else if index < count {
+            blanks * 2 + 1
+        } else {
+            (blanks * 2).saturating_sub(1)
+        };
+        if previous.is_some() && lines > 0 {
             steps.push(Step::Newline);
         }
-        for &blank in &kids[start..index] {
-            steps.push(Step::Block {
-                id: blank,
-                prefix: prefix.clone(),
-            });
-            steps.push(Step::Newline);
-        }
-        if start > 0 && index < count {
+        for _ in 0..lines {
             steps.push(Step::HardBlank {
                 prefix: prefix.clone(),
             });
@@ -570,17 +571,16 @@ where
         while index < kids.len() && is_blank_paragraph(doc, kids[index]) {
             index += 1;
         }
-        if !previous_blank {
+        let blanks = index - start;
+        let lines = if index < kids.len() {
+            blanks * 2 + 1
+        } else {
+            (blanks * 2).saturating_sub(1)
+        };
+        if !previous_blank && lines > 0 {
             steps.push(Step::Newline);
         }
-        for &blank in &kids[start..index] {
-            steps.push(Step::Block {
-                id: blank,
-                prefix: rest.clone(),
-            });
-            steps.push(Step::Newline);
-        }
-        if index < kids.len() {
+        for _ in 0..lines {
             steps.push(Step::HardBlank {
                 prefix: rest.clone(),
             });

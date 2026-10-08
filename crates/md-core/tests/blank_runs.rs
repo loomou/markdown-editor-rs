@@ -98,15 +98,20 @@ fn a_run_names_the_container_it_belongs_to() {
 
 #[test]
 fn a_run_keeps_the_spans_of_the_blank_lines_it_groups() {
-    for (source, want) in [
-        ("\n\n\n", vec![0..3]),
-        ("甲\n\n\n", vec![4..6]),
-        ("甲\n\n\n乙", vec![4..6]),
-        ("甲\n\n\n\n\n乙", vec![4..8]),
-        ("甲\n\n\n乙\n\n\n丙", vec![4..6, 10..12]),
-        ("> \n> \n> a\n", vec![0..6]),
-    ] {
-        assert_eq!(spans(source), want, "{source:?}");
+    let cases: [(&str, &[(usize, usize)]); 6] = [
+        ("\n\n\n", &[(0, 3)]),
+        ("甲\n\n\n", &[(4, 6)]),
+        ("甲\n\n\n乙", &[(4, 6)]),
+        ("甲\n\n\n\n\n乙", &[(4, 8)]),
+        ("甲\n\n\n乙\n\n\n丙", &[(4, 6), (10, 12)]),
+        ("> \n> \n> a\n", &[(0, 6)]),
+    ];
+    for (source, want) in cases {
+        let got: Vec<(usize, usize)> = spans(source)
+            .into_iter()
+            .map(|span| (span.start, span.end))
+            .collect();
+        assert_eq!(got, want, "{source:?}");
     }
 }
 

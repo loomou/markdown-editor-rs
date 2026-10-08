@@ -575,7 +575,11 @@ mod tests {
                 }
             }
             assert_eq!(snapshot, "![]()\n\ntail\n", "wrapper={wrapper}");
-            assert_eq!(doc.document.to_markdown(), "\ntail\n", "wrapper={wrapper}");
+            assert_eq!(
+                doc.document.to_markdown(),
+                "\n\ntail\n",
+                "wrapper={wrapper}"
+            );
             assert_eq!(
                 doc.kind(image),
                 Some(BlockKind::Paragraph),
@@ -1248,7 +1252,7 @@ mod tests {
             );
             assert_eq!(
                 doc.document.to_markdown(),
-                "\ntail\n",
+                "\n\ntail\n",
                 "{source:?} must not leave an emptied quote behind"
             );
         }
@@ -1276,7 +1280,7 @@ mod tests {
             },
             Command::DeleteBackward,
         );
-        assert_eq!(doc.document.to_markdown(), "> \n> tail\n");
+        assert_eq!(doc.document.to_markdown(), "> \n> \n> tail\n");
     }
 
     #[test]
@@ -1286,8 +1290,8 @@ mod tests {
             ("> > ```\n> > abc\n> > ```\n", "> > ```\n> > ```\n"),
             ("- ```\n  abc\n  ```\n", "- ```\n  ```\n"),
             ("> - ```\n>   abc\n>   ```\n", "> - ```\n>   ```\n"),
-            ("> abc\n", "> \n"),
-            ("> > abc\n", "> > \n"),
+            ("> abc\n", "> \n> \n"),
+            ("> > abc\n", "> > \n> > \n"),
             ("- abc\n", "- \n"),
             ("> - abc\n", "> - \n"),
             ("> # heading\n", "> # \n"),

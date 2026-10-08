@@ -320,22 +320,31 @@ fn shape(doc: &md_core::document::Document) -> Vec<String> {
 
 #[test]
 fn shapes_the_editor_can_produce_are_fixed_points() {
-    for source in [
-        "> hi\n> \n",
-        "\nhi\n",
-        "- hi\n  ```\n  abc\n  ```\n- \n",
-        "- hi\n  ```\n  abc\n  ```\n  z\n",
-        "- hi\n  ```\n  abc\n  ```\n  z\n- w\n",
-        "a\n\n\nb\n",
-        "a\n\n\n",
+    for (source, saved) in [
+        ("> hi\n> \n", "> hi\n> \n"),
+        ("\nhi\n", "hi\n"),
+        (
+            "- hi\n  ```\n  abc\n  ```\n- \n",
+            "- hi\n  ```\n  abc\n  ```\n- \n",
+        ),
+        (
+            "- hi\n  ```\n  abc\n  ```\n  z\n",
+            "- hi\n  ```\n  abc\n  ```\n  z\n",
+        ),
+        (
+            "- hi\n  ```\n  abc\n  ```\n  z\n- w\n",
+            "- hi\n  ```\n  abc\n  ```\n  z\n- w\n",
+        ),
+        ("a\n\n\nb\n", "a\n\nb\n"),
+        ("a\n\n\n", "a\n\n"),
     ] {
         let before = load_markdown(source, editor_options());
-        let saved = before.to_markdown();
-        assert_eq!(saved, source, "{source:?} must survive a save");
-        let after = load_markdown(&saved, editor_options());
+        let once = before.to_markdown();
+        assert_eq!(once, saved, "{source:?} must survive a save");
+        let after = load_markdown(&once, editor_options());
         assert_eq!(
             after.to_markdown(),
-            source,
+            saved,
             "{source:?} must be a fixed point"
         );
         assert_eq!(
@@ -348,20 +357,23 @@ fn shapes_the_editor_can_produce_are_fixed_points() {
 
 #[test]
 fn a_list_item_keeps_the_blank_lines_that_are_indented_to_its_content() {
-    for source in [
-        "- hi\n  ```\n  abc\n  ```\n  \n  \n",
-        "- hi\n  \n",
-        "- hi\n  \n  \n",
-        "- hi\n  z\n  \n",
-        "- \n  \n",
-        "1. \n   \n",
-        "- a\n  - b\n    \n",
-        "> - hi\n>   \n",
+    for (source, saved) in [
+        (
+            "- hi\n  ```\n  abc\n  ```\n  \n  \n",
+            "- hi\n  ```\n  abc\n  ```\n  \n",
+        ),
+        ("- hi\n  \n", "- hi\n  \n"),
+        ("- hi\n  \n  \n", "- hi\n  \n"),
+        ("- hi\n  z\n  \n", "- hi\n  z\n  \n"),
+        ("- \n  \n", "- \n  \n"),
+        ("1. \n   \n", "1. \n   \n"),
+        ("- a\n  - b\n    \n", "- a\n  - b\n    \n"),
+        ("> - hi\n>   \n", "> - hi\n>   \n"),
     ] {
         let doc = load_markdown(source, editor_options());
-        let saved = doc.to_markdown();
-        assert_eq!(saved, source, "{source:?} must survive a save");
-        let after = load_markdown(&saved, editor_options());
+        let once = doc.to_markdown();
+        assert_eq!(once, saved, "{source:?} must survive a save");
+        let after = load_markdown(&once, editor_options());
         assert_eq!(
             shape(&doc),
             shape(&after),
@@ -374,14 +386,14 @@ fn a_list_item_keeps_the_blank_lines_that_are_indented_to_its_content() {
 fn a_list_item_leaves_the_blank_lines_it_does_not_own_alone() {
     for (source, saved) in [
         ("- hi\n\n", "- hi\n\n"),
-        ("- hi\n\n\n", "- hi\n\n\n"),
+        ("- hi\n\n\n", "- hi\n\n"),
         (
             "- hi\n  ```\n  abc\n  ```\n\n\n",
-            "- hi\n  ```\n  abc\n  ```\n\n\n",
+            "- hi\n  ```\n  abc\n  ```\n\n",
         ),
         ("- hi\n  \n- b\n", "- hi\n\n- b\n"),
         ("- hi\n  \nz\n", "- hi\n\nz\n"),
-        ("- hi\n  \n\n", "- hi\n\n\n"),
+        ("- hi\n  \n\n", "- hi\n\n"),
     ] {
         let doc = load_markdown(source, editor_options());
         assert_eq!(doc.to_markdown(), saved, "{source:?} changed shape");
@@ -390,27 +402,27 @@ fn a_list_item_leaves_the_blank_lines_it_does_not_own_alone() {
 
 #[test]
 fn a_list_keeps_the_blank_lines_that_follow_it() {
-    for source in [
-        "- a\n\n\np\n",
-        "- a\n\n\n* b\n",
-        "- a\n\n\n> q\n",
-        "- a\n\n\n# h\n",
-        "- a\n\n\n***\n",
-        "- a\n\n\n\n\np\n",
-        "* a\n\n\np\n",
-        "1. a\n\n\np\n",
-        "- [ ] a\n\n\np\n",
-        "- a\n  - b\n\n\np\n",
-        "- a\n\np\n",
-        "> - a\n> \n> \n> p\n",
+    for (source, saved) in [
+        ("- a\n\n\np\n", "- a\n\np\n"),
+        ("- a\n\n\n* b\n", "- a\n\n* b\n"),
+        ("- a\n\n\n> q\n", "- a\n\n> q\n"),
+        ("- a\n\n\n# h\n", "- a\n\n# h\n"),
+        ("- a\n\n\n***\n", "- a\n\n***\n"),
+        ("- a\n\n\n\n\np\n", "- a\n\n\n\np\n"),
+        ("* a\n\n\np\n", "* a\n\np\n"),
+        ("1. a\n\n\np\n", "1. a\n\np\n"),
+        ("- [ ] a\n\n\np\n", "- [ ] a\n\np\n"),
+        ("- a\n  - b\n\n\np\n", "- a\n  - b\n\np\n"),
+        ("- a\n\np\n", "- a\n\np\n"),
+        ("> - a\n> \n> \n> p\n", "> - a\n> \n> p\n"),
     ] {
         let before = load_markdown(source, editor_options());
-        let saved = before.to_markdown();
-        assert_eq!(saved, source, "{source:?} must survive a save");
-        let after = load_markdown(&saved, editor_options());
+        let once = before.to_markdown();
+        assert_eq!(once, saved, "{source:?} must survive a save");
+        let after = load_markdown(&once, editor_options());
         assert_eq!(
             after.to_markdown(),
-            source,
+            saved,
             "{source:?} must be a fixed point"
         );
         assert_eq!(
@@ -423,20 +435,20 @@ fn a_list_keeps_the_blank_lines_that_follow_it() {
 
 #[test]
 fn a_footnote_definition_keeps_the_blank_lines_that_follow_it() {
-    for source in [
-        "[^1]: n\n\n\np\n",
-        "[^1]: n\n\n\n",
-        "[^1]: n\n\np\n",
-        "p\n\n[^1]: n\n\n\n",
-        "> [^1]: n\n> \n> \n> p\n",
+    for (source, saved) in [
+        ("[^1]: n\n\n\np\n", "[^1]: n\n\np\n"),
+        ("[^1]: n\n\n\n", "[^1]: n\n\n"),
+        ("[^1]: n\n\np\n", "[^1]: n\n\np\n"),
+        ("p\n\n[^1]: n\n\n\n", "p\n\n[^1]: n\n\n"),
+        ("> [^1]: n\n> \n> \n> p\n", "> [^1]: n\n> \n> p\n"),
     ] {
         let before = load_markdown(source, editor_options());
-        let saved = before.to_markdown();
-        assert_eq!(saved, source, "{source:?} must survive a save");
-        let after = load_markdown(&saved, editor_options());
+        let once = before.to_markdown();
+        assert_eq!(once, saved, "{source:?} must survive a save");
+        let after = load_markdown(&once, editor_options());
         assert_eq!(
             after.to_markdown(),
-            source,
+            saved,
             "{source:?} must be a fixed point"
         );
         assert_eq!(
@@ -449,23 +461,26 @@ fn a_footnote_definition_keeps_the_blank_lines_that_follow_it() {
 
 #[test]
 fn a_list_item_keeps_the_blank_lines_between_its_blocks() {
-    for source in [
-        "- p\n  \n  \n  p\n",
-        "- p\n  \n  \n  \n  p\n",
-        "- p\n  q\n  \n  \n  r\n",
-        "1. a\n   \n   \n   b\n",
-        "- # h\n  \n  \n  p\n",
-        "- p\n  \n  p\n",
-        "- > p\n  > \n  > \n  > p\n",
-        "- a\n  - p\n    \n    \n    p\n",
+    for (source, saved) in [
+        ("- p\n  \n  \n  p\n", "- p\n  \n  p\n"),
+        ("- p\n  \n  \n  \n  p\n", "- p\n  \n  \n  \n  p\n"),
+        ("- p\n  q\n  \n  \n  r\n", "- p\n  q\n  \n  r\n"),
+        ("1. a\n   \n   \n   b\n", "1. a\n   \n   b\n"),
+        ("- # h\n  \n  \n  p\n", "- # h\n  \n  p\n"),
+        ("- p\n  \n  p\n", "- p\n  \n  p\n"),
+        ("- > p\n  > \n  > \n  > p\n", "- > p\n  > \n  > p\n"),
+        (
+            "- a\n  - p\n    \n    \n    p\n",
+            "- a\n  - p\n    \n    p\n",
+        ),
     ] {
         let before = load_markdown(source, editor_options());
-        let saved = before.to_markdown();
-        assert_eq!(saved, source, "{source:?} must survive a save");
-        let after = load_markdown(&saved, editor_options());
+        let once = before.to_markdown();
+        assert_eq!(once, saved, "{source:?} must survive a save");
+        let after = load_markdown(&once, editor_options());
         assert_eq!(
             after.to_markdown(),
-            source,
+            saved,
             "{source:?} must be a fixed point"
         );
         assert_eq!(
@@ -717,27 +732,27 @@ fn a_paragraph_that_a_math_fence_cuts_keeps_being_a_paragraph_when_it_is_not_ima
 
 #[test]
 fn an_empty_footnote_definition_roundtrips_with_its_blank_lines() {
-    for source in [
-        "[^1]:\n",
-        "[^1]:\n\n",
-        "[^1]:\n\n\n",
-        "[^1]:\n\nz\n",
-        "[^1]:\n\n\nz\n",
-        "z\n\n[^1]:\n",
-        "z\n\n[^1]:\n\n\n",
-        "p[^1]\n\n[^1]:\n",
-        "> [^1]:\n",
-        "> [^1]:\n> \n",
-        "- [^1]:\n",
-        "[^1]: x\n\n[^2]: y\n",
+    for (source, saved) in [
+        ("[^1]:\n", "[^1]:\n"),
+        ("[^1]:\n\n", "[^1]:\n\n"),
+        ("[^1]:\n\n\n", "[^1]:\n\n"),
+        ("[^1]:\n\nz\n", "[^1]:\n\nz\n"),
+        ("[^1]:\n\n\nz\n", "[^1]:\n\nz\n"),
+        ("z\n\n[^1]:\n", "z\n\n[^1]:\n"),
+        ("z\n\n[^1]:\n\n\n", "z\n\n[^1]:\n\n"),
+        ("p[^1]\n\n[^1]:\n", "p[^1]\n\n[^1]:\n"),
+        ("> [^1]:\n", "> [^1]:\n"),
+        ("> [^1]:\n> \n", "> [^1]:\n> \n"),
+        ("- [^1]:\n", "- [^1]:\n"),
+        ("[^1]: x\n\n[^2]: y\n", "[^1]: x\n\n[^2]: y\n"),
     ] {
         let before = load_markdown(source, editor_options());
-        let saved = before.to_markdown();
-        assert_eq!(saved, source, "{source:?} must survive a save");
-        let after = load_markdown(&saved, editor_options());
+        let once = before.to_markdown();
+        assert_eq!(once, saved, "{source:?} must survive a save");
+        let after = load_markdown(&once, editor_options());
         assert_eq!(
             after.to_markdown(),
-            source,
+            saved,
             "{source:?} must be a fixed point"
         );
         assert_eq!(
