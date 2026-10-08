@@ -201,9 +201,46 @@ fn select_all_copy_round_trips_shape() {
 }
 
 #[test]
-fn quoted_paragraph_copies_without_marker() {
+fn a_quoted_paragraph_copies_with_its_marker() {
     let doc = load_markdown("> hi\n", editor_options());
-    assert_eq!(copy_all(&doc, 0), "hi");
+    assert_eq!(copy_all(&doc, 0), "> hi");
+}
+
+#[test]
+fn a_whole_quote_copies_with_every_marker_it_needs() {
+    for (source, copied) in [
+        ("> hi\n", "> hi"),
+        ("> a\n> b\n", "> a\n> b"),
+        ("> 甲\n>\n> \n>\n> 乙\n", "> 甲\n>\n> \n>\n> 乙"),
+        ("> > hi\n", "> > hi"),
+        ("> - a\n> - b\n", "> - a\n> - b"),
+        ("> # h\n> \n> p\n", "> # h\n>\n> p"),
+        ("> hi\n\np\n", "> hi\n\np"),
+        ("p\n\n> hi\n", "p\n\n> hi"),
+    ] {
+        let doc = load_markdown(source, editor_options());
+        let all = copy_document(&doc);
+        assert_eq!(all, copied, "source={source:?}");
+        assert_eq!(
+            load_markdown(&all, editor_options()).to_markdown(),
+            copied,
+            "the copy must reload to the same shape: source={source:?}"
+        );
+    }
+}
+
+#[test]
+fn a_quote_inside_a_list_item_copies_as_the_quote() {
+    let doc = load_markdown("- > a\n", editor_options());
+    assert_eq!(copy_document(&doc), "> a");
+    let doc = load_markdown("- > a\n  > b\n", editor_options());
+    assert_eq!(copy_document(&doc), "> a\n> b");
+}
+
+#[test]
+fn a_partial_quote_selection_still_copies_plain_text() {
+    let doc = load_markdown("> hello\n", editor_options());
+    assert_eq!(doc.copy_markdown(sel(&doc, 0, 2, 0, 5)), "llo");
 }
 
 #[test]
@@ -255,13 +292,10 @@ fn a_whole_table_carries_the_reference_its_cells_use() {
 
 #[test]
 fn a_whole_table_rebuilds_when_it_is_not_pristine() {
-    let doc = load_markdown(
-        "> | a | b |\n> | --- | --- |\n> | c | d |\n",
-        editor_options(),
-    );
+    let doc = load_markdown("> | a | b |\n> | - | - |\n> | c | d |\n", editor_options());
     assert_eq!(
         doc.copy_markdown(sel(&doc, 0, 0, 3, 1)),
-        "| a | b |\n| --- | --- |\n| c | d |"
+        "> | a | b |\n> | --- | --- |\n> | c | d |"
     );
 }
 

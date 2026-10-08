@@ -247,6 +247,14 @@ impl Document {
                 i = last + 1;
                 continue;
             }
+            if whole && let Some((quote, last)) = self.covered_quote(leaves, i, hi_i, to) {
+                let mut piece = String::new();
+                write::write_node(self, quote, &mut piece);
+                self.collect_subtree_deps(quote, &mut deps.footnotes, &mut deps.links);
+                push_piece(&mut out, &piece, true, &mut skipped);
+                i = last + 1;
+                continue;
+            }
             if whole && let Some((item, last)) = self.covered_item(leaves, i, hi_i, to) {
                 let list = self.arena.get(item).and_then(|n| n.parent);
                 let extra = list.map(|l| self.extra(l)).unwrap_or(NodeExtra::None);
@@ -319,6 +327,41 @@ impl Document {
             cur = self.arena.get(p).and_then(|n| n.parent);
         }
         false
+    }
+
+    fn covered_quote(
+        &self,
+        leaves: &[BlockId],
+        at: usize,
+        hi_i: usize,
+        to: usize,
+    ) -> Option<(NodeId, usize)> {
+        let leaf = self.live_id(leaves[at])?;
+        let mut best = None;
+        let mut up = self.arena.get(leaf).and_then(|n| n.parent);
+        while let Some(id) = up {
+            let Some(node) = self.arena.get(id) else {
+                break;
+            };
+            up = node.parent;
+            if node.kind != BlockKind::BlockQuote {
+                continue;
+            }
+            let mut kids = Vec::new();
+            self.subtree_text_leaves(id, &mut kids);
+            let (Some(&first), Some(&last)) = (kids.first(), kids.last()) else {
+                continue;
+            };
+            if first != leaf {
+                continue;
+            }
+            let end = at + kids.len() - 1;
+            if end > hi_i || (end == hi_i && to < self.caret_text(last).len()) {
+                continue;
+            }
+            best = Some((id, end));
+        }
+        best
     }
 
     fn covered_item(
