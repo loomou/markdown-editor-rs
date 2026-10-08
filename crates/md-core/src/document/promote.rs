@@ -464,7 +464,10 @@ impl Document {
         }
         if self.arena.get(wrapper).and_then(|n| n.first_child) == Some(id) {
             if self.extra(wrapper).quote_alert().is_some() {
-                return None;
+                return Some(Caret {
+                    block: id.index,
+                    offset: 0,
+                });
             }
             return self.try_lift_wrapper(id);
         }

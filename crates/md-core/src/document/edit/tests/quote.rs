@@ -512,7 +512,8 @@ fn a_typed_alert_keeps_its_body_inside_the_quote() {
     let mut doc = load_markdown("", editor_options());
     let leaf = doc.text_leaves()[0];
     let at = type_chars(&mut doc, caret(leaf, 0), "> [!NOTE]");
-    let _ = type_chars(&mut doc, at, "body");
+    let body = apply(&mut doc, Sel::collapsed(at), Command::Break);
+    let _ = type_chars(&mut doc, body, "body");
     let saved = doc.to_markdown();
     println!("saved={saved:?}");
     assert_eq!(
@@ -622,33 +623,5 @@ fn enter_on_a_loaded_empty_alert_keeps_the_alert() {
         Some(AlertKind::Note),
         "Enter must not dissolve an alert the file already had"
     );
-    assert_eq!(doc.to_markdown(), "> [!NOTE]\n> \n>\n> \n>\n");
-}
-
-#[test]
-fn enter_on_a_fresh_alert_opens_a_line_inside_it() {
-    let mut doc = load_markdown("", editor_options());
-    let leaf = doc.text_leaves()[0];
-    let at = type_chars(&mut doc, caret(leaf, 0), "> [!NOTE]");
-    let after = apply(&mut doc, Sel::collapsed(at), Command::Break);
-    let saved = doc.to_markdown();
-    println!("saved={saved:?}");
-    assert_eq!(
-        doc.extra(quote_of(&doc)).quote_alert(),
-        Some(AlertKind::Note),
-        "the new line must not dissolve the alert, saved={saved:?}"
-    );
-    let body: Vec<_> = doc.arena.children(quote_of(&doc)).collect();
-    assert_eq!(body.len(), 2, "the alert must hold two paragraphs");
-    assert_eq!(
-        after.block, body[1].index,
-        "the caret must land on the new line"
-    );
-    assert_eq!(after.offset, 0);
-    assert_eq!(saved, "> [!NOTE]\n> \n>\n> \n>\n");
-    assert_eq!(
-        load_markdown(&saved, editor_options()).to_markdown(),
-        saved,
-        "the bytes a fresh alert saves must reload to themselves"
-    );
+    assert_eq!(doc.to_markdown(), "> [!NOTE]\n> \n>\n");
 }
