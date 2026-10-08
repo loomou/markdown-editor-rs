@@ -463,6 +463,12 @@ impl Document {
             return None;
         }
         if self.arena.get(wrapper).and_then(|n| n.first_child) == Some(id) {
+            if self.extra(wrapper).quote_alert().is_some() {
+                return Some(Caret {
+                    block: id.index,
+                    offset: 0,
+                });
+            }
             return self.try_lift_wrapper(id);
         }
         let host = self.arena.get(wrapper).and_then(|n| n.parent)?;
@@ -638,6 +644,40 @@ impl Document {
         Some(Caret {
             block: id.index,
             offset: caret,
+        })
+    }
+
+    pub(crate) fn try_bind_quote_alert(&mut self, id: NodeId) -> Option<Caret> {
+        let kind = self.arena.get(id).map(|n| n.kind)?;
+        if kind != BlockKind::Paragraph {
+            return None;
+        }
+        let parent = self.arena.get(id).and_then(|n| n.parent)?;
+        if self.arena.get(parent).map(|n| n.kind) != Some(BlockKind::BlockQuote) {
+            return None;
+        }
+        if self.extra(parent).quote_alert().is_some() {
+            return None;
+        }
+        if self.arena.get(parent).and_then(|n| n.first_child) != Some(id) {
+            return None;
+        }
+        let source = syntax::normalize_source(self.leaf_source(id)).to_string();
+        if source.is_empty() || source.contains('\n') {
+            return None;
+        }
+        let frag = load_markdown(&format!("> {source}"), editor_options());
+        let alert = bind::quote_alert_extra(&frag)?;
+        let before = self.revision;
+        let old_extra = self.extra(parent);
+        let display_len = self.display(id).to_string().len();
+        let (mut changes, _) = self.rewrite_text(id, 0..display_len, "");
+        self.set_extra(parent, alert);
+        changes.push(self.attrs_change(parent, BlockKind::BlockQuote, old_extra));
+        let _ = self.commit(before, changes);
+        Some(Caret {
+            block: id.index,
+            offset: 0,
         })
     }
 }
