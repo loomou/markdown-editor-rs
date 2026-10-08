@@ -79,6 +79,11 @@ bincode = "1.3.1"
 default = ["getopts", "html"]
 # Read-only access to the parse tree (`Parsed` / `NodeRef`), see src/tree_api.rs.
 tree = []
+# Read a blank line between two items of the same list as a list boundary instead of
+# turning that single list loose. Off by default, so `tests/suite/` keeps asserting
+# CommonMark; the fifteen cases there that spell a loose list with a blank line fail when
+# it is on. This repository builds the crate with it on.
+editor-mode = []
 gen-tests = []
 simd = ["pulldown-cmark-escape?/simd"]
 html = ["pulldown-cmark-escape"]

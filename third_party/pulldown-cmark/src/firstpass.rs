@@ -1596,11 +1596,14 @@ impl<'a, 'b> FirstPass<'a, 'b> {
         if let Some(node_ix) = self.tree.peek_up() {
             if let ItemBody::List(ref mut is_tight, existing_ch, _) = self.tree[node_ix].item.body {
                 if existing_ch == ch {
-                    if self.last_line_blank {
-                        *is_tight = false;
-                        self.last_line_blank = false;
+                    if !self.last_line_blank {
+                        return;
                     }
-                    return;
+                    self.last_line_blank = false;
+                    if !cfg!(feature = "editor-mode") {
+                        *is_tight = false;
+                        return;
+                    }
                 }
             }
             // TODO: this is not the best choice for end; maybe get end from last list item.

@@ -175,7 +175,7 @@ fn r3_list_gutter_growth_reflows_existing_table_rows(cx: &mut TestAppContext) {
         let shaper = shaper(window, app, &theme);
         let env = BoxLayoutEnvironment::default();
         let mut doc = load_markdown(
-            "998. first\n\n     | a | b |\n     | --- | --- |\n     | c | d |\n\n999. tail\n",
+            "998. first\n\n     | a | b |\n     | --- | --- |\n     | c | d |\n999. tail\n",
             editor_options(),
         );
         let _ = doc.take_changes();

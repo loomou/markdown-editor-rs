@@ -489,11 +489,12 @@ fn a_list_item_keeps_the_blank_lines_between_its_blocks() {
 }
 
 #[test]
-fn a_list_does_not_claim_a_blank_paragraph_between_its_items() {
+fn blank_paragraphs_between_two_lists_survive() {
     for (source, saved) in [
-        ("- a\n\n\n- b\n", "- a\n\n- b"),
-        ("- a\n\n\n\n- b\n", "- a\n\n- b"),
-        ("> - a\n> \n> \n> - b\n", "> - a\n>\n> - b"),
+        ("- a\n\n- b", "- a\n\n- b"),
+        ("- a\n\n\n- b", "- a\n\n- b"),
+        ("- a\n\n\n\n- b", "- a\n\n\n\n- b"),
+        ("> - a\n>\n> \n>\n> - b", "> - a\n>\n> \n>\n> - b"),
     ] {
         let doc = load_markdown(source, editor_options());
         assert_eq!(doc.to_markdown(), saved, "{source:?} changed shape");

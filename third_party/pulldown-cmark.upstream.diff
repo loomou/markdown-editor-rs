@@ -1,14 +1,17 @@
 # a/ = https://github.com/pulldown-cmark/pulldown-cmark at tag v0.13.4
 #      (commit 38e4d08f14ec4bd9783270e9623db7681ebed968)
+#      The crate is the `pulldown-cmark/` directory of that repository.
 # b/ = third_party/pulldown-cmark, the vendored fork in this repository:
 #      upstream plus a read-only tree API behind the `tree` feature
-#      (src/tree_api.rs, tests/tree_api.rs)
+#      (src/tree_api.rs, tests/tree_api.rs), and an `editor-mode` feature that
+#      reads a blank line between two items of the same list as a list boundary
+#      instead of turning that list loose.
 # Apply on a clean checkout of the a/ side with `git apply` or `patch -p1`.
 # Do not edit by hand.
 # LICENSE is not patched: upstream ships it as a repo-root symlink; the
 # vendored copy materializes the same MIT text.
 diff --git a/Cargo.toml b/Cargo.toml
-index 13c86f0..b6b3ea2 100644
+index 13c86f0..859a269 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -12,7 +12,6 @@ keywords = ["markdown", "commonmark"]
@@ -28,17 +31,22 @@ index 13c86f0..b6b3ea2 100644
  
  [dev-dependencies]
  lazy_static = "1.4"
-@@ -78,6 +77,8 @@ bincode = "1.3.1"
+@@ -78,6 +77,13 @@ bincode = "1.3.1"
  
  [features]
  default = ["getopts", "html"]
 +# Read-only access to the parse tree (`Parsed` / `NodeRef`), see src/tree_api.rs.
 +tree = []
++# Read a blank line between two items of the same list as a list boundary instead of
++# turning that single list loose. Off by default, so `tests/suite/` keeps asserting
++# CommonMark; the fifteen cases there that spell a loose list with a blank line fail when
++# it is on. This repository builds the crate with it on.
++editor-mode = []
  gen-tests = []
  simd = ["pulldown-cmark-escape?/simd"]
  html = ["pulldown-cmark-escape"]
 diff --git a/src/firstpass.rs b/src/firstpass.rs
-index fc8abed..2d40769 100644
+index fc8abed..41a88ed 100644
 --- a/src/firstpass.rs
 +++ b/src/firstpass.rs
 @@ -5,8 +5,8 @@ use std::cmp::max;
@@ -149,6 +157,24 @@ index fc8abed..2d40769 100644
          ix
      }
  
+@@ -1562,11 +1596,14 @@ impl<'a, 'b> FirstPass<'a, 'b> {
+         if let Some(node_ix) = self.tree.peek_up() {
+             if let ItemBody::List(ref mut is_tight, existing_ch, _) = self.tree[node_ix].item.body {
+                 if existing_ch == ch {
+-                    if self.last_line_blank {
++                    if !self.last_line_blank {
++                        return;
++                    }
++                    self.last_line_blank = false;
++                    if !cfg!(feature = "editor-mode") {
+                         *is_tight = false;
+-                        self.last_line_blank = false;
++                        return;
+                     }
+-                    return;
+                 }
+             }
+             // TODO: this is not the best choice for end; maybe get end from last list item.
 diff --git a/src/lib.rs b/src/lib.rs
 index 6e17a91..31ed045 100644
 --- a/src/lib.rs
