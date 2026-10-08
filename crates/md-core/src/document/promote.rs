@@ -495,16 +495,29 @@ impl Document {
         })
     }
 
-    pub(crate) fn try_absorb_a_soft_break(&mut self, id: NodeId, offset: usize) -> Option<Caret> {
-        let kind = self.arena.get(id).map(|n| n.kind)?;
-        if kind != BlockKind::Paragraph {
+    fn a_soft_break_ends_at(&self, id: NodeId, offset: usize) -> Option<usize> {
+        if self.arena.get(id).map(|n| n.kind) != Some(BlockKind::Paragraph) {
             return None;
         }
         let display = self.display(id).to_string();
         let off = floor_char_boundary(&display, offset.min(display.len()));
-        if off == 0 || !display[..off].ends_with('\n') {
-            return None;
-        }
+        (off > 0 && display[..off].ends_with('\n')).then_some(off)
+    }
+
+    pub(crate) fn absorb_the_soft_break_before_the_caret(
+        &mut self,
+        id: NodeId,
+        offset: usize,
+    ) -> Option<usize> {
+        let off = self.a_soft_break_ends_at(id, offset)?;
+        let before = self.revision;
+        let (changes, _) = self.rewrite_text(id, off - 1..off, "");
+        let _ = self.commit(before, changes);
+        Some(off - 1)
+    }
+
+    pub(crate) fn try_absorb_a_soft_break(&mut self, id: NodeId, offset: usize) -> Option<Caret> {
+        let off = self.a_soft_break_ends_at(id, offset)?;
         let parent = self.arena.get(id).and_then(|n| n.parent)?;
         let before = self.revision;
         let (mut changes, _) = self.rewrite_text(id, off - 1..off, "");

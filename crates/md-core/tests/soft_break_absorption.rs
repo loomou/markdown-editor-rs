@@ -15,9 +15,9 @@ fn leaves(source: &str, keys: &[&str]) -> Vec<String> {
         at = match *key {
             "se" => doc.apply(Sel::collapsed(at), Command::SoftBreak),
             "en" => doc.apply(Sel::collapsed(at), Command::Break),
-            "l2" => Caret {
+            key if key.starts_with('l') => Caret {
                 block: doc.text_leaves()[0],
-                offset: 4,
+                offset: key[1..].parse().unwrap_or(0),
             },
             text => doc.apply(
                 Sel::collapsed(at),
@@ -39,7 +39,7 @@ fn a_soft_break_next_to_another_newline_splits_the_paragraph() {
         ("abc", &["se", "se", "xyz"][..], &["abc", "xyz", ""][..]),
         ("abc", &["se", "se"][..], &["abc", ""][..]),
         ("", &["se", "se", "xyz"][..], &["", "xyz", ""][..]),
-        ("abc\nxyz", &["l2", "se"][..], &["abc", "xyz", ""][..]),
+        ("abc\nxyz", &["l4", "se"][..], &["abc", "xyz", ""][..]),
         ("- abc", &["se", "se", "xyz"][..], &["abc", "xyz", ""][..]),
         ("abc", &["se", "se", "se"][..], &["abc", "\n", ""][..]),
         (
@@ -53,10 +53,24 @@ fn a_soft_break_next_to_another_newline_splits_the_paragraph() {
 }
 
 #[test]
+fn a_break_after_a_soft_break_absorbs_it() {
+    for (source, keys, want) in [
+        ("abc", &["se", "en"][..], &["abc", ""][..]),
+        ("abc", &["se", "en", "xyz"][..], &["abc", "xyz", ""][..]),
+        ("abc\nxyz", &["l4", "en"][..], &["abc", "xyz", ""][..]),
+        ("- abc", &["se", "en"][..], &["abc", "", ""][..]),
+        ("- abc\n  xyz", &["l4", "en"][..], &["abc", "xyz", ""][..]),
+        ("> abc", &["se", "en"][..], &["abc", "", ""][..]),
+        ("> abc\nxyz", &["l4", "en"][..], &["abc", "xyz", ""][..]),
+    ] {
+        assert_eq!(leaves(source, keys), want, "{source:?} {keys:?}");
+    }
+}
+
+#[test]
 fn a_soft_break_that_stands_alone_keeps_its_paragraph() {
     for (source, keys, want) in [
         ("abc", &["se", "xyz"][..], &["abc\nxyz", ""][..]),
-        ("abc", &["se", "en", "xyz"][..], &["abc\n", "xyz", ""][..]),
         ("abc", &["en", "se", "xyz"][..], &["abc", "\nxyz", ""][..]),
         ("- abc", &["se", "xyz"][..], &["abc\nxyz", ""][..]),
         ("> abc", &["se", "xyz"][..], &["abc\nxyz", ""][..]),

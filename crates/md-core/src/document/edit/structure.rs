@@ -57,6 +57,7 @@ pub(super) fn break_block(doc: &mut Document, sel: Sel) -> Caret {
     if let Some(caret) = super::table::try_commit_pipe_table(doc, at) {
         return caret;
     }
+    let at = absorb_the_soft_break(doc, at);
     if let Some(path) = path::Path::at(doc, at)
         && path.item_direct_leaf(doc)
     {
@@ -74,6 +75,19 @@ pub(super) fn break_block(doc: &mut Document, sel: Sel) -> Caret {
     Caret {
         block: id,
         offset: 0,
+    }
+}
+
+fn absorb_the_soft_break(doc: &mut Document, at: Caret) -> Caret {
+    let Some(id) = doc.live_id(at.block) else {
+        return at;
+    };
+    let Some(offset) = doc.absorb_the_soft_break_before_the_caret(id, at.offset) else {
+        return at;
+    };
+    Caret {
+        block: at.block,
+        offset,
     }
 }
 
