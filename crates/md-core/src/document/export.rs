@@ -45,6 +45,7 @@ pub struct WriteSnapshot {
     root: NodeId,
     source_tail_blanks: usize,
     source_tail_blank: Option<NodeId>,
+    trailing_blank_filler: Option<NodeId>,
     revision: u64,
     nodes: HashMap<NodeId, SnapNode>,
     langs: Arc<Vec<String>>,
@@ -95,6 +96,7 @@ impl Document {
             root: self.root,
             source_tail_blanks: self.source_tail_blanks,
             source_tail_blank: self.source_tail_blank,
+            trailing_blank_filler: self.trailing_blank_filler,
             revision: self.revision(),
             nodes,
             langs: Arc::clone(&self.langs),
@@ -184,6 +186,10 @@ impl MarkdownExport for WriteSnapshot {
 
     fn source_tail_blank(&self) -> Option<NodeId> {
         self.source_tail_blank
+    }
+
+    fn trailing_blank_filler(&self) -> Option<NodeId> {
+        self.trailing_blank_filler
     }
 }
 

@@ -1122,7 +1122,7 @@ fn a_star_rule_on_the_first_line_stays_a_thematic_break() {
     let _ = apply(&mut doc, Sel::collapsed(at), Command::Break);
 
     assert_eq!(doc.kind(leaf), Some(BlockKind::ThematicBreak));
-    assert_eq!(doc.to_markdown(), "---\n");
+    assert_eq!(doc.to_markdown(), "---\n\n");
 }
 
 #[test]

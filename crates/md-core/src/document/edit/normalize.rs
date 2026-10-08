@@ -333,6 +333,7 @@ impl Document {
         let before_rev = self.revision();
         let para = self.alloc_leaf(BlockKind::Paragraph);
         self.arena.append_child(root, para);
+        self.trailing_blank_filler = Some(para);
         self.bump_structure(root);
         let _ = self.commit(
             before_rev,
@@ -402,6 +403,7 @@ pub(crate) fn ensure_trailing_blank_paragraph(doc: &mut Document, caret: Caret) 
     if !last.is_some_and(|id| is_blank_paragraph(doc, id)) {
         let para = doc.alloc_leaf(BlockKind::Paragraph);
         doc.arena.append_child(root, para);
+        doc.trailing_blank_filler = Some(para);
         doc.bump_structure(root);
         changes.push(DocChange::TreeSpliced {
             parent: root,

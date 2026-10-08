@@ -32,6 +32,7 @@ pub(crate) trait MarkdownExport {
     fn reference_definitions(&self) -> &[String];
     fn source_tail_blanks(&self) -> usize;
     fn source_tail_blank(&self) -> Option<NodeId>;
+    fn trailing_blank_filler(&self) -> Option<NodeId>;
 }
 
 struct MarkdownWriter<W> {
@@ -145,6 +146,10 @@ impl MarkdownExport for Document {
 
     fn source_tail_blank(&self) -> Option<NodeId> {
         self.source_tail_blank
+    }
+
+    fn trailing_blank_filler(&self) -> Option<NodeId> {
+        self.trailing_blank_filler
     }
 }
 

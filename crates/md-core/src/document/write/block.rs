@@ -167,8 +167,12 @@ where
                 .and_then(|i| kids.get(i).copied());
             let drop = if first_blank == doc.source_tail_blank() {
                 blanks.saturating_sub(doc.source_tail_blanks())
-            } else {
+            } else if kids.iter().all(|&kid| is_blank_paragraph(doc, kid)) {
                 usize::from(blanks > 0)
+            } else if first_blank.is_some() && first_blank == doc.trailing_blank_filler() {
+                1
+            } else {
+                0
             };
             for _ in 0..drop {
                 kids.pop();

@@ -616,7 +616,7 @@ fn delete_spanning_a_table_endpoint_removes_the_rules_between() {
     );
     assert_eq!(
         doc.to_markdown(),
-        "| a |  |\n| --- | --- |\n",
+        "| a |  |\n| --- | --- |\n\n",
         "partial table keeps the first cell, drops the rule"
     );
 
