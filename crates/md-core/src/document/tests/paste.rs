@@ -261,7 +261,7 @@ fn plain_paste_of_literal_dollars_with_suffix_stays_literal() {
 }
 
 #[test]
-fn plain_paste_with_blank_lines_splits_after_the_math_block() {
+fn plain_paste_with_blank_lines_stays_inside_the_math_block() {
     let mut doc = load_markdown("$$\na\n$$\n", editor_options());
     let _ = doc.take_changes();
     let math = doc
@@ -270,27 +270,46 @@ fn plain_paste_with_blank_lines_splits_after_the_math_block() {
         .find(|&b| doc.kind(b) == Some(BlockKind::Math))
         .expect("math");
     let (changes, block, _) = doc.paste(math, 1..1, "x\n\ny", PasteIntent::PlainText);
-    assert!(changes.is_structural());
-    assert_eq!(doc.kind(math), Some(BlockKind::Math));
-    assert_eq!(doc.text_of(math).unwrap(), "ax");
-    assert_eq!(doc.kind(block), Some(BlockKind::Paragraph));
-    assert_eq!(doc.text_of(block).unwrap(), "y");
+    assert!(!changes.is_structural());
+    assert_eq!(block, math);
+    assert_eq!(doc.text_of(math).unwrap(), "ax\n\ny");
+    assert_eq!(doc.text_leaves().len(), 1);
 
     let markdown = doc.to_markdown();
+    assert_eq!(markdown, "$$\nax\n\ny\n$$\n");
     let again = load_markdown(&markdown, editor_options());
-    assert_eq!(
-        again
-            .preorder()
-            .into_iter()
-            .filter(|&id| again.arena.get(id).map(|n| n.kind) == Some(BlockKind::Math))
-            .count(),
-        1,
-        "{markdown:?}"
-    );
-    assert_eq!(again.text_leaves().len(), 2, "{markdown:?}");
-    assert_eq!(again.text_of(again.text_leaves()[0]).unwrap(), "ax");
-    assert_eq!(again.text_of(again.text_leaves()[1]).unwrap(), "y");
+    assert_eq!(again.text_leaves().len(), 1, "{markdown:?}");
+    assert_eq!(again.kind(again.text_leaves()[0]), Some(BlockKind::Math));
+    assert_eq!(again.text_of(again.text_leaves()[0]).unwrap(), "ax\n\ny");
     assert_eq!(again.to_markdown(), markdown);
+}
+
+#[test]
+fn a_math_block_paste_keeps_every_blank_line_it_was_given() {
+    for (text, expected) in [
+        ("x\n\ny", "$$\nax\n\ny\n$$\n"),
+        ("x\n\n\ny", "$$\nax\n\n\ny\n$$\n"),
+        ("x\n\n\n\n\n\ny", "$$\nax\n\n\n\n\n\ny\n$$\n"),
+        ("\n\nx", "$$\na\n\nx\n$$\n"),
+        ("\n\n\n\nx", "$$\na\n\n\n\nx\n$$\n"),
+    ] {
+        let mut doc = load_markdown("$$\na\n$$\n", editor_options());
+        let _ = doc.take_changes();
+        let math = doc
+            .text_leaves()
+            .into_iter()
+            .find(|&b| doc.kind(b) == Some(BlockKind::Math))
+            .expect("math");
+        let (changes, block, _) = doc.paste(math, 1..1, text, PasteIntent::PlainText);
+        assert!(!changes.is_structural(), "paste={text:?}");
+        assert_eq!(block, math, "paste={text:?}");
+        assert_eq!(doc.text_leaves().len(), 1, "paste={text:?}");
+        assert_eq!(doc.to_markdown(), expected, "paste={text:?}");
+
+        let again = load_markdown(expected, editor_options());
+        assert_eq!(again.text_leaves().len(), 1, "paste={text:?}");
+        assert_eq!(again.to_markdown(), expected, "paste={text:?}");
+    }
 }
 
 #[test]

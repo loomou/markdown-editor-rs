@@ -38,7 +38,7 @@ impl Document {
                 let parts = split_plain_paragraphs(text);
                 let split_host = matches!(
                     self.arena.get(id).map(|n| n.kind),
-                    Some(BlockKind::Paragraph | BlockKind::Heading(_) | BlockKind::Math)
+                    Some(BlockKind::Paragraph | BlockKind::Heading(_))
                 );
                 if parts.len() > 1 && split_host {
                     let (changes, last_block, caret) = self.paste_plain_lines(id, range, &parts);
