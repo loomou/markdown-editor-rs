@@ -171,7 +171,7 @@ fn cmd_backspace_deletes_to_line_start(cx: &mut TestAppContext) {
     cx.simulate_keystrokes(&primary_key("backspace"));
     let md = cx.update(|_, app| editor.read(app).state.doc.document.to_markdown());
     assert_eq!(
-        md, "world\n",
+        md, "world",
         "⌘⌫ should delete from the row start up to the caret: {md:?}"
     );
     let offset = cx.update(|_, app| editor.read(app).state.cursor.offset);
@@ -192,7 +192,7 @@ fn cmd_backspace_deletes_to_line_start(cx: &mut TestAppContext) {
     cx.simulate_keystrokes(&primary_key("backspace"));
     let md = cx.update(|_, app| editor.read(app).state.doc.document.to_markdown());
     assert_eq!(
-        md, " world\n",
+        md, " world",
         "with a selection ⌘⌫ eats only the selection: {md:?}"
     );
 }

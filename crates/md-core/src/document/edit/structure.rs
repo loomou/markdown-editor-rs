@@ -57,6 +57,7 @@ pub(super) fn break_block(doc: &mut Document, sel: Sel) -> Caret {
     if let Some(caret) = super::table::try_commit_pipe_table(doc, at) {
         return caret;
     }
+    let at = absorb_the_soft_break(doc, at);
     if let Some(path) = path::Path::at(doc, at)
         && path.item_direct_leaf(doc)
     {
@@ -77,6 +78,19 @@ pub(super) fn break_block(doc: &mut Document, sel: Sel) -> Caret {
     }
 }
 
+fn absorb_the_soft_break(doc: &mut Document, at: Caret) -> Caret {
+    let Some(id) = doc.live_id(at.block) else {
+        return at;
+    };
+    let Some(offset) = doc.absorb_the_soft_break_before_the_caret(id, at.offset) else {
+        return at;
+    };
+    Caret {
+        block: at.block,
+        offset,
+    }
+}
+
 pub(super) fn soft_break(doc: &mut Document, sel: Sel) -> Caret {
     let at = clear_same_block_span(doc, sel);
     if doc.kind(at.block) == Some(BlockKind::ThematicBreak) {
@@ -94,6 +108,11 @@ pub(super) fn soft_break(doc: &mut Document, sel: Sel) -> Caret {
         && let Some(id) = doc.live_id(at.block)
     {
         return doc.break_literal_leaf(id, at.offset);
+    }
+    if let Some(id) = doc.live_id(at.block)
+        && let Some(caret) = doc.try_absorb_a_soft_break(id, at.offset)
+    {
+        return caret;
     }
     if let Some(id) = doc.live_id(at.block)
         && let Some(caret) = doc.try_break_commonmark(id, at.offset)

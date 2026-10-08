@@ -295,10 +295,12 @@ impl Builder {
     pub(super) fn finish(mut self, source: String, reference_definitions: Vec<String>) -> Document {
         let root = self.parents[0];
         let (source_tail_blanks, source_tail_blank) = self.root_tail(root);
+        let mut trailing_blank_filler = None;
         if self.arena.get(root).and_then(|n| n.first_child).is_none() {
             let id = self.alloc(BlockKind::Paragraph);
             self.enter_leaf(id, BlockKind::Paragraph, LeafSink::Text, 0..0);
             self.leave_text_leaf(&source, false);
+            trailing_blank_filler = Some(id);
         }
         self.merge_leading_front_matter(&source);
         self.texts.shrink_runs_and_pieces();
@@ -315,6 +317,7 @@ impl Builder {
             root,
             source_tail_blanks,
             source_tail_blank,
+            trailing_blank_filler,
             revision: 1,
             max_content_revision: 1,
             changes: ChangeSet::document_replaced(1),

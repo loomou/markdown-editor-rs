@@ -23,7 +23,6 @@ enum Step {
         items: Vec<NodeId>,
         prefix: Prefix,
         ordered: bool,
-        loose: bool,
         start: u64,
         marker: ListMarker,
     },
@@ -42,6 +41,9 @@ enum Step {
         prefix: Prefix,
     },
     HardBlank {
+        prefix: Prefix,
+    },
+    EmptyLine {
         prefix: Prefix,
     },
     Newline,
@@ -107,8 +109,12 @@ where
             Step::BlankLine { prefix } => blank_line(out, &prefix)?,
             Step::HardBlank { prefix } => {
                 if !prefix.is_plain() {
-                    prefix.write_open(out)?;
+                    prefix.write_open_bare(out)?;
                 }
+                out.write_str("\n")?;
+            }
+            Step::EmptyLine { prefix } => {
+                prefix.write_open(out)?;
                 out.write_str("\n")?;
             }
             Step::Block { id, prefix } => write_block_step(doc, id, &prefix, out, &mut stack)?,
@@ -117,10 +123,9 @@ where
                 items,
                 prefix,
                 ordered,
-                loose,
                 start,
                 marker,
-            } => write_list_step(items, &prefix, ordered, loose, start, marker, &mut stack)?,
+            } => write_list_step(items, &prefix, ordered, start, marker, &mut stack)?,
             Step::Item {
                 id,
                 prefix,
@@ -167,8 +172,12 @@ where
                 .and_then(|i| kids.get(i).copied());
             let drop = if first_blank == doc.source_tail_blank() {
                 blanks.saturating_sub(doc.source_tail_blanks())
-            } else {
+            } else if kids.iter().all(|&kid| is_blank_paragraph(doc, kid)) {
                 usize::from(blanks > 0)
+            } else if first_blank.is_some() && first_blank == doc.trailing_blank_filler() {
+                1
+            } else {
+                0
             };
             for _ in 0..drop {
                 kids.pop();
@@ -237,14 +246,12 @@ where
             let extra = doc.extra(id);
             let ordered = extra.ordered_start().is_some();
             let marker = extra.list_marker();
-            let loose = extra.list_loose();
             let start = extra.ordered_start().unwrap_or(1);
             let items: Vec<NodeId> = doc.children(id).collect();
             stack.push(Step::List {
                 items,
                 prefix: prefix.clone(),
                 ordered,
-                loose,
                 start,
                 marker,
             });
@@ -391,17 +398,43 @@ where
             index += 1;
         }
         let blanks = index - start;
-        let lines = if start == 0 {
-            blanks * 2
-        } else if index < count {
-            blanks * 2 + 1
-        } else {
-            (blanks * 2).saturating_sub(1)
-        };
-        if previous.is_some() && lines > 0 {
+        let tail = index == count;
+        if previous.is_some() {
             steps.push(Step::Newline);
         }
-        for _ in 0..lines {
+        if start == 0 {
+            for _ in 0..blanks {
+                steps.push(Step::EmptyLine {
+                    prefix: prefix.clone(),
+                });
+                steps.push(Step::HardBlank {
+                    prefix: prefix.clone(),
+                });
+            }
+        } else if tail {
+            for i in 0..blanks {
+                steps.push(Step::HardBlank {
+                    prefix: prefix.clone(),
+                });
+                if i + 1 < blanks {
+                    steps.push(Step::EmptyLine {
+                        prefix: prefix.clone(),
+                    });
+                }
+            }
+            steps.push(Step::Block {
+                id: kids[index - 1],
+                prefix: prefix.clone(),
+            });
+        } else {
+            for _ in 0..blanks {
+                steps.push(Step::HardBlank {
+                    prefix: prefix.clone(),
+                });
+                steps.push(Step::EmptyLine {
+                    prefix: prefix.clone(),
+                });
+            }
             steps.push(Step::HardBlank {
                 prefix: prefix.clone(),
             });
@@ -424,21 +457,15 @@ fn write_list_step(
     items: Vec<NodeId>,
     prefix: &Prefix,
     ordered: bool,
-    loose: bool,
     start: u64,
     marker: ListMarker,
     stack: &mut Vec<Step>,
 ) -> fmt::Result {
-    let mut steps = Vec::with_capacity(items.len() * 3);
+    let mut steps = Vec::with_capacity(items.len() * 2);
     let mut num = start;
     for (i, item) in items.iter().copied().enumerate() {
         if i > 0 {
             steps.push(Step::Newline);
-            if loose {
-                steps.push(Step::BlankLine {
-                    prefix: prefix.clone(),
-                });
-            }
         }
         steps.push(Step::Item {
             id: item,
@@ -572,16 +599,24 @@ where
             index += 1;
         }
         let blanks = index - start;
-        let lines = if index < kids.len() {
-            blanks * 2 + 1
-        } else {
+        let tail = index == kids.len();
+        let lines = if tail {
             (blanks * 2).saturating_sub(1)
+        } else {
+            blanks * 2 + 1
         };
         if !previous_blank && lines > 0 {
             steps.push(Step::Newline);
         }
-        for _ in 0..lines {
+        let hard = if tail { lines.saturating_sub(1) } else { lines };
+        for _ in 0..hard {
             steps.push(Step::HardBlank {
+                prefix: rest.clone(),
+            });
+        }
+        if tail {
+            steps.push(Step::Block {
+                id: kids[index - 1],
                 prefix: rest.clone(),
             });
         }

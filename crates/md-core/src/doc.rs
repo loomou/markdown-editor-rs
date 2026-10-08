@@ -506,7 +506,7 @@ mod tests {
                     text: replacement.into(),
                 },
             );
-            assert_eq!(doc.document.to_markdown(), "hello\n");
+            assert_eq!(doc.document.to_markdown(), "hello");
             assert_eq!(
                 doc.edit_gen(),
                 0,
@@ -574,12 +574,8 @@ mod tests {
                     let _ = doc.retarget_focus_range(target, target, FocusBias::Neutral);
                 }
             }
-            assert_eq!(snapshot, "![]()\n\ntail\n", "wrapper={wrapper}");
-            assert_eq!(
-                doc.document.to_markdown(),
-                "\n\ntail\n",
-                "wrapper={wrapper}"
-            );
+            assert_eq!(snapshot, "![]()\n\ntail", "wrapper={wrapper}");
+            assert_eq!(doc.document.to_markdown(), "\n\ntail", "wrapper={wrapper}");
             assert_eq!(
                 doc.kind(image),
                 Some(BlockKind::Paragraph),
@@ -604,7 +600,7 @@ mod tests {
         assert_eq!(doc.kind(last), Some(BlockKind::Paragraph));
         assert_eq!(doc.text(last), Some(""));
         assert!(!doc.is_dirty());
-        assert_eq!(doc.document.to_markdown(), "# hi\n");
+        assert_eq!(doc.document.to_markdown(), "# hi");
     }
 
     #[test]
@@ -946,9 +942,9 @@ mod tests {
     fn deleting_a_display_range_consumes_the_source_it_covers() {
         let source = "a **bcd** e~~f~~g";
         for (range, left) in [
-            (2usize..5, "a **** e~~f~~g\n"),
-            (2usize..6, "a **e~~f~~g\n"),
-            (7usize..9, "a **bcd** e~~\n"),
+            (2usize..5, "a **** e~~f~~g"),
+            (2usize..6, "a **e~~f~~g"),
+            (7usize..9, "a **bcd** e~~"),
         ] {
             let mut doc = Doc::new(load_markdown(source, editor_options()));
             let leaf = doc.text_leaves()[0];
@@ -1030,11 +1026,11 @@ mod tests {
     #[test]
     fn select_all_copy_of_a_lone_block_has_no_trailing_newline() {
         for source in [
-            "---\ntitle: hi\n---\n",
+            "---\ntitle: hi\n---",
             "```\nx\n```\n",
-            "# h\n",
+            "# h",
             "$$x$$\n",
-            "hi\n",
+            "hi",
         ] {
             let mut doc = Doc::new(load_markdown(source, editor_options()));
             doc.enable_trailing_blank();
@@ -1252,7 +1248,7 @@ mod tests {
             );
             assert_eq!(
                 doc.document.to_markdown(),
-                "\n\ntail\n",
+                "\n\ntail",
                 "{source:?} must not leave an emptied quote behind"
             );
         }
@@ -1280,7 +1276,7 @@ mod tests {
             },
             Command::DeleteBackward,
         );
-        assert_eq!(doc.document.to_markdown(), "> \n> \n> tail\n");
+        assert_eq!(doc.document.to_markdown(), "> \n>\n> tail");
     }
 
     #[test]
@@ -1290,15 +1286,15 @@ mod tests {
             ("> > ```\n> > abc\n> > ```\n", "> > ```\n> > ```\n"),
             ("- ```\n  abc\n  ```\n", "- ```\n  ```\n"),
             ("> - ```\n>   abc\n>   ```\n", "> - ```\n>   ```\n"),
-            ("> abc\n", "> \n> \n"),
-            ("> > abc\n", "> > \n> > \n"),
-            ("- abc\n", "- \n"),
-            ("> - abc\n", "> - \n"),
-            ("> # heading\n", "> # \n"),
-            ("> ![alt](a.png)\n", "> ![]()\n"),
-            ("- ![alt](a.png)\n", "- \n"),
-            ("[^1]: note\n", "[^1]:\n"),
-            ("> [^1]: note\n", "> [^1]:\n"),
+            ("> abc\n", "> \n>\n"),
+            ("> > abc\n", "> > \n> >\n"),
+            ("- abc\n", "- "),
+            ("> - abc\n", "> - "),
+            ("> # heading\n", "> # "),
+            ("> ![alt](a.png)\n", "> ![]()"),
+            ("- ![alt](a.png)\n", "- "),
+            ("[^1]: note\n", "[^1]:"),
+            ("> [^1]: note\n", "> [^1]:"),
         ] {
             let mut doc = Doc::new(load_markdown(source, editor_options()));
             doc.enable_trailing_blank();
@@ -1359,10 +1355,10 @@ mod tests {
     fn clearing_part_of_a_block_keeps_the_container_too() {
         for &(source, from, to, expected) in &[
             ("> ```\n> abc\n> ```\n", 1, 3, "> ```\n> a\n> ```\n"),
-            ("> abc\n", 1, 3, "> a\n"),
-            ("> > abc\n", 0, 1, "> > bc\n"),
-            ("- abc\n", 0, 2, "- c\n"),
-            ("> - abc\n", 1, 2, "> - ac\n"),
+            ("> abc\n", 1, 3, "> a"),
+            ("> > abc\n", 0, 1, "> > bc"),
+            ("- abc\n", 0, 2, "- c"),
+            ("> - abc\n", 1, 2, "> - ac"),
         ] {
             let mut doc = Doc::new(load_markdown(source, editor_options()));
             doc.enable_trailing_blank();
@@ -1431,7 +1427,7 @@ mod tests {
 
     #[test]
     fn select_all_stays_visible_on_a_document_that_is_one_empty_block() {
-        for source in ["---\n\n---\n", "```\n```\n", "$$\n$$\n", "#\n"] {
+        for source in ["---\n\n---", "```\n```\n", "$$\n$$\n", "#"] {
             let mut doc = Doc::new(load_markdown(source, editor_options()));
             doc.enable_trailing_blank();
             let sel = doc.whole_document_sel().expect("selection");

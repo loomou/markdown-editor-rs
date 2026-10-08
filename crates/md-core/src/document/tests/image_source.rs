@@ -322,7 +322,7 @@ fn undo_after_leaving_broken_image_restores_image_kind() {
     });
     assert_eq!(doc.kind(leaves[0]), Some(BlockKind::Paragraph));
     doc.undo().unwrap();
-    assert_eq!(doc.document.to_markdown(), "![alt](url)\n\nafter\n");
+    assert_eq!(doc.document.to_markdown(), "![alt](url)\n\nafter");
     assert_eq!(
         doc.kind(leaves[0]),
         Some(BlockKind::Image),

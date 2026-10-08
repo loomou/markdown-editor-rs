@@ -144,7 +144,7 @@ fn nested_first_item_backspace_lifts_one_rank() {
         "reading order must stay a, b, c: {:?}",
         doc.to_markdown()
     );
-    assert_eq!(doc.to_markdown(), "- a\n- b\n  - c\n");
+    assert_eq!(doc.to_markdown(), "- a\n- b\n  - c");
 }
 
 #[test]
@@ -211,7 +211,7 @@ fn outdenting_a_middle_nested_item_keeps_tail_order() {
     let block = d.text_leaves()[2];
     let _ = d.apply(Sel::collapsed(caret(block, 0)), Command::Outdent);
     let after = d.document.to_markdown();
-    assert_eq!(after, "- parent\n  - a\n- b\n  - c\n- tail\n", "{after:?}");
+    assert_eq!(after, "- parent\n  - a\n- b\n  - c\n- tail", "{after:?}");
     let order: Vec<&str> = d
         .document
         .text_leaves()
@@ -228,13 +228,13 @@ fn outdenting_a_middle_nested_item_keeps_tail_order() {
 #[test]
 fn joining_items_redo_keeps_the_migrated_children() {
     for (source, at_leaf, joined) in [
-        ("- a\n- b\n  - c\n- d\n", 1usize, "- ab\n  - c\n- d\n"),
+        ("- a\n- b\n  - c\n- d\n", 1usize, "- ab\n  - c\n- d"),
         (
             "- parent\n  - a\n  - b\n  - c\n- tail\n",
             4,
-            "- parent\n  \n  - a\n  - b\n  - c\n  \n  tail\n",
+            "- parent\n\n  - a\n  - b\n  - c\n\n  tail",
         ),
-        ("- a\n- b\n  - c\n  - d\n", 1, "- ab\n  - c\n  - d\n"),
+        ("- a\n- b\n  - c\n  - d\n", 1, "- ab\n  - c\n  - d"),
     ] {
         let mut d = Doc::new(load_markdown(source, editor_options()));
         let before = d.document.to_markdown();

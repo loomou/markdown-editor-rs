@@ -32,6 +32,7 @@ pub(crate) trait MarkdownExport {
     fn reference_definitions(&self) -> &[String];
     fn source_tail_blanks(&self) -> usize;
     fn source_tail_blank(&self) -> Option<NodeId>;
+    fn trailing_blank_filler(&self) -> Option<NodeId>;
 }
 
 struct MarkdownWriter<W> {
@@ -146,6 +147,10 @@ impl MarkdownExport for Document {
     fn source_tail_blank(&self) -> Option<NodeId> {
         self.source_tail_blank
     }
+
+    fn trailing_blank_filler(&self) -> Option<NodeId> {
+        self.trailing_blank_filler
+    }
 }
 
 pub(super) fn raw_block_source(doc: &Document, id: NodeId) -> Option<&str> {
@@ -242,6 +247,11 @@ impl Prefix {
         self.tip.is_none()
     }
 
+    fn write_open_bare(&self, out: &mut impl fmt::Write) -> fmt::Result {
+        let flat = self.flat();
+        out.write_str(flat.trim_end())
+    }
+
     fn flat(&self) -> String {
         let mut segs = Vec::new();
         let mut node = self.tip.as_deref();
@@ -295,7 +305,8 @@ where
         blank_line(&mut w, &Prefix::default())?;
     }
     run(doc, doc.root(), &mut w, &Prefix::default())?;
-    if !definitions.is_empty() && !definitions_first {
+    let definitions_last = !definitions.is_empty() && !definitions_first;
+    if definitions_last {
         blank_line(&mut w, &Prefix::default())?;
         for (index, definition) in definitions.iter().enumerate() {
             if index > 0 && w.nl_run == 0 {
@@ -304,10 +315,47 @@ where
             w.write_str(definition.trim_end_matches(['\n', '\r']))?;
         }
     }
-    if w.written && w.nl_run == 0 {
+    if w.written && w.nl_run == 0 && (definitions_last || trailing_line_break_wanted(doc)) {
         w.write_str("\n")?;
     }
     Ok(())
+}
+
+fn trailing_line_break_wanted<D: MarkdownExport>(doc: &D) -> bool {
+    let mut kids: Vec<NodeId> = doc.children(doc.root()).collect();
+    while kids
+        .last()
+        .is_some_and(|&id| block::is_blank_paragraph(doc, id))
+    {
+        kids.pop();
+    }
+    let Some(&last) = kids.last() else {
+        return false;
+    };
+    let mut last = last;
+    while holds_blocks(doc.kind(last)) {
+        let Some(next) = doc.children(last).last() else {
+            break;
+        };
+        last = next;
+    }
+    matches!(
+        doc.kind(last),
+        Some(
+            BlockKind::CodeBlock
+                | BlockKind::Mermaid
+                | BlockKind::ThematicBreak
+                | BlockKind::Table
+                | BlockKind::Math
+        )
+    )
+}
+
+fn holds_blocks(kind: Option<BlockKind>) -> bool {
+    matches!(
+        kind,
+        Some(BlockKind::BlockQuote | BlockKind::List | BlockKind::ListItem)
+    )
 }
 
 fn tail_swallows_appended_definitions<D: MarkdownExport>(doc: &D) -> bool {
@@ -418,7 +466,7 @@ fn blank_line<W: fmt::Write>(out: &mut MarkdownWriter<W>, prefix: &Prefix) -> fm
         out.write_str("\n")?;
     }
     if !prefix.is_plain() {
-        prefix.write_open(out)?;
+        prefix.write_open_bare(out)?;
         out.write_str("\n")?;
     } else if out.nl_run < 2 {
         out.write_str("\n")?;

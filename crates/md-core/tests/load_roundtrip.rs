@@ -199,7 +199,7 @@ fn saving_multiline_inline_code_preserves_backticks() {
 
 #[test]
 fn saving_html_comment_preserves_fence_looking_interior() {
-    let source = "<!--\n```js\n-->\n";
+    let source = "<!--\n```js\n-->";
     let saved = load_markdown(source, editor_options()).to_markdown();
     println!(
         "source={source:?}; saved={saved:?}; before={:?}; after={:?}",
@@ -220,7 +220,7 @@ fn saving_still_escapes_real_fence_starts_in_text() {
     let _ = d.replace_text(leaves[0], 6..6, "\n\n```rust\nfn\n```");
     let saved = d.to_markdown();
     println!("real={saved:?}");
-    assert_eq!(saved, "before\n\n\\```rust\nfn\n\\```\n\nafter\n");
+    assert_eq!(saved, "before\n\n\\```rust\nfn\n\\```\n\nafter");
     let reloaded = load_markdown(&saved, editor_options());
     assert_eq!(
         reloaded.to_markdown(),
@@ -321,21 +321,21 @@ fn shape(doc: &md_core::document::Document) -> Vec<String> {
 #[test]
 fn shapes_the_editor_can_produce_are_fixed_points() {
     for (source, saved) in [
-        ("> hi\n> \n", "> hi\n> \n"),
-        ("\nhi\n", "hi\n"),
+        ("> hi\n> \n", "> hi\n>\n> "),
+        ("\nhi\n", "hi"),
         (
             "- hi\n  ```\n  abc\n  ```\n- \n",
-            "- hi\n  ```\n  abc\n  ```\n- \n",
+            "- hi\n  ```\n  abc\n  ```\n- ",
         ),
         (
             "- hi\n  ```\n  abc\n  ```\n  z\n",
-            "- hi\n  ```\n  abc\n  ```\n  z\n",
+            "- hi\n  ```\n  abc\n  ```\n  z",
         ),
         (
-            "- hi\n  ```\n  abc\n  ```\n  z\n- w\n",
-            "- hi\n  ```\n  abc\n  ```\n  z\n- w\n",
+            "- hi\n  ```\n  abc\n  ```\n  z\n- w",
+            "- hi\n  ```\n  abc\n  ```\n  z\n- w",
         ),
-        ("a\n\n\nb\n", "a\n\nb\n"),
+        ("a\n\n\nb\n", "a\n\nb"),
         ("a\n\n\n", "a\n\n"),
     ] {
         let before = load_markdown(source, editor_options());
@@ -360,15 +360,15 @@ fn a_list_item_keeps_the_blank_lines_that_are_indented_to_its_content() {
     for (source, saved) in [
         (
             "- hi\n  ```\n  abc\n  ```\n  \n  \n",
-            "- hi\n  ```\n  abc\n  ```\n  \n",
+            "- hi\n  ```\n  abc\n  ```\n  ",
         ),
-        ("- hi\n  \n", "- hi\n  \n"),
-        ("- hi\n  \n  \n", "- hi\n  \n"),
-        ("- hi\n  z\n  \n", "- hi\n  z\n  \n"),
-        ("- \n  \n", "- \n  \n"),
-        ("1. \n   \n", "1. \n   \n"),
-        ("- a\n  - b\n    \n", "- a\n  - b\n    \n"),
-        ("> - hi\n>   \n", "> - hi\n>   \n"),
+        ("- hi\n  \n", "- hi\n  "),
+        ("- hi\n  \n  \n", "- hi\n  "),
+        ("- hi\n  z\n  \n", "- hi\n  z\n  "),
+        ("- \n  \n", "- \n  "),
+        ("1. \n   \n", "1. \n   "),
+        ("- a\n  - b\n    \n", "- a\n  - b\n    "),
+        ("> - hi\n>   \n", "> - hi\n>   "),
     ] {
         let doc = load_markdown(source, editor_options());
         let once = doc.to_markdown();
@@ -391,8 +391,8 @@ fn a_list_item_leaves_the_blank_lines_it_does_not_own_alone() {
             "- hi\n  ```\n  abc\n  ```\n\n\n",
             "- hi\n  ```\n  abc\n  ```\n\n",
         ),
-        ("- hi\n  \n- b\n", "- hi\n\n- b\n"),
-        ("- hi\n  \nz\n", "- hi\n\nz\n"),
+        ("- hi\n  \n- b\n", "- hi\n\n- b"),
+        ("- hi\n  \nz\n", "- hi\n\nz"),
         ("- hi\n  \n\n", "- hi\n\n"),
     ] {
         let doc = load_markdown(source, editor_options());
@@ -403,18 +403,18 @@ fn a_list_item_leaves_the_blank_lines_it_does_not_own_alone() {
 #[test]
 fn a_list_keeps_the_blank_lines_that_follow_it() {
     for (source, saved) in [
-        ("- a\n\n\np\n", "- a\n\np\n"),
-        ("- a\n\n\n* b\n", "- a\n\n* b\n"),
-        ("- a\n\n\n> q\n", "- a\n\n> q\n"),
-        ("- a\n\n\n# h\n", "- a\n\n# h\n"),
+        ("- a\n\n\np\n", "- a\n\np"),
+        ("- a\n\n\n* b\n", "- a\n\n* b"),
+        ("- a\n\n\n> q\n", "- a\n\n> q"),
+        ("- a\n\n\n# h\n", "- a\n\n# h"),
         ("- a\n\n\n***\n", "- a\n\n***\n"),
-        ("- a\n\n\n\n\np\n", "- a\n\n\n\np\n"),
-        ("* a\n\n\np\n", "* a\n\np\n"),
-        ("1. a\n\n\np\n", "1. a\n\np\n"),
-        ("- [ ] a\n\n\np\n", "- [ ] a\n\np\n"),
-        ("- a\n  - b\n\n\np\n", "- a\n  - b\n\np\n"),
-        ("- a\n\np\n", "- a\n\np\n"),
-        ("> - a\n> \n> \n> p\n", "> - a\n> \n> p\n"),
+        ("- a\n\n\n\n\np\n", "- a\n\n\n\np"),
+        ("* a\n\n\np\n", "* a\n\np"),
+        ("1. a\n\n\np\n", "1. a\n\np"),
+        ("- [ ] a\n\n\np\n", "- [ ] a\n\np"),
+        ("- a\n  - b\n\n\np\n", "- a\n  - b\n\np"),
+        ("- a\n\np\n", "- a\n\np"),
+        ("> - a\n> \n> \n> p\n", "> - a\n>\n> p"),
     ] {
         let before = load_markdown(source, editor_options());
         let once = before.to_markdown();
@@ -436,11 +436,11 @@ fn a_list_keeps_the_blank_lines_that_follow_it() {
 #[test]
 fn a_footnote_definition_keeps_the_blank_lines_that_follow_it() {
     for (source, saved) in [
-        ("[^1]: n\n\n\np\n", "[^1]: n\n\np\n"),
+        ("[^1]: n\n\n\np\n", "[^1]: n\n\np"),
         ("[^1]: n\n\n\n", "[^1]: n\n\n"),
-        ("[^1]: n\n\np\n", "[^1]: n\n\np\n"),
+        ("[^1]: n\n\np\n", "[^1]: n\n\np"),
         ("p\n\n[^1]: n\n\n\n", "p\n\n[^1]: n\n\n"),
-        ("> [^1]: n\n> \n> \n> p\n", "> [^1]: n\n> \n> p\n"),
+        ("> [^1]: n\n> \n> \n> p\n", "> [^1]: n\n>\n> p"),
     ] {
         let before = load_markdown(source, editor_options());
         let once = before.to_markdown();
@@ -462,17 +462,14 @@ fn a_footnote_definition_keeps_the_blank_lines_that_follow_it() {
 #[test]
 fn a_list_item_keeps_the_blank_lines_between_its_blocks() {
     for (source, saved) in [
-        ("- p\n  \n  \n  p\n", "- p\n  \n  p\n"),
-        ("- p\n  \n  \n  \n  p\n", "- p\n  \n  \n  \n  p\n"),
-        ("- p\n  q\n  \n  \n  r\n", "- p\n  q\n  \n  r\n"),
-        ("1. a\n   \n   \n   b\n", "1. a\n   \n   b\n"),
-        ("- # h\n  \n  \n  p\n", "- # h\n  \n  p\n"),
-        ("- p\n  \n  p\n", "- p\n  \n  p\n"),
-        ("- > p\n  > \n  > \n  > p\n", "- > p\n  > \n  > p\n"),
-        (
-            "- a\n  - p\n    \n    \n    p\n",
-            "- a\n  - p\n    \n    p\n",
-        ),
+        ("- p\n  \n  \n  p\n", "- p\n\n  p"),
+        ("- p\n  \n  \n  \n  p\n", "- p\n\n\n\n  p"),
+        ("- p\n  q\n  \n  \n  r\n", "- p\n  q\n\n  r"),
+        ("1. a\n   \n   \n   b\n", "1. a\n\n   b"),
+        ("- # h\n  \n  \n  p\n", "- # h\n\n  p"),
+        ("- p\n  \n  p\n", "- p\n\n  p"),
+        ("- > p\n  > \n  > \n  > p\n", "- > p\n  >\n  > p"),
+        ("- a\n  - p\n    \n    \n    p\n", "- a\n  - p\n\n    p"),
     ] {
         let before = load_markdown(source, editor_options());
         let once = before.to_markdown();
@@ -492,11 +489,12 @@ fn a_list_item_keeps_the_blank_lines_between_its_blocks() {
 }
 
 #[test]
-fn a_list_does_not_claim_a_blank_paragraph_between_its_items() {
+fn blank_paragraphs_between_two_lists_survive() {
     for (source, saved) in [
-        ("- a\n\n\n- b\n", "- a\n\n- b\n"),
-        ("- a\n\n\n\n- b\n", "- a\n\n- b\n"),
-        ("> - a\n> \n> \n> - b\n", "> - a\n> \n> - b\n"),
+        ("- a\n\n- b", "- a\n\n- b"),
+        ("- a\n\n\n- b", "- a\n\n- b"),
+        ("- a\n\n\n\n- b", "- a\n\n\n\n- b"),
+        ("> - a\n>\n> \n>\n> - b", "> - a\n>\n> \n>\n> - b"),
     ] {
         let doc = load_markdown(source, editor_options());
         assert_eq!(doc.to_markdown(), saved, "{source:?} changed shape");
@@ -531,13 +529,13 @@ fn the_block_after_a_display_math_does_not_keep_the_seam_whitespace() {
 #[test]
 fn a_display_math_stops_handing_its_line_break_to_the_next_block() {
     for (source, saved) in [
-        ("$$x$$\nz\n", "$$x$$\n\nz\n"),
-        ("$$x$$ b\n", "$$x$$\n\nb\n"),
-        ("a $$x$$\nz\n", "a\n\n$$x$$\n\nz\n"),
-        ("$$x$$\nz\nw\n", "$$x$$\n\nz\nw\n"),
-        ("- hi\n  $$x$$\n  z\n", "- hi\n  $$x$$\n  z\n"),
-        ("- hi\n  $$x$$ b\n", "- hi\n  $$x$$\n  b\n"),
-        ("> $$x$$\n> z\n", "> $$x$$\n> \n> z\n"),
+        ("$$x$$\nz\n", "$$x$$\n\nz"),
+        ("$$x$$ b\n", "$$x$$\n\nb"),
+        ("a $$x$$\nz\n", "a\n\n$$x$$\n\nz"),
+        ("$$x$$\nz\nw\n", "$$x$$\n\nz\nw"),
+        ("- hi\n  $$x$$\n  z\n", "- hi\n  $$x$$\n  z"),
+        ("- hi\n  $$x$$ b\n", "- hi\n  $$x$$\n  b"),
+        ("> $$x$$\n> z\n", "> $$x$$\n>\n> z"),
     ] {
         let before = load_markdown(source, editor_options());
         assert_eq!(before.to_markdown(), saved, "{source:?} must save");
@@ -557,12 +555,12 @@ fn a_display_math_stops_handing_its_line_break_to_the_next_block() {
 
 #[test]
 fn an_empty_front_matter_at_the_top_loads_as_a_metadata_block() {
-    for source in [
-        "---\n\n---\n",
-        "---\n\n\n---\n",
-        "---\n \n---\n",
-        "-----\n\n-----\n",
-        "---\n\n---\n\nbody\n",
+    for (source, saved) in [
+        ("---\n\n---", "---\n\n---"),
+        ("---\n\n\n---", "---\n\n\n---"),
+        ("---\n \n---", "---\n \n---"),
+        ("-----\n\n-----\n", "-----\n\n-----"),
+        ("---\n\n---\n\nbody\n", "---\n\n---\n\nbody"),
     ] {
         let doc = load_markdown(source, editor_options());
         assert!(
@@ -574,11 +572,11 @@ fn an_empty_front_matter_at_the_top_loads_as_a_metadata_block() {
             1 + source.contains("body") as usize,
             "{source:?} must not invent blocks"
         );
-        assert_eq!(doc.to_markdown(), source, "{source:?} must survive a save");
+        assert_eq!(doc.to_markdown(), saved, "{source:?} must survive a save");
         let again = load_markdown(&doc.to_markdown(), editor_options());
         assert_eq!(
             again.to_markdown(),
-            source,
+            saved,
             "{source:?} must be a fixed point"
         );
         assert_eq!(
@@ -593,8 +591,8 @@ fn an_empty_front_matter_at_the_top_loads_as_a_metadata_block() {
 #[test]
 fn two_adjacent_dash_rules_gain_the_line_that_a_front_matter_needs() {
     for (source, saved) in [
-        ("---\n---\n", "---\n\n---\n"),
-        ("---\n---\nbody\n", "---\n\n---\nbody\n"),
+        ("---\n---\n", "---\n\n---"),
+        ("---\n---\nbody\n", "---\n\n---\nbody"),
     ] {
         let doc = load_markdown(source, editor_options());
         assert!(
@@ -615,9 +613,9 @@ fn two_adjacent_dash_rules_gain_the_line_that_a_front_matter_needs() {
 #[test]
 fn a_non_empty_front_matter_is_untouched_by_the_empty_rule() {
     for source in [
-        "---\ntitle: hello\n---\n",
-        "---\ntitle: hello\n---\n# Body\n",
-        "+++\ntitle = \"hello\"\n+++\n",
+        "---\ntitle: hello\n---",
+        "---\ntitle: hello\n---\n# Body",
+        "+++\ntitle = \"hello\"\n+++",
     ] {
         let doc = load_markdown(source, editor_options());
         assert_eq!(
@@ -652,13 +650,13 @@ fn only_dash_delimiters_that_open_the_document_make_front_matter() {
 #[test]
 fn an_image_that_a_math_fence_precedes_keeps_its_source_span() {
     for (source, saved) in [
-        ("$$\nx\n$$\n![a](u)\n", "$$\nx\n$$\n\n![a](u)\n"),
-        ("$$\nx\n$$\n\n![a](u)\n", "$$\nx\n$$\n\n![a](u)\n"),
-        ("$$\nx\n$$\n  ![cap](u)  \n", "$$\nx\n$$\n\n  ![cap](u)  \n"),
-        ("p\n$$\nx\n$$\n![a](u)\n", "p\n\n$$\nx\n$$\n\n![a](u)\n"),
-        ("# h\n![a](u)\n", "# h\n\n![a](u)\n"),
-        ("***\n![a](u)\n", "***\n\n![a](u)\n"),
-        ("```\nc\n```\n![a](u)\n", "```\nc\n```\n\n![a](u)\n"),
+        ("$$\nx\n$$\n![a](u)\n", "$$\nx\n$$\n\n![a](u)"),
+        ("$$\nx\n$$\n\n![a](u)\n", "$$\nx\n$$\n\n![a](u)"),
+        ("$$\nx\n$$\n  ![cap](u)  \n", "$$\nx\n$$\n\n  ![cap](u)  "),
+        ("p\n$$\nx\n$$\n![a](u)\n", "p\n\n$$\nx\n$$\n\n![a](u)"),
+        ("# h\n![a](u)\n", "# h\n\n![a](u)"),
+        ("***\n![a](u)\n", "***\n\n![a](u)"),
+        ("```\nc\n```\n![a](u)\n", "```\nc\n```\n\n![a](u)"),
     ] {
         let before = load_markdown(source, editor_options());
         assert_eq!(before.to_markdown(), saved, "{source:?}");
@@ -733,18 +731,18 @@ fn a_paragraph_that_a_math_fence_cuts_keeps_being_a_paragraph_when_it_is_not_ima
 #[test]
 fn an_empty_footnote_definition_roundtrips_with_its_blank_lines() {
     for (source, saved) in [
-        ("[^1]:\n", "[^1]:\n"),
+        ("[^1]:\n", "[^1]:"),
         ("[^1]:\n\n", "[^1]:\n\n"),
         ("[^1]:\n\n\n", "[^1]:\n\n"),
-        ("[^1]:\n\nz\n", "[^1]:\n\nz\n"),
-        ("[^1]:\n\n\nz\n", "[^1]:\n\nz\n"),
-        ("z\n\n[^1]:\n", "z\n\n[^1]:\n"),
+        ("[^1]:\n\nz\n", "[^1]:\n\nz"),
+        ("[^1]:\n\n\nz\n", "[^1]:\n\nz"),
+        ("z\n\n[^1]:\n", "z\n\n[^1]:"),
         ("z\n\n[^1]:\n\n\n", "z\n\n[^1]:\n\n"),
-        ("p[^1]\n\n[^1]:\n", "p[^1]\n\n[^1]:\n"),
-        ("> [^1]:\n", "> [^1]:\n"),
-        ("> [^1]:\n> \n", "> [^1]:\n> \n"),
-        ("- [^1]:\n", "- [^1]:\n"),
-        ("[^1]: x\n\n[^2]: y\n", "[^1]: x\n\n[^2]: y\n"),
+        ("p[^1]\n\n[^1]:\n", "p[^1]\n\n[^1]:"),
+        ("> [^1]:\n", "> [^1]:"),
+        ("> [^1]:\n> \n", "> [^1]:\n>\n> "),
+        ("- [^1]:\n", "- [^1]:"),
+        ("[^1]: x\n\n[^2]: y\n", "[^1]: x\n\n[^2]: y"),
     ] {
         let before = load_markdown(source, editor_options());
         let once = before.to_markdown();

@@ -314,7 +314,7 @@ fn break_with_a_nested_list_then_undo_restores_the_subtree() {
     assert!(restored.is_some(), "the split must be undoable");
     assert_eq!(
         doc.document.to_markdown(),
-        "- first\n  - nested\n",
+        "- first\n  - nested",
         "undo must return the nested list to the original item"
     );
 }

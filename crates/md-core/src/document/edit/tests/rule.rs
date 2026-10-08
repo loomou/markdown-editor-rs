@@ -108,7 +108,7 @@ fn line_breaks_do_not_clone_an_existing_rule() {
                 .count(),
             1
         );
-        assert_eq!(doc.to_markdown(), "before\n\n---\n\nafter\n");
+        assert_eq!(doc.to_markdown(), "before\n\n---\n\nafter");
     }
 }
 
@@ -135,7 +135,7 @@ fn backspace_after_a_rule_deletes_the_rule_without_merging_text() {
     assert_eq!(out, caret(b, 0));
     assert!(doc.arena.get(rule).is_none());
     assert_eq!(doc.text_of(b), Some("b"));
-    assert_eq!(doc.to_markdown(), "a\n\nb\n");
+    assert_eq!(doc.to_markdown(), "a\n\nb");
 }
 
 #[test]

@@ -108,7 +108,7 @@ fn independent_two_items_join_host_list() {
     let _ = apply(&mut doc, at(leaf, off), fragment("- x\n- y\n"));
     assert_eq!(kind_count(&doc, BlockKind::List), 1);
     assert_eq!(kind_count(&doc, BlockKind::ListItem), 3);
-    assert_eq!(doc.to_markdown(), "- a\n- x\n- y\n");
+    assert_eq!(doc.to_markdown(), "- a\n- x\n- y");
 }
 
 #[test]
@@ -133,7 +133,7 @@ fn merged_paragraph_keeps_inline_source() {
     let _ = apply(&mut doc, at(leaf, 2), fragment("**bold**"));
     assert_eq!(doc.text_of(leaf).unwrap(), "a **bold**b");
     assert_eq!(doc.collapsed_text_of(leaf).unwrap(), "a boldb");
-    assert_eq!(doc.to_markdown(), "a **bold**b\n");
+    assert_eq!(doc.to_markdown(), "a **bold**b");
     let id = doc.live_id(leaf).expect("leaf");
     assert!(
         doc.collapsed_runs(id)
@@ -181,7 +181,7 @@ fn merging_into_a_nested_item_keeps_the_nesting() {
     let _ = apply(&mut doc, at(inner, 1), fragment("x"));
     assert_eq!(doc.text_of(inner).unwrap(), "bx");
     assert_eq!(kind_count(&doc, BlockKind::List), 2);
-    assert_eq!(doc.to_markdown(), "- a\n  - bx\n");
+    assert_eq!(doc.to_markdown(), "- a\n  - bx");
 }
 
 #[test]
@@ -261,7 +261,7 @@ fn plain_paste_of_literal_dollars_with_suffix_stays_literal() {
 }
 
 #[test]
-fn plain_paste_with_blank_lines_splits_after_the_math_block() {
+fn plain_paste_with_blank_lines_stays_inside_the_math_block() {
     let mut doc = load_markdown("$$\na\n$$\n", editor_options());
     let _ = doc.take_changes();
     let math = doc
@@ -270,27 +270,46 @@ fn plain_paste_with_blank_lines_splits_after_the_math_block() {
         .find(|&b| doc.kind(b) == Some(BlockKind::Math))
         .expect("math");
     let (changes, block, _) = doc.paste(math, 1..1, "x\n\ny", PasteIntent::PlainText);
-    assert!(changes.is_structural());
-    assert_eq!(doc.kind(math), Some(BlockKind::Math));
-    assert_eq!(doc.text_of(math).unwrap(), "ax");
-    assert_eq!(doc.kind(block), Some(BlockKind::Paragraph));
-    assert_eq!(doc.text_of(block).unwrap(), "y");
+    assert!(!changes.is_structural());
+    assert_eq!(block, math);
+    assert_eq!(doc.text_of(math).unwrap(), "ax\n\ny");
+    assert_eq!(doc.text_leaves().len(), 1);
 
     let markdown = doc.to_markdown();
+    assert_eq!(markdown, "$$\nax\n\ny\n$$\n");
     let again = load_markdown(&markdown, editor_options());
-    assert_eq!(
-        again
-            .preorder()
-            .into_iter()
-            .filter(|&id| again.arena.get(id).map(|n| n.kind) == Some(BlockKind::Math))
-            .count(),
-        1,
-        "{markdown:?}"
-    );
-    assert_eq!(again.text_leaves().len(), 2, "{markdown:?}");
-    assert_eq!(again.text_of(again.text_leaves()[0]).unwrap(), "ax");
-    assert_eq!(again.text_of(again.text_leaves()[1]).unwrap(), "y");
+    assert_eq!(again.text_leaves().len(), 1, "{markdown:?}");
+    assert_eq!(again.kind(again.text_leaves()[0]), Some(BlockKind::Math));
+    assert_eq!(again.text_of(again.text_leaves()[0]).unwrap(), "ax\n\ny");
     assert_eq!(again.to_markdown(), markdown);
+}
+
+#[test]
+fn a_math_block_paste_keeps_every_blank_line_it_was_given() {
+    for (text, expected) in [
+        ("x\n\ny", "$$\nax\n\ny\n$$\n"),
+        ("x\n\n\ny", "$$\nax\n\n\ny\n$$\n"),
+        ("x\n\n\n\n\n\ny", "$$\nax\n\n\n\n\n\ny\n$$\n"),
+        ("\n\nx", "$$\na\n\nx\n$$\n"),
+        ("\n\n\n\nx", "$$\na\n\n\n\nx\n$$\n"),
+    ] {
+        let mut doc = load_markdown("$$\na\n$$\n", editor_options());
+        let _ = doc.take_changes();
+        let math = doc
+            .text_leaves()
+            .into_iter()
+            .find(|&b| doc.kind(b) == Some(BlockKind::Math))
+            .expect("math");
+        let (changes, block, _) = doc.paste(math, 1..1, text, PasteIntent::PlainText);
+        assert!(!changes.is_structural(), "paste={text:?}");
+        assert_eq!(block, math, "paste={text:?}");
+        assert_eq!(doc.text_leaves().len(), 1, "paste={text:?}");
+        assert_eq!(doc.to_markdown(), expected, "paste={text:?}");
+
+        let again = load_markdown(expected, editor_options());
+        assert_eq!(again.text_leaves().len(), 1, "paste={text:?}");
+        assert_eq!(again.to_markdown(), expected, "paste={text:?}");
+    }
 }
 
 #[test]
@@ -324,19 +343,19 @@ fn pasted_paragraphs_inside_a_tight_item_keep_their_boundary() {
         (
             "a\n\nb",
             PasteIntent::PlainText,
-            "- itema\n  \n  b\n",
+            "- itema\n\n  b",
             vec![BlockKind::Paragraph, BlockKind::Paragraph],
         ),
         (
             "a\n\n---",
             PasteIntent::PlainText,
-            "- itema\n  \n  \\-\\-\\-\n",
+            "- itema\n\n  \\-\\-\\-",
             vec![BlockKind::Paragraph, BlockKind::Paragraph],
         ),
         (
             "a\n\nb",
             PasteIntent::IndependentFragment,
-            "- item\n  \n  a\n  \n  b\n",
+            "- item\n\n  a\n\n  b",
             vec![
                 BlockKind::Paragraph,
                 BlockKind::Paragraph,
@@ -409,7 +428,7 @@ fn trailing_blank_line_in_a_paste_follows_the_host() {
     let at = doc.text_of(leaf).unwrap().len();
     let _ = doc.paste(leaf, at..at, "a\n\n", PasteIntent::PlainText);
     assert_eq!(doc.text_of(leaf).unwrap(), "paraa");
-    assert_eq!(doc.to_markdown(), "paraa\n");
+    assert_eq!(doc.to_markdown(), "paraa");
 
     let mut doc = load_markdown("```\nc\n```\n", editor_options());
     let code = doc.text_leaves()[0];
@@ -664,7 +683,7 @@ fn middle_plain_paste_keeps_the_original_suffix_after_the_fragment() {
             intent: PasteIntent::PlainText,
         },
     );
-    assert_eq!(doc.to_markdown(), "hex\n\nyllo\n");
+    assert_eq!(doc.to_markdown(), "hex\n\nyllo");
 }
 
 #[test]
@@ -698,7 +717,7 @@ fn undo_after_middle_plain_paste_restores_the_source() {
             intent: PasteIntent::PlainText,
         },
     );
-    assert_eq!(d.document.to_markdown(), "hex\n\nyllo\n");
+    assert_eq!(d.document.to_markdown(), "hex\n\nyllo");
     let _ = d.undo().expect("undo");
     assert_eq!(d.document.to_markdown(), before);
 }
@@ -764,7 +783,7 @@ fn plain_multiline_paste_keeps_the_suffix_source() {
     assert!(changes.is_structural());
     let markdown = doc.to_markdown();
     assert_eq!(
-        markdown, "head X\n\nY[tail](https://example.test)\n",
+        markdown, "head X\n\nY[tail](https://example.test)",
         "suffix link must survive: {markdown:?}"
     );
     let id = doc.live_id(last).expect("last leaf");
@@ -788,11 +807,11 @@ fn plain_multiline_paste_clamps_non_boundary_offsets() {
     let (changes, last, _) = doc.paste(leaf, 1..1, "X\n\nY", PasteIntent::PlainText);
     assert!(changes.is_structural());
     let markdown = doc.to_markdown();
-    assert_eq!(markdown, "X\n\nY€€\n", "{markdown:?}");
+    assert_eq!(markdown, "X\n\nY€€", "{markdown:?}");
     let mut doc = load_markdown("€€\n", editor_options());
     let leaf = doc.text_leaves()[0];
     let _ = doc.paste(leaf, 4..4, "X\n\nY", PasteIntent::PlainText);
-    assert_eq!(doc.to_markdown(), "€X\n\nY€\n", "{:?}", doc.to_markdown());
+    assert_eq!(doc.to_markdown(), "€X\n\nY€", "{:?}", doc.to_markdown());
     let _ = last;
 }
 
@@ -909,7 +928,7 @@ fn plain_multiline_paste_across_a_link_keeps_both_literal() {
     let leaf = doc.text_leaves()[0];
     let (_, last, caret) = doc.paste(leaf, 5..5, "one\n\n**b**", PasteIntent::PlainText);
     let markdown = doc.to_markdown();
-    assert_eq!(markdown, "head one\n\n\\*\\*b\\*\\*[tail](u)\n");
+    assert_eq!(markdown, "head one\n\n\\*\\*b\\*\\*[tail](u)");
     let reloaded = load_markdown(&markdown, editor_options());
     let rid = reloaded
         .live_id(reloaded.text_leaves()[1])
@@ -932,7 +951,7 @@ fn plain_multiline_paste_keeps_a_definition_shaped_tail() {
     let leaf = doc.text_leaves()[0];
     let _ = doc.paste(leaf, 5..5, "one\n\n[r]: hidden", PasteIntent::PlainText);
     let markdown = doc.to_markdown();
-    assert_eq!(markdown, "head one\n\n\\[r\\]: hiddentail\n");
+    assert_eq!(markdown, "head one\n\n\\[r\\]: hiddentail");
     let reloaded = load_markdown(&markdown, editor_options());
     assert_eq!(reloaded.text_leaves().len(), 2);
     let rid = reloaded
@@ -1098,7 +1117,7 @@ fn a_front_matter_fragment_only_stays_one_at_the_document_head() {
         PasteIntent::IndependentFragment,
     );
     assert_eq!(kind_count(&empty, BlockKind::MetadataBlock), 1);
-    assert_eq!(empty.to_markdown(), "---\ntitle: hi\n---\n");
+    assert_eq!(empty.to_markdown(), "---\ntitle: hi\n---");
 
     let mut body = load_markdown("body\n", editor_options());
     let leaf = body.text_leaves()[0];
@@ -1149,5 +1168,5 @@ fn plain_paste_into_front_matter_keeps_the_trailing_blank() {
         "tags: rust\n\ntitle: hi",
         "a front matter body is literal text, so a pasted blank line must survive"
     );
-    assert_eq!(doc.to_markdown(), "---\ntags: rust\n\ntitle: hi\n---\n");
+    assert_eq!(doc.to_markdown(), "---\ntags: rust\n\ntitle: hi\n---");
 }

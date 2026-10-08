@@ -157,7 +157,7 @@ fn line_breaks_are_noop_in_image_blocks() {
         assert_eq!(doc.kind(image), Some(BlockKind::Image));
         let id = doc.live_id(image).expect("live image");
         assert_eq!(doc.leaf_source(id), "![alt](https://example.com/image.png)");
-        assert_eq!(doc.to_markdown(), "![alt](https://example.com/image.png)\n");
+        assert_eq!(doc.to_markdown(), "![alt](https://example.com/image.png)");
     }
 }
 
@@ -176,7 +176,7 @@ fn enter_at_the_end_of_an_image_starts_a_new_paragraph() {
     assert_eq!(out.offset, 0);
     assert_eq!(doc.kind(out.block), Some(BlockKind::Paragraph));
     assert_eq!(doc.text_of(out.block), Some(""));
-    assert_eq!(doc.to_markdown(), "> ![a](u)\n> \n");
+    assert_eq!(doc.to_markdown(), "> ![a](u)\n>\n> ");
 }
 
 #[test]
@@ -224,7 +224,7 @@ fn line_breaks_on_a_container_are_inert() {
 
         assert_eq!(out, at, "{command:?}");
         assert_eq!(doc.arena.live_count(), live, "{command:?}");
-        assert_eq!(doc.to_markdown(), "> q\n", "{command:?}");
+        assert_eq!(doc.to_markdown(), "> q", "{command:?}");
     }
 }
 
@@ -581,12 +581,10 @@ fn deleting_list_text_preserves_an_unselected_empty_alt_image() {
         "unselected image lost: {markdown:?}"
     );
     let reloaded = load_markdown(&markdown, editor_options());
-    assert!(
-        reloaded
-            .preorder()
-            .into_iter()
-            .any(|id| reloaded.kind(id.index) == Some(BlockKind::Image)),
-        "image lost on reload: {markdown:?}"
+    assert_eq!(
+        reloaded.to_markdown(),
+        markdown,
+        "the image must survive a reload: {markdown:?}"
     );
 }
 
@@ -616,7 +614,7 @@ fn delete_spanning_a_table_endpoint_removes_the_rules_between() {
     );
     assert_eq!(
         doc.to_markdown(),
-        "| a |  |\n| --- | --- |\n",
+        "| a |  |\n| --- | --- |\n\n",
         "partial table keeps the first cell, drops the rule"
     );
 
@@ -673,7 +671,7 @@ fn indenting_multiline_phrasing_lines_targets_source_line_starts() {
     let id = doc.live_id(block).expect("live");
     assert_eq!(doc.leaf_source(id), "\t**bold** and [link](u)\n\tplain");
     assert_eq!(doc.collapsed_display(id), "\tbold and link\n\tplain");
-    assert_eq!(doc.to_markdown(), "\t**bold** and [link](u)\n\tplain\n");
+    assert_eq!(doc.to_markdown(), "\t**bold** and [link](u)\n\tplain");
     let snapshot = doc.leaf_snapshot(id).expect("snapshot");
     assert!(
         snapshot
@@ -714,7 +712,7 @@ fn outdenting_multiline_phrasing_lines_restores_the_source() {
     );
     assert_eq!(doc.leaf_source(id), "**bold** and [link](u)\nplain");
     assert_eq!(doc.collapsed_display(id), "bold and link\nplain");
-    assert_eq!(doc.to_markdown(), "**bold** and [link](u)\nplain\n");
+    assert_eq!(doc.to_markdown(), "**bold** and [link](u)\nplain");
     assert_eq!(out, caret(block, 19));
 }
 
@@ -728,5 +726,5 @@ fn backspace_deletes_a_displayed_entity_as_one_character() {
         Command::DeleteBackward,
     );
     assert_eq!(doc.text_of(block), Some("A  B"));
-    assert_eq!(doc.to_markdown(), "A  B\n");
+    assert_eq!(doc.to_markdown(), "A  B");
 }

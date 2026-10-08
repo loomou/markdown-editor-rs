@@ -52,5 +52,5 @@ fn a_front_matter_with_a_body_keeps_its_fences_on_backspace() {
     assert_eq!(back, caret(leaf, 0));
     assert_eq!(doc.kind(leaf), Some(BlockKind::MetadataBlock));
     assert_eq!(doc.text_of(leaf).unwrap(), "title: hi");
-    assert_eq!(doc.to_markdown(), "---\ntitle: hi\n---\n");
+    assert_eq!(doc.to_markdown(), "---\ntitle: hi\n---");
 }

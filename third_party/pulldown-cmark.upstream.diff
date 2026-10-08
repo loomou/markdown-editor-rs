@@ -1,14 +1,19 @@
 # a/ = https://github.com/pulldown-cmark/pulldown-cmark at tag v0.13.4
 #      (commit 38e4d08f14ec4bd9783270e9623db7681ebed968)
+#      The crate is the `pulldown-cmark/` directory of that repository.
 # b/ = third_party/pulldown-cmark, the vendored fork in this repository:
 #      upstream plus a read-only tree API behind the `tree` feature
-#      (src/tree_api.rs, tests/tree_api.rs)
+#      (src/tree_api.rs, tests/tree_api.rs), and an `editor-mode` feature that
+#      departs from CommonMark in two places: it reads a blank line between two
+#      items of the same list as a list boundary instead of turning that list
+#      loose, and it reads a line that is exactly `$$` as a block-level math
+#      fence that blank lines do not end.
 # Apply on a clean checkout of the a/ side with `git apply` or `patch -p1`.
 # Do not edit by hand.
 # LICENSE is not patched: upstream ships it as a repo-root symlink; the
 # vendored copy materializes the same MIT text.
 diff --git a/Cargo.toml b/Cargo.toml
-index 13c86f0..b6b3ea2 100644
+index 13c86f0..d91d704 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -12,7 +12,6 @@ keywords = ["markdown", "commonmark"]
@@ -28,17 +33,25 @@ index 13c86f0..b6b3ea2 100644
  
  [dev-dependencies]
  lazy_static = "1.4"
-@@ -78,6 +77,8 @@ bincode = "1.3.1"
+@@ -78,6 +77,16 @@ bincode = "1.3.1"
  
  [features]
  default = ["getopts", "html"]
 +# Read-only access to the parse tree (`Parsed` / `NodeRef`), see src/tree_api.rs.
 +tree = []
++# Two deviations from CommonMark, both of them about what a blank line ends. A blank
++# line between two items of the same list is a list boundary instead of a loose list, and
++# a line that is nothing but `$$` opens a display math block that runs to the next such
++# line, blank lines included. Off by default, so `tests/suite/` keeps asserting CommonMark;
++# sixteen cases there fail when it is on -- fifteen that spell a loose list with a blank
++# line, plus `math::math_test_19`, which expects the `$$` fence to fall apart into four
++# paragraphs. This repository builds the crate with it on.
++editor-mode = []
  gen-tests = []
  simd = ["pulldown-cmark-escape?/simd"]
  html = ["pulldown-cmark-escape"]
 diff --git a/src/firstpass.rs b/src/firstpass.rs
-index fc8abed..2d40769 100644
+index fc8abed..3d9e225 100644
 --- a/src/firstpass.rs
 +++ b/src/firstpass.rs
 @@ -5,8 +5,8 @@ use std::cmp::max;
@@ -72,11 +85,23 @@ index fc8abed..2d40769 100644
      };
      first_pass.run()
  }
-@@ -63,10 +67,11 @@ struct FirstPass<'a, 'b> {
+@@ -63,10 +67,23 @@ struct FirstPass<'a, 'b> {
      /// Math environment brace nesting.
      brace_context_stack: Vec<u8>,
      brace_context_next: usize,
 +    blank_lines: Vec<BlankLine>,
++}
++
++#[cfg(feature = "editor-mode")]
++const MATH_FENCE_LEN: usize = 2;
++
++#[cfg(feature = "editor-mode")]
++fn scan_math_fence(bytes: &[u8]) -> Option<usize> {
++    if !bytes.starts_with(b"$$") {
++        return None;
++    }
++    let i = MATH_FENCE_LEN + scan_ch_repeat(&bytes[MATH_FENCE_LEN..], b' ');
++    scan_eol(&bytes[i..]).map(|_| i)
  }
  
  impl<'a, 'b> FirstPass<'a, 'b> {
@@ -85,7 +110,7 @@ index fc8abed..2d40769 100644
          let mut ix = 0;
          while ix < self.text.len() {
              ix = self.parse_block(ix);
-@@ -74,7 +79,26 @@ impl<'a, 'b> FirstPass<'a, 'b> {
+@@ -74,7 +91,26 @@ impl<'a, 'b> FirstPass<'a, 'b> {
          while self.tree.spine_len() > 0 {
              self.pop(ix);
          }
@@ -113,7 +138,7 @@ index fc8abed..2d40769 100644
      }
  
      /// Returns offset after block.
-@@ -209,8 +233,10 @@ impl<'a, 'b> FirstPass<'a, 'b> {
+@@ -209,8 +245,10 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                      _ => unreachable!(),
                  }
                  let after_marker_index = start_ix + line_start.bytes_scanned();
@@ -125,7 +150,7 @@ index fc8abed..2d40769 100644
                      end: after_marker_index, // will get updated later if item not empty
                      body: ItemBody::DefinitionListDefinition(indent),
                  });
-@@ -275,7 +301,12 @@ impl<'a, 'b> FirstPass<'a, 'b> {
+@@ -275,7 +313,12 @@ impl<'a, 'b> FirstPass<'a, 'b> {
          let ix = start_ix + line_start.bytes_scanned();
  
          if let Some(n) = scan_blank_line(&bytes[ix..]) {
@@ -139,7 +164,22 @@ index fc8abed..2d40769 100644
                  match &mut self.tree[node_ix].item.body {
                      ItemBody::BlockQuote(..) => (),
                      ItemBody::ListItem(indent) | ItemBody::DefinitionListDefinition(indent)
-@@ -1358,6 +1389,9 @@ impl<'a, 'b> FirstPass<'a, 'b> {
+@@ -367,6 +410,14 @@ impl<'a, 'b> FirstPass<'a, 'b> {
+             return self.parse_fenced_code_block(ix, indent, fence_ch, n);
+         }
+ 
++        #[cfg(feature = "editor-mode")]
++        {
++            if let Some((content, close_ix, end_ix)) = self.scan_fenced_math(ix, indent) {
++                self.finish_list(start_ix);
++                return self.parse_fenced_math(content, ix, close_ix, end_ix);
++            }
++        }
++
+         // parse refdef
+         while let Some((bytecount, label, link_def)) =
+             self.parse_refdef_total(start_ix + line_start.bytes_scanned())
+@@ -1358,6 +1409,9 @@ impl<'a, 'b> FirstPass<'a, 'b> {
              self.tree[child].item.end = last_nonblank_ix;
          }
          self.pop(end_ix);
@@ -149,6 +189,95 @@ index fc8abed..2d40769 100644
          ix
      }
  
+@@ -1411,6 +1465,70 @@ impl<'a, 'b> FirstPass<'a, 'b> {
+         }
+     }
+ 
++    #[cfg(feature = "editor-mode")]
++    fn scan_fenced_math(
++        &self,
++        start_ix: usize,
++        indent: usize,
++    ) -> Option<(CowStr<'a>, usize, usize)> {
++        let bytes = self.text.as_bytes();
++        let open_end = start_ix + scan_math_fence(&bytes[start_ix..])?;
++        let mut ix = open_end + scan_eol(&bytes[open_end..])?;
++        let mut buf = String::from(&self.text[start_ix + MATH_FENCE_LEN..ix]);
++        loop {
++            let mut line_start = LineStart::new(&bytes[ix..]);
++            let n_containers = scan_containers(&self.tree, &mut line_start, self.options);
++            if n_containers < self.tree.spine_len() {
++                return None;
++            }
++            line_start.scan_space(indent);
++            let mut close_line_start = line_start.clone();
++            if !close_line_start.scan_space(4 - indent) {
++                let close_ix = ix + close_line_start.bytes_scanned();
++                if let Some(n) = scan_math_fence(&bytes[close_ix..]) {
++                    let end_ix =
++                        close_ix + n + scan_blank_line(&bytes[close_ix + n..]).unwrap_or(0);
++                    return Some((buf.into(), close_ix, end_ix));
++                }
++            }
++            let remaining_space = line_start.remaining_space();
++            let content_at = ix + line_start.bytes_scanned();
++            let content_end = content_at + scan_nextline(&bytes[content_at..]);
++            if content_end <= content_at {
++                return None;
++            }
++            for _ in 0..remaining_space {
++                buf.push(' ');
++            }
++            buf.push_str(&self.text[content_at..content_end]);
++            ix = content_end;
++        }
++    }
++
++    #[cfg(feature = "editor-mode")]
++    fn parse_fenced_math(
++        &mut self,
++        content: CowStr<'a>,
++        start_ix: usize,
++        close_ix: usize,
++        end_ix: usize,
++    ) -> usize {
++        let cow_ix = self.allocs.allocate_cow(content);
++        self.tree.append(Item {
++            start: start_ix,
++            end: end_ix,
++            body: ItemBody::Paragraph,
++        });
++        self.tree.push();
++        self.tree.append(Item {
++            start: start_ix,
++            end: close_ix + MATH_FENCE_LEN,
++            body: ItemBody::Math(cow_ix, true),
++        });
++        self.pop(end_ix);
++        end_ix
++    }
++
+     fn parse_metadata_block(&mut self, start_ix: usize, metadata_block_ch: u8) -> usize {
+         let bytes = self.text.as_bytes();
+         let metadata_block_kind = match metadata_block_ch {
+@@ -1562,11 +1680,14 @@ impl<'a, 'b> FirstPass<'a, 'b> {
+         if let Some(node_ix) = self.tree.peek_up() {
+             if let ItemBody::List(ref mut is_tight, existing_ch, _) = self.tree[node_ix].item.body {
+                 if existing_ch == ch {
+-                    if self.last_line_blank {
++                    if !self.last_line_blank {
++                        return;
++                    }
++                    self.last_line_blank = false;
++                    if !cfg!(feature = "editor-mode") {
+                         *is_tight = false;
+-                        self.last_line_blank = false;
++                        return;
+                     }
+-                    return;
+                 }
+             }
+             // TODO: this is not the best choice for end; maybe get end from last list item.
 diff --git a/src/lib.rs b/src/lib.rs
 index 6e17a91..31ed045 100644
 --- a/src/lib.rs

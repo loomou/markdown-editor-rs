@@ -155,7 +155,7 @@ fn key_dispatch_a_then_space_keeps_inline_run_ranges_and_caret(cx: &mut TestAppC
         )
     });
     assert_eq!(text, "a ");
-    assert_eq!(markdown, "a \n");
+    assert_eq!(markdown, "a ");
     assert_eq!(cursor.offset, 2);
     assert_eq!(
         runs.iter()
@@ -421,7 +421,7 @@ fn a_dash_typed_inside_a_list_item_is_saved_as_text(cx: &mut TestAppContext) {
         )
     });
     assert_eq!(text, "-");
-    assert_eq!(saved, "- \\-\n");
+    assert_eq!(saved, "- \\-");
     assert_eq!(kinds(&saved), vec![BlockKind::List, BlockKind::ListItem]);
 }
 

@@ -737,7 +737,7 @@ fn entity_boundaries_stay_atomic_when_typing() {
     let _ = doc.apply(Sel::collapsed(caret), Command::Insert { text: "X".into() });
     assert_eq!(
         doc.document.to_markdown(),
-        "X&#x4E2D;tail\n",
+        "X&#x4E2D;tail",
         "the insert must land before the entity, never splitting the encoding"
     );
 
@@ -749,7 +749,7 @@ fn entity_boundaries_stay_atomic_when_typing() {
     let _ = doc.apply(Sel::collapsed(caret), Command::Insert { text: "Y".into() });
     assert_eq!(
         doc.document.to_markdown(),
-        "&#x4E2D;Ytail\n",
+        "&#x4E2D;Ytail",
         "the insert must land after the entity, never splitting the encoding"
     );
 }

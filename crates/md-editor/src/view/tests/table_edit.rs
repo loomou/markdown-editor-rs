@@ -293,7 +293,7 @@ fn loaded_document_keeps_a_trailing_blank_paragraph(cx: &mut TestAppContext) {
         let last = *leaves.last().expect("last");
         assert_eq!(view.state.doc.kind(last), Some(BlockKind::Paragraph));
         assert_eq!(view.state.doc.text(last), Some(""));
-        assert_eq!(view.state.doc.document.to_markdown(), "# last\n");
+        assert_eq!(view.state.doc.document.to_markdown(), "# last");
         assert!(!view.state.doc.is_dirty());
     });
 }

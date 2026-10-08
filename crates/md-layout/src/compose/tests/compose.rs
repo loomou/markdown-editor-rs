@@ -237,7 +237,7 @@ fn list_tight_has_no_paragraph_events() {
         !first_list_extra(&tight).list_loose(),
         "tight list should not be loose"
     );
-    let loose = load_markdown("- a\n\n- b\n", editor_options());
+    let loose = load_markdown("- a\n- b\n\n  c\n", editor_options());
     assert!(first_list_extra(&loose).list_loose());
     let ordered = load_markdown("1. a\n", editor_options());
     assert_eq!(first_list_extra(&ordered).ordered_start(), Some(1));
@@ -268,7 +268,10 @@ fn compose_ordered_gutter_grows_with_digits() {
     };
     assert!(pad(&wide) > pad(&one));
     let tight = compose(&load_markdown("- a\n- b\n", editor_options()), &layout);
-    let loose = compose(&load_markdown("- a\n\n- b\n", editor_options()), &layout);
+    let loose = compose(
+        &load_markdown("- a\n- b\n\n  c\n", editor_options()),
+        &layout,
+    );
     let gap = |tree: &crate::box_tree::BoxTree| {
         tree.nodes
             .values()
