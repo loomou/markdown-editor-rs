@@ -96,6 +96,11 @@ pub(super) fn soft_break(doc: &mut Document, sel: Sel) -> Caret {
         return doc.break_literal_leaf(id, at.offset);
     }
     if let Some(id) = doc.live_id(at.block)
+        && let Some(caret) = doc.try_absorb_a_soft_break(id, at.offset)
+    {
+        return caret;
+    }
+    if let Some(id) = doc.live_id(at.block)
         && let Some(caret) = doc.try_break_commonmark(id, at.offset)
     {
         return caret;

@@ -96,8 +96,9 @@ fn select_soft_broken_123_blank_456_backspace_clears() {
     let _ = type_chars(&mut doc, caret(leaf, 0), "123456");
     let mid = apply(&mut doc, Sel::collapsed(caret(leaf, 3)), Command::SoftBreak);
     assert_eq!(mid, caret(leaf, 4));
-    let _ = apply(&mut doc, Sel::collapsed(mid), Command::SoftBreak);
-    assert_eq!(doc.text_of(leaf).unwrap(), "123\n\n456");
+    let next = apply(&mut doc, Sel::collapsed(mid), Command::SoftBreak);
+    assert_eq!(doc.text_of(leaf).unwrap(), "123");
+    assert_eq!(doc.text_of(next.block).unwrap(), "456");
     let end = doc.text_of(leaf).unwrap().len();
     let out = apply(
         &mut doc,

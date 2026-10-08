@@ -495,6 +495,35 @@ impl Document {
         })
     }
 
+    pub(crate) fn try_absorb_a_soft_break(&mut self, id: NodeId, offset: usize) -> Option<Caret> {
+        let kind = self.arena.get(id).map(|n| n.kind)?;
+        if kind != BlockKind::Paragraph {
+            return None;
+        }
+        let display = self.display(id).to_string();
+        let off = floor_char_boundary(&display, offset.min(display.len()));
+        if off == 0 || !display[..off].ends_with('\n') {
+            return None;
+        }
+        let parent = self.arena.get(id).and_then(|n| n.parent)?;
+        let before = self.revision;
+        let (mut changes, _) = self.rewrite_text(id, off - 1..off, "");
+        let (split, new_id) = self.split_leaf_nodes(id, off - 1);
+        self.bump_structure(parent);
+        changes.push(split);
+        changes.push(DocChange::TreeSpliced {
+            parent,
+            before: Some(id),
+            removed: Vec::new(),
+            inserted: vec![new_id],
+        });
+        let _ = self.commit(before, changes);
+        Some(Caret {
+            block: new_id.index,
+            offset: 0,
+        })
+    }
+
     pub(crate) fn try_break_commonmark(&mut self, id: NodeId, offset: usize) -> Option<Caret> {
         let kind = self.arena.get(id).map(|n| n.kind)?;
         if kind != BlockKind::Paragraph {

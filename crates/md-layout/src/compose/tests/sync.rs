@@ -712,3 +712,48 @@ fn wrapper_lead_stays_flushed_through_a_sync() {
         "hot and cold must agree on the quote lead"
     );
 }
+
+#[test]
+fn absorbing_a_soft_break_gives_the_new_paragraph_a_box() {
+    use crate::box_tree::LayoutBoxId;
+    use md_core::block::BlockKind;
+    use md_core::doc::Doc;
+    use md_core::document::{Caret, Command, Sel};
+
+    let mut doc = Doc::new(load_markdown("", editor_options()));
+    doc.enable_trailing_blank();
+    let layout = layout();
+    let mut tree = compose(&doc.document, &layout);
+    let _ = doc.take_changes();
+
+    let leaf = doc.text_leaves()[0];
+    let mut at = doc.apply(
+        Sel::collapsed(Caret {
+            block: leaf,
+            offset: 0,
+        }),
+        Command::Insert { text: "123".into() },
+    );
+    let _ = doc.take_changes();
+    at = doc.apply(Sel::collapsed(at), Command::SoftBreak);
+    let _ = doc.take_changes();
+    at = doc.apply(Sel::collapsed(at), Command::SoftBreak);
+    let changes = doc.take_changes();
+    let _ = sync_layout(&mut tree, &doc.document, &changes, &layout);
+
+    let landed = LayoutBoxId::for_kind(BlockKind::Paragraph, at.block);
+    assert!(
+        tree.nodes.contains_key(&landed),
+        "the caret moved into {landed:?} but the tree holds no such box"
+    );
+    let cold = compose(&doc.document, &layout);
+    assert_eq!(tree.nodes.len(), cold.nodes.len());
+    for (id, node) in &cold.nodes {
+        let hot = tree.nodes.get(id).expect("every cold box has a hot twin");
+        assert_eq!(hot.kind, node.kind);
+        assert_eq!(
+            tree.intern.text(hot.text_id),
+            cold.intern.text(node.text_id)
+        );
+    }
+}
