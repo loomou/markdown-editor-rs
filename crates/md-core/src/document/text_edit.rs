@@ -714,9 +714,7 @@ impl Document {
         let text = self.caret_text(id).to_string();
         let off = floor_char_boundary(&text, offset.min(text.len()));
         let kind = self.arena.get(id).map(|n| n.kind);
-        if matches!(kind, Some(BlockKind::Math | BlockKind::Image))
-            && (off == 0 || off == text.len())
-        {
+        if kind == Some(BlockKind::Image) && (off == 0 || off == text.len()) {
             let parent = self.arena.get(id).and_then(|n| n.parent).expect("parent");
             let before = self.revision;
             let para = self.alloc_leaf(BlockKind::Paragraph);
