@@ -222,9 +222,9 @@ fn visit<'a, 'i>(
             builder.attach(id);
             builder.parents.push(id);
             let trailing = match innermost_trailing_item(source, &node) {
-                Some(item) if item.span() == span => {
-                    item_trailing_blanks(source, span, width as usize)
-                }
+                Some(item) if item.span() == span => blank_paragraphs_of_a_run(
+                    item_trailing_blanks(source, span, width as usize) + 1,
+                ),
                 _ => 0,
             };
             let mut gaps = container_gaps(source, &node, false);
@@ -870,21 +870,6 @@ fn leading_blanks(source: &str, range: Range<usize>, alert: bool) -> usize {
         .count()
 }
 
-fn blanks_in(source: &str, range: Range<usize>, alert: bool) -> usize {
-    let Some(region) = source.get(range) else {
-        return 0;
-    };
-    let mut lines: Vec<&str> = region.split('\n').collect();
-    lines.pop();
-    if alert && !lines.is_empty() {
-        lines.remove(0);
-    }
-    lines
-        .into_iter()
-        .filter(|line| blank_in_container(line))
-        .count()
-}
-
 fn trailing_blanks(source: &str, range: Range<usize>, previous_terminated: bool) -> usize {
     let Some(region) = source.get(range) else {
         return 0;
@@ -904,6 +889,14 @@ fn trailing_blanks(source: &str, range: Range<usize>, previous_terminated: bool)
         .rev()
         .take_while(|line| blank_in_container(line))
         .count()
+}
+
+fn blank_paragraphs_of_a_run(newlines: usize) -> usize {
+    newlines / 2
+}
+
+fn blank_paragraphs_between_blocks(newlines: usize) -> usize {
+    (newlines / 2).saturating_sub(1)
 }
 
 fn blank_line_width(line: &str) -> Option<usize> {
@@ -1043,15 +1036,21 @@ fn root_gaps(source: &str, root: &NodeRef<'_, '_>) -> Vec<usize> {
 fn gaps_for(source: &str, node: &NodeRef<'_, '_>, span: Range<usize>, alert: bool) -> Vec<usize> {
     let children: Vec<NodeRef<'_, '_>> = node.children().collect();
     if children.is_empty() {
-        return vec![blanks_in(source, span, alert)];
+        return vec![blank_paragraphs_of_a_run(leading_blanks(
+            source, span, alert,
+        ))];
     }
     let kids: Vec<Range<usize>> = children.iter().map(|child| child.span()).collect();
     let mut gaps = Vec::with_capacity(kids.len() + 1);
-    gaps.push(leading_blanks(source, span.start..kids[0].start, alert));
+    gaps.push(blank_paragraphs_of_a_run(leading_blanks(
+        source,
+        span.start..kids[0].start,
+        alert,
+    )));
     for (index, pair) in kids.windows(2).enumerate() {
         let end = content_end(source, &children[index]).unwrap_or(pair[0].end);
-        let count = gap_blanks(source, end..pair[1].start, ends_with_newline(source, end));
-        gaps.push(count.saturating_sub(1));
+        let count = gap_blanks(source, end..pair[1].start, ends_with_newline(source, end)) + 1;
+        gaps.push(blank_paragraphs_between_blocks(count));
     }
     let last = kids[kids.len() - 1].end;
     let last_child = &children[children.len() - 1];
@@ -1064,7 +1063,9 @@ fn gaps_for(source: &str, node: &NodeRef<'_, '_>, span: Range<usize>, alert: boo
         })
         .unwrap_or(0);
     let trailing = trailing_blanks(source, last..span.end, ends_with_newline(source, last));
-    gaps.push(trailing.saturating_sub(claimed));
+    gaps.push(blank_paragraphs_of_a_run(
+        trailing.saturating_sub(claimed) + 1,
+    ));
     gaps
 }
 

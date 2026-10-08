@@ -38,10 +38,82 @@ index 13c86f0..b6b3ea2 100644
  simd = ["pulldown-cmark-escape?/simd"]
  html = ["pulldown-cmark-escape"]
 diff --git a/src/firstpass.rs b/src/firstpass.rs
-index fc8abed..ed79fea 100644
+index fc8abed..2d40769 100644
 --- a/src/firstpass.rs
 +++ b/src/firstpass.rs
-@@ -209,8 +209,10 @@ impl<'a, 'b> FirstPass<'a, 'b> {
+@@ -5,8 +5,8 @@ use std::cmp::max;
+ use std::ops::Range;
+ 
+ use crate::parse::{
+-    scan_containers, Allocations, FootnoteDef, HeadingAttributes, Item, ItemBody, LinkDef,
+-    LINK_MAX_NESTED_PARENS,
++    scan_containers, Allocations, BlankLine, FootnoteDef, HeadingAttributes, Item, ItemBody,
++    LinkDef, LINK_MAX_NESTED_PARENS,
+ };
+ use crate::strings::CowStr;
+ use crate::tree::{Tree, TreeIndex};
+@@ -21,7 +21,10 @@ use unicase::UniCase;
+ 
+ /// Runs the first pass, which resolves the block structure of the document,
+ /// and returns the resulting tree.
+-pub(crate) fn run_first_pass(text: &str, options: Options) -> (Tree<Item>, Allocations<'_>) {
++pub(crate) fn run_first_pass(
++    text: &str,
++    options: Options,
++) -> (Tree<Item>, Allocations<'_>, Vec<BlankLine>) {
+     // This is a very naive heuristic for the number of nodes
+     // we'll need.
+     let start_capacity = max(128, text.len() / 32);
+@@ -36,6 +39,7 @@ pub(crate) fn run_first_pass(text: &str, options: Options) -> (Tree<Item>, Alloc
+         lookup_table,
+         brace_context_next: 0,
+         brace_context_stack: Vec::new(),
++        blank_lines: Vec::new(),
+     };
+     first_pass.run()
+ }
+@@ -63,10 +67,11 @@ struct FirstPass<'a, 'b> {
+     /// Math environment brace nesting.
+     brace_context_stack: Vec<u8>,
+     brace_context_next: usize,
++    blank_lines: Vec<BlankLine>,
+ }
+ 
+ impl<'a, 'b> FirstPass<'a, 'b> {
+-    fn run(mut self) -> (Tree<Item>, Allocations<'a>) {
++    fn run(mut self) -> (Tree<Item>, Allocations<'a>, Vec<BlankLine>) {
+         let mut ix = 0;
+         while ix < self.text.len() {
+             ix = self.parse_block(ix);
+@@ -74,7 +79,26 @@ impl<'a, 'b> FirstPass<'a, 'b> {
+         while self.tree.spine_len() > 0 {
+             self.pop(ix);
+         }
+-        (self.tree, self.allocs)
++        (self.tree, self.allocs, self.blank_lines)
++    }
++
++    fn record_blank_lines(&mut self, range: Range<usize>) {
++        let bytes = self.text.as_bytes();
++        let container = self.tree.peek_up();
++        let mut at = range.start;
++        while at < range.end {
++            let end = at + scan_nextline(&bytes[at..]).min(range.end - at);
++            if end <= at {
++                break;
++            }
++            if let Some(n) = scan_blank_line(&bytes[at..end]) {
++                self.blank_lines.push(BlankLine {
++                    span: at..at + n,
++                    container,
++                });
++            }
++            at = end;
++        }
+     }
+ 
+     /// Returns offset after block.
+@@ -209,8 +233,10 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                      _ => unreachable!(),
                  }
                  let after_marker_index = start_ix + line_start.bytes_scanned();
@@ -53,8 +125,32 @@ index fc8abed..ed79fea 100644
                      end: after_marker_index, // will get updated later if item not empty
                      body: ItemBody::DefinitionListDefinition(indent),
                  });
+@@ -275,7 +301,12 @@ impl<'a, 'b> FirstPass<'a, 'b> {
+         let ix = start_ix + line_start.bytes_scanned();
+ 
+         if let Some(n) = scan_blank_line(&bytes[ix..]) {
+-            if let Some(node_ix) = self.tree.peek_up() {
++            let container = self.tree.peek_up();
++            self.blank_lines.push(BlankLine {
++                span: start_ix..ix + n,
++                container,
++            });
++            if let Some(node_ix) = container {
+                 match &mut self.tree[node_ix].item.body {
+                     ItemBody::BlockQuote(..) => (),
+                     ItemBody::ListItem(indent) | ItemBody::DefinitionListDefinition(indent)
+@@ -1358,6 +1389,9 @@ impl<'a, 'b> FirstPass<'a, 'b> {
+             self.tree[child].item.end = last_nonblank_ix;
+         }
+         self.pop(end_ix);
++        if ix > last_nonblank_ix {
++            self.record_blank_lines(last_nonblank_ix..ix);
++        }
+         ix
+     }
+ 
 diff --git a/src/lib.rs b/src/lib.rs
-index 6e17a91..de91e37 100644
+index 6e17a91..31ed045 100644
 --- a/src/lib.rs
 +++ b/src/lib.rs
 @@ -93,6 +93,8 @@ mod puncttable;
@@ -72,17 +168,55 @@ index 6e17a91..de91e37 100644
  pub use crate::strings::{CowStr, InlineStr};
 +#[cfg(feature = "tree")]
 +pub use crate::tree_api::{
-+    Children, CodeBlockInfo, HeadingInfo, LinkInfo, ListInfo, ListItemInfo, NodeKind, NodeRef,
-+    Parsed,
++    BlankLineRef, BlankPosition, BlankRun, Children, CodeBlockInfo, HeadingInfo, LinkInfo,
++    ListInfo, ListItemInfo, NodeKind, NodeRef, Parsed,
 +};
  pub use crate::utils::*;
  
  /// Codeblock kind.
 diff --git a/src/parse.rs b/src/parse.rs
-index 317d05b..ff5561c 100644
+index 317d05b..43651aa 100644
 --- a/src/parse.rs
 +++ b/src/parse.rs
-@@ -2393,6 +2393,97 @@ impl<'a, F: BrokenLinkCallback<'a>> Iterator for Parser<'a, F> {
+@@ -183,6 +183,12 @@ pub struct BrokenLink<'a> {
+     pub reference: CowStr<'a>,
+ }
+ 
++#[derive(Clone, Debug)]
++pub(crate) struct BlankLine {
++    pub span: Range<usize>,
++    pub container: Option<TreeIndex>,
++}
++
+ /// Markdown event iterator.
+ pub struct Parser<'input, F = DefaultBrokenLinkCallback> {
+     text: &'input str,
+@@ -191,6 +197,7 @@ pub struct Parser<'input, F = DefaultBrokenLinkCallback> {
+     allocs: Allocations<'input>,
+     broken_link_callback: Option<F>,
+     html_scan_guard: HtmlScanGuard,
++    blank_lines: Vec<BlankLine>,
+ 
+     // https://github.com/pulldown-cmark/pulldown-cmark/issues/844
+     // Consider this example:
+@@ -268,7 +275,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
+         options: Options,
+         broken_link_callback: Option<F>,
+     ) -> Self {
+-        let (mut tree, allocs) = run_first_pass(text, options);
++        let (mut tree, allocs, blank_lines) = run_first_pass(text, options);
+         tree.reset();
+         let inline_stack = Default::default();
+         let link_stack = Default::default();
+@@ -284,6 +291,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
+             link_stack,
+             wikilink_stack,
+             html_scan_guard,
++            blank_lines,
+             // always allow 100KiB
+             link_ref_expansion_limit: text.len().max(100_000),
+             code_delims: CodeDelims::new(),
+@@ -2393,6 +2401,102 @@ impl<'a, F: BrokenLinkCallback<'a>> Iterator for Parser<'a, F> {
  
  impl<'a, F: BrokenLinkCallback<'a>> FusedIterator for Parser<'a, F> {}
  
@@ -169,18 +303,23 @@ index 317d05b..ff5561c 100644
 +    text: &'input str,
 +    options: Options,
 +    broken_link_callback: Option<F>,
-+) -> (Tree<Item>, Allocations<'input>) {
++) -> (Tree<Item>, Allocations<'input>, Vec<BlankLine>) {
 +    let mut parser = Parser::new_with_broken_link_callback(text, options, broken_link_callback);
 +    parser.resolve_all_inlines();
 +    parser.tree.reset();
-+    let Parser { tree, allocs, .. } = parser;
-+    (tree, allocs)
++    let Parser {
++        tree,
++        allocs,
++        blank_lines,
++        ..
++    } = parser;
++    (tree, allocs, blank_lines)
 +}
 +
  #[cfg(test)]
  mod test {
      use super::*;
-@@ -2549,6 +2640,19 @@ mod test {
+@@ -2549,6 +2653,19 @@ mod test {
          assert_eq!(expected_offsets, event_offsets);
      }
  
@@ -229,10 +368,10 @@ index 4200d77..aa141cd 100644
          self.spine.iter()
 diff --git a/src/tree_api.rs b/src/tree_api.rs
 new file mode 100644
-index 0000000..ffd37ea
+index 0000000..32fa666
 --- /dev/null
 +++ b/src/tree_api.rs
-@@ -0,0 +1,509 @@
+@@ -0,0 +1,616 @@
 +//! The parsed document tree: `Parsed` / `NodeRef` / `NodeKind` (feature `tree`).
 +//!
 +//! Relation to [`Parser`](crate::Parser): `Parser` tears its internal tree
@@ -251,7 +390,9 @@ index 0000000..ffd37ea
 +//! `next` chain of `Tree<Item>`, content reads go through the `Index` impl on
 +//! `Allocations`; the tree is not copied and no parent array is built.
 +
-+use crate::parse::{eager_parse, Allocations, BrokenLinkCallback, Item, ItemBody, RefDefs};
++use crate::parse::{
++    eager_parse, Allocations, BlankLine, BrokenLinkCallback, Item, ItemBody, RefDefs,
++};
 +use crate::strings::CowStr;
 +use crate::tree::{Tree, TreeIndex};
 +use crate::{Alignment, BlockQuoteKind, HeadingLevel, LinkType, MetadataBlockKind, Options};
@@ -269,6 +410,7 @@ index 0000000..ffd37ea
 +    text: &'input str,
 +    tree: Tree<Item>,
 +    allocs: Allocations<'input>,
++    blank_lines: Vec<BlankLine>,
 +}
 +
 +impl core::fmt::Debug for Parsed<'_> {
@@ -293,8 +435,13 @@ index 0000000..ffd37ea
 +        options: Options,
 +        broken_link_callback: Option<F>,
 +    ) -> Self {
-+        let (tree, allocs) = eager_parse(text, options, broken_link_callback);
-+        Parsed { text, tree, allocs }
++        let (tree, allocs, blank_lines) = eager_parse(text, options, broken_link_callback);
++        Parsed {
++            text,
++            tree,
++            allocs,
++            blank_lines,
++        }
 +    }
 +
 +    /// Parse inline only: treat `text` as the content of a single paragraph.
@@ -381,8 +528,107 @@ index 0000000..ffd37ea
 +        self.tree.nodes().len()
 +    }
 +
++    pub fn blank_lines(&self) -> impl Iterator<Item = BlankLineRef<'_, 'input>> + '_ {
++        self.blank_lines.iter().map(|line| BlankLineRef {
++            span: line.span.clone(),
++            container: line.container.map(|ix| NodeRef {
++                parsed: self,
++                ix: Some(ix),
++            }),
++        })
++    }
++
++    pub fn blank_runs(&self) -> impl Iterator<Item = BlankRun<'_, 'input>> + '_ {
++        let text_len = self.text.len();
++        let mut runs = Vec::new();
++        let mut index = 0;
++        while index < self.blank_lines.len() {
++            let start = self.blank_lines[index].span.start;
++            let container = self.blank_lines[index].container;
++            let mut end = self.blank_lines[index].span.end;
++            let mut newlines = self.count_newlines(self.blank_lines[index].span.clone());
++            index += 1;
++            while index < self.blank_lines.len()
++                && self.blank_lines[index].span.start == end
++                && self.blank_lines[index].container == container
++            {
++                newlines += self.count_newlines(self.blank_lines[index].span.clone());
++                end = self.blank_lines[index].span.end;
++                index += 1;
++            }
++            let position = BlankPosition::of(start, end, text_len);
++            let eats_one = matches!(position, BlankPosition::Between | BlankPosition::Tail);
++            runs.push(BlankRun {
++                span: start..end,
++                container: container.map(|ix| NodeRef {
++                    parsed: self,
++                    ix: Some(ix),
++                }),
++                newlines: newlines + usize::from(eats_one),
++                position,
++            });
++        }
++        runs.into_iter()
++    }
++
++    fn count_newlines(&self, span: Range<usize>) -> usize {
++        self.text
++            .get(span)
++            .map_or(0, |run| run.bytes().filter(|byte| *byte == b'\n').count())
++    }
++
 +    fn node(&self, ix: TreeIndex) -> &crate::tree::Node<Item> {
 +        &self.tree.nodes()[ix.get()]
++    }
++}
++
++pub struct BlankLineRef<'a, 'input> {
++    pub span: Range<usize>,
++    pub container: Option<NodeRef<'a, 'input>>,
++}
++
++impl core::fmt::Debug for BlankLineRef<'_, '_> {
++    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
++        f.debug_struct("BlankLineRef")
++            .field("span", &self.span)
++            .field("container", &self.container.is_some())
++            .finish()
++    }
++}
++
++#[derive(Copy, Clone, Debug, PartialEq, Eq)]
++pub enum BlankPosition {
++    Head,
++    Between,
++    Tail,
++    Whole,
++}
++
++impl BlankPosition {
++    fn of(start: usize, end: usize, text_len: usize) -> Self {
++        match (start == 0, end == text_len) {
++            (true, true) => Self::Whole,
++            (true, false) => Self::Head,
++            (false, true) => Self::Tail,
++            (false, false) => Self::Between,
++        }
++    }
++}
++
++#[derive(Clone, Debug)]
++pub struct BlankRun<'a, 'input> {
++    pub span: Range<usize>,
++    pub container: Option<NodeRef<'a, 'input>>,
++    pub newlines: usize,
++    pub position: BlankPosition,
++}
++
++impl BlankRun<'_, '_> {
++    pub fn empty_paragraphs(&self) -> usize {
++        match self.position {
++            BlankPosition::Between => (self.newlines / 2).saturating_sub(1),
++            BlankPosition::Head | BlankPosition::Tail | BlankPosition::Whole => self.newlines / 2,
++        }
 +    }
 +}
 +

@@ -1,6 +1,5 @@
 use super::support::{caret, type_chars};
 use crate::block::BlockKind;
-use crate::doc::Doc;
 use crate::document::edit::{Command, Sel, apply};
 use crate::document::{PasteIntent, editor_options, load_markdown};
 use crate::inline::InlineMarks;
@@ -36,8 +35,8 @@ fn blank_document_inserts_into_seeded_paragraph() {
 }
 
 #[test]
-fn a_document_of_blank_lines_keeps_one_paragraph_per_line() {
-    for (source, want) in [("\n", 1), ("\n\n", 2), ("\n\n\n", 3)] {
+fn a_document_of_blank_lines_folds_whole_pairs_into_paragraphs() {
+    for (source, want) in [("\n", 1), ("\n\n", 1), ("\n\n\n", 1), ("\n\n\n\n", 2)] {
         let mut doc = load_markdown(source, editor_options());
         let leaves = doc.text_leaves();
         assert_eq!(leaves.len(), want, "source={source:?}");
@@ -593,55 +592,38 @@ fn deleting_list_text_preserves_an_unselected_empty_alt_image() {
 
 #[test]
 fn delete_spanning_a_table_endpoint_removes_the_rules_between() {
-    let mut doc = Doc::new(load_markdown(
-        "| a |\n| --- |\n\n---\n\nz\n",
-        editor_options(),
-    ));
-    doc.enable_trailing_blank();
+    let mut doc = load_markdown("| a |\n| --- |\n\n---\n\nz\n", editor_options());
     let leaves = doc.text_leaves();
-    let tail = leaves[leaves.len() - 1];
-    let end = doc.text(tail).unwrap_or("").len();
-    let _ = doc.apply(
+    let _ = apply(
+        &mut doc,
         Sel {
             anchor: caret(leaves[0], 0),
-            head: caret(tail, end),
+            head: caret(*leaves.last().unwrap(), 1),
         },
         Command::DeleteForward,
     );
-    assert_eq!(
-        doc.document.to_markdown(),
-        "",
-        "rule must go with the selection"
-    );
+    assert_eq!(doc.to_markdown(), "", "rule must go with the selection");
 
-    let mut doc = Doc::new(load_markdown(
-        "| a | b |\n| --- | --- |\n\n---\n\nz\n",
-        editor_options(),
-    ));
-    doc.enable_trailing_blank();
+    let mut doc = load_markdown("| a | b |\n| --- | --- |\n\n---\n\nz\n", editor_options());
     let leaves = doc.text_leaves();
-    let tail = leaves[leaves.len() - 1];
-    let end = doc.text(tail).unwrap_or("").len();
-    let _ = doc.apply(
+    let _ = apply(
+        &mut doc,
         Sel {
             anchor: caret(leaves[1], 0),
-            head: caret(tail, end),
+            head: caret(*leaves.last().unwrap(), 1),
         },
         Command::DeleteForward,
     );
     assert_eq!(
-        doc.document.to_markdown(),
-        "| a |  |\n| --- | --- |\n\n",
-        "partial table keeps the first cell and the emptied paragraph, drops the rule"
+        doc.to_markdown(),
+        "| a |  |\n| --- | --- |\n",
+        "partial table keeps the first cell, drops the rule"
     );
 
-    let mut doc = Doc::new(load_markdown(
-        "a\n\n---\n\n| x | y |\n| --- | --- |\n",
-        editor_options(),
-    ));
-    doc.enable_trailing_blank();
+    let mut doc = load_markdown("a\n\n---\n\n| x | y |\n| --- | --- |\n", editor_options());
     let leaves = doc.text_leaves();
-    let _ = doc.apply(
+    let _ = apply(
+        &mut doc,
         Sel {
             anchor: caret(leaves[0], 0),
             head: caret(leaves[2], 0),
@@ -649,18 +631,18 @@ fn delete_spanning_a_table_endpoint_removes_the_rules_between() {
         Command::DeleteForward,
     );
     assert_eq!(
-        doc.document.to_markdown(),
-        "\n|  | y |\n| --- | --- |\n",
+        doc.to_markdown(),
+        "\n\n|  | y |\n| --- | --- |\n",
         "partial tail table keeps the last cell, drops the rule"
     );
 
-    let mut doc = Doc::new(load_markdown(
+    let mut doc = load_markdown(
         "| a | b |\n| --- | --- |\n\n---\n\n| e | f |\n| --- | --- |\n",
         editor_options(),
-    ));
-    doc.enable_trailing_blank();
+    );
     let leaves = doc.text_leaves();
-    let _ = doc.apply(
+    let _ = apply(
+        &mut doc,
         Sel {
             anchor: caret(leaves[1], 0),
             head: caret(leaves[3], 0),
@@ -668,7 +650,7 @@ fn delete_spanning_a_table_endpoint_removes_the_rules_between() {
         Command::DeleteForward,
     );
     assert_eq!(
-        doc.document.to_markdown(),
+        doc.to_markdown(),
         "| a |  |\n| --- | --- |\n\n|  | f |\n| --- | --- |\n",
         "both tables keep their unselected cells, the rule between goes"
     );
