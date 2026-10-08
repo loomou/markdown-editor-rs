@@ -105,6 +105,22 @@ impl FlowSpine {
         true
     }
 
+    pub fn refresh_padding_of(&mut self, tree: &BoxTree, container: LayoutBoxId) -> bool {
+        let (Some(open), Some(close)) = (
+            self.open_of.get(&container).copied(),
+            self.close_of.get(&container).copied(),
+        ) else {
+            return false;
+        };
+        let Some(node) = tree.nodes.get(&container) else {
+            return false;
+        };
+        let style = tree.style_of(node);
+        self.set_height(open, HeightState::Exact(style.top_border_padding()));
+        self.set_height(close, HeightState::Exact(style.bottom_border_padding()));
+        true
+    }
+
     pub fn refresh_gaps_of(&mut self, tree: &BoxTree, container: LayoutBoxId) -> bool {
         use super::gap::FlowBoundary;
         let (Some(open), Some(close)) = (

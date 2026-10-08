@@ -1,5 +1,7 @@
 use super::block_edit::{box_snapshot, emit_preview, preview_payload};
-use super::flow_policy::{apply_list_metrics, flow_top_margin, type_slot_for};
+use super::flow_policy::{
+    apply_list_metrics, apply_quote_alert_lead, flow_top_margin, type_slot_for,
+};
 use super::restyle;
 use super::theme::LayoutTheme;
 use super::window::subtree_height;
@@ -151,6 +153,7 @@ fn patch_attrs(tree: &mut BoxTree, doc: &Document, id: NodeId, theme: &LayoutThe
                 *style = theme.style_for(kind);
             }
             style.margin.top = flow_top_margin(theme, doc, id, kind);
+            apply_quote_alert_lead(theme, kind, extra, style);
         });
     }
     if let Some(chrome_id) = LayoutBoxId::chrome(kind, id.index)

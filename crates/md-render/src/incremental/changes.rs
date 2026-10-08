@@ -198,6 +198,7 @@ impl IncrementalEngine {
                         self.invalidate_one_island(island, &mut out);
                     }
                     let tree = Rc::clone(&self.tree);
+                    self.spine.refresh_padding_of(&tree, id);
                     self.spine.refresh_gaps_of(&tree, id);
                 }
                 _ => {}

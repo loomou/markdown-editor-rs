@@ -14,7 +14,7 @@ pub use theme::{FlowMetrics, LayoutTheme, ListMetrics};
 pub use window::{ComposeWindow, compose_into, compose_window};
 
 use block_edit::{box_snapshot, emit_preview, wants_preview};
-use flow_policy::{apply_list_metrics, flow_top_margin, type_slot_for};
+use flow_policy::{apply_list_metrics, apply_quote_alert_lead, flow_top_margin, type_slot_for};
 
 #[cfg(any(test, feature = "dump"))]
 use crate::box_tree::BoxOwner;
@@ -144,9 +144,9 @@ fn emit_one(
     if node.kind == BlockKind::List {
         apply_list_metrics(doc, id, box_id, theme, nodes, styles);
     }
-    if node.kind == BlockKind::BlockQuote && node.extra.quote_alert().is_some() {
+    if node.kind == BlockKind::BlockQuote {
         restyle(nodes, styles, box_id, |style| {
-            style.padding.top = theme.quote_alert_lead
+            apply_quote_alert_lead(theme, node.kind, node.extra, style)
         });
     }
 }

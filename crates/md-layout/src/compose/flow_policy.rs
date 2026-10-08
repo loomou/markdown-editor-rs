@@ -1,5 +1,6 @@
 use super::theme::LayoutTheme;
 use crate::box_tree::{BoxStore, BoxStyleStore, LayoutBoxId, TypeSlot};
+use crate::style::BoxLayoutStyle;
 use md_core::block::{BlockKind, NodeExtra};
 use md_core::document::Document;
 use md_core::document::NodeId;
@@ -176,6 +177,22 @@ pub(super) fn flow_top_margin(
         return top;
     }
     base
+}
+
+pub(super) fn apply_quote_alert_lead(
+    theme: &LayoutTheme,
+    kind: BlockKind,
+    extra: NodeExtra,
+    style: &mut BoxLayoutStyle,
+) {
+    if kind != BlockKind::BlockQuote {
+        return;
+    }
+    style.padding.top = if extra.quote_alert().is_some() {
+        theme.quote_alert_lead
+    } else {
+        theme.style_for(kind).padding.top
+    };
 }
 
 pub(super) fn type_slot_for(
