@@ -321,7 +321,7 @@ fn shape(doc: &md_core::document::Document) -> Vec<String> {
 #[test]
 fn shapes_the_editor_can_produce_are_fixed_points() {
     for (source, saved) in [
-        ("> hi\n> \n", "> hi\n> \n"),
+        ("> hi\n> \n", "> hi\n>\n"),
         ("\nhi\n", "hi"),
         (
             "- hi\n  ```\n  abc\n  ```\n- \n",
@@ -414,7 +414,7 @@ fn a_list_keeps_the_blank_lines_that_follow_it() {
         ("- [ ] a\n\n\np\n", "- [ ] a\n\np"),
         ("- a\n  - b\n\n\np\n", "- a\n  - b\n\np"),
         ("- a\n\np\n", "- a\n\np"),
-        ("> - a\n> \n> \n> p\n", "> - a\n> \n> p"),
+        ("> - a\n> \n> \n> p\n", "> - a\n>\n> p"),
     ] {
         let before = load_markdown(source, editor_options());
         let once = before.to_markdown();
@@ -440,7 +440,7 @@ fn a_footnote_definition_keeps_the_blank_lines_that_follow_it() {
         ("[^1]: n\n\n\n", "[^1]: n\n\n"),
         ("[^1]: n\n\np\n", "[^1]: n\n\np"),
         ("p\n\n[^1]: n\n\n\n", "p\n\n[^1]: n\n\n"),
-        ("> [^1]: n\n> \n> \n> p\n", "> [^1]: n\n> \n> p"),
+        ("> [^1]: n\n> \n> \n> p\n", "> [^1]: n\n>\n> p"),
     ] {
         let before = load_markdown(source, editor_options());
         let once = before.to_markdown();
@@ -462,14 +462,14 @@ fn a_footnote_definition_keeps_the_blank_lines_that_follow_it() {
 #[test]
 fn a_list_item_keeps_the_blank_lines_between_its_blocks() {
     for (source, saved) in [
-        ("- p\n  \n  \n  p\n", "- p\n  \n  p"),
-        ("- p\n  \n  \n  \n  p\n", "- p\n  \n  \n  \n  p"),
-        ("- p\n  q\n  \n  \n  r\n", "- p\n  q\n  \n  r"),
-        ("1. a\n   \n   \n   b\n", "1. a\n   \n   b"),
-        ("- # h\n  \n  \n  p\n", "- # h\n  \n  p"),
-        ("- p\n  \n  p\n", "- p\n  \n  p"),
-        ("- > p\n  > \n  > \n  > p\n", "- > p\n  > \n  > p"),
-        ("- a\n  - p\n    \n    \n    p\n", "- a\n  - p\n    \n    p"),
+        ("- p\n  \n  \n  p\n", "- p\n\n  p"),
+        ("- p\n  \n  \n  \n  p\n", "- p\n\n\n\n  p"),
+        ("- p\n  q\n  \n  \n  r\n", "- p\n  q\n\n  r"),
+        ("1. a\n   \n   \n   b\n", "1. a\n\n   b"),
+        ("- # h\n  \n  \n  p\n", "- # h\n\n  p"),
+        ("- p\n  \n  p\n", "- p\n\n  p"),
+        ("- > p\n  > \n  > \n  > p\n", "- > p\n  >\n  > p"),
+        ("- a\n  - p\n    \n    \n    p\n", "- a\n  - p\n\n    p"),
     ] {
         let before = load_markdown(source, editor_options());
         let once = before.to_markdown();
@@ -493,7 +493,7 @@ fn a_list_does_not_claim_a_blank_paragraph_between_its_items() {
     for (source, saved) in [
         ("- a\n\n\n- b\n", "- a\n\n- b"),
         ("- a\n\n\n\n- b\n", "- a\n\n- b"),
-        ("> - a\n> \n> \n> - b\n", "> - a\n> \n> - b"),
+        ("> - a\n> \n> \n> - b\n", "> - a\n>\n> - b"),
     ] {
         let doc = load_markdown(source, editor_options());
         assert_eq!(doc.to_markdown(), saved, "{source:?} changed shape");
@@ -534,7 +534,7 @@ fn a_display_math_stops_handing_its_line_break_to_the_next_block() {
         ("$$x$$\nz\nw\n", "$$x$$\n\nz\nw"),
         ("- hi\n  $$x$$\n  z\n", "- hi\n  $$x$$\n  z"),
         ("- hi\n  $$x$$ b\n", "- hi\n  $$x$$\n  b"),
-        ("> $$x$$\n> z\n", "> $$x$$\n> \n> z"),
+        ("> $$x$$\n> z\n", "> $$x$$\n>\n> z"),
     ] {
         let before = load_markdown(source, editor_options());
         assert_eq!(before.to_markdown(), saved, "{source:?} must save");
@@ -739,7 +739,7 @@ fn an_empty_footnote_definition_roundtrips_with_its_blank_lines() {
         ("z\n\n[^1]:\n\n\n", "z\n\n[^1]:\n\n"),
         ("p[^1]\n\n[^1]:\n", "p[^1]\n\n[^1]:"),
         ("> [^1]:\n", "> [^1]:"),
-        ("> [^1]:\n> \n", "> [^1]:\n> \n"),
+        ("> [^1]:\n> \n", "> [^1]:\n>\n"),
         ("- [^1]:\n", "- [^1]:"),
         ("[^1]: x\n\n[^2]: y\n", "[^1]: x\n\n[^2]: y"),
     ] {

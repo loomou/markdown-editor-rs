@@ -162,7 +162,7 @@ fn closing_fence_enter_keeps_the_quote_shape() {
     let out = apply(&mut doc, Sel::collapsed(at), Command::Break);
 
     assert_eq!(doc.kind(out.block), Some(BlockKind::Paragraph));
-    assert_eq!(doc.to_markdown(), "> hi\n> \n> ```\n> abc\n> ```\n> \n");
+    assert_eq!(doc.to_markdown(), "> hi\n>\n> ```\n> abc\n> ```\n>\n");
     let para = doc.live_id(out.block).expect("live");
     assert_eq!(
         doc.arena
@@ -531,7 +531,7 @@ fn a_fence_after_a_soft_break_commits_inside_a_quote() {
     let out = apply(&mut doc, Sel::collapsed(at), Command::Break);
 
     assert_eq!(doc.kind(out.block), Some(BlockKind::CodeBlock));
-    assert_eq!(doc.to_markdown(), "> hi\n> \n> ```\n> ```\n");
+    assert_eq!(doc.to_markdown(), "> hi\n>\n> ```\n> ```\n");
 }
 
 #[test]
@@ -612,7 +612,7 @@ fn a_math_fence_after_a_soft_break_commits_inside_a_quote() {
     let out = apply(&mut doc, Sel::collapsed(at), Command::Break);
 
     assert_eq!(doc.kind(out.block), Some(BlockKind::Math));
-    assert_eq!(doc.to_markdown(), "> hi\n> \n> $$\n> $$\n");
+    assert_eq!(doc.to_markdown(), "> hi\n>\n> $$\n> $$\n");
 }
 
 #[test]

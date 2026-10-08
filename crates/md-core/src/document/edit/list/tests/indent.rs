@@ -22,7 +22,7 @@ fn outdent_mid_list_item_with_a_pasted_tail_keeps_the_rest() {
     let pasted = doc.document.to_markdown();
     assert_eq!(
         pasted,
-        "- first item> quoted\n  \n  \\`\\`\\`rust\n  fn q() {}\n  \\`\\`\\`\n\n- second item"
+        "- first item> quoted\n\n  \\`\\`\\`rust\n  fn q() {}\n  \\`\\`\\`\n\n- second item"
     );
 
     let _ = doc.apply(Sel::collapsed(pasted_caret), Command::Outdent);
@@ -256,7 +256,7 @@ fn indent_preserves_source_loose_spacing_and_undo_restores_it() {
     let _ = doc.apply(Sel::collapsed(caret(second, 0)), Command::Indent);
 
     assert!(doc.document.extra(list).list_loose());
-    let indented = "- a\n  \n  - b";
+    let indented = "- a\n\n  - b";
     assert_eq!(doc.document.to_markdown(), indented);
     let _ = doc.undo().expect("undo indent");
     assert_eq!(doc.document.to_markdown(), source);

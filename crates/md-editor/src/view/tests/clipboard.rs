@@ -546,9 +546,9 @@ fn backspace_after_selecting_text_inside_a_fenced_quote_keeps_the_container(
 fn backspace_after_selecting_part_of_a_quoted_paragraph_keeps_the_quote(cx: &mut TestAppContext) {
     for (md, from, to, expected) in [
         ("> abc\n", 1, 3, "> a"),
-        ("> abc\n", 0, 3, "> \n> \n"),
+        ("> abc\n", 0, 3, ">\n>\n"),
         ("- abc\n", 1, 3, "- a"),
-        ("> > abc\n", 0, 3, "> > \n> > \n"),
+        ("> > abc\n", 0, 3, "> >\n> >\n"),
     ] {
         let (editor, cx) = editor_with_doc(md, cx);
         focus_editor(&editor, cx);

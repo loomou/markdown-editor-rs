@@ -107,7 +107,7 @@ where
             Step::BlankLine { prefix } => blank_line(out, &prefix)?,
             Step::HardBlank { prefix } => {
                 if !prefix.is_plain() {
-                    prefix.write_open(out)?;
+                    prefix.write_open_bare(out)?;
                 }
                 out.write_str("\n")?;
             }

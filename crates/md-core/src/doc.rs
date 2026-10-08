@@ -1276,7 +1276,7 @@ mod tests {
             },
             Command::DeleteBackward,
         );
-        assert_eq!(doc.document.to_markdown(), "> \n> \n> tail");
+        assert_eq!(doc.document.to_markdown(), ">\n>\n> tail");
     }
 
     #[test]
@@ -1286,8 +1286,8 @@ mod tests {
             ("> > ```\n> > abc\n> > ```\n", "> > ```\n> > ```\n"),
             ("- ```\n  abc\n  ```\n", "- ```\n  ```\n"),
             ("> - ```\n>   abc\n>   ```\n", "> - ```\n>   ```\n"),
-            ("> abc\n", "> \n> \n"),
-            ("> > abc\n", "> > \n> > \n"),
+            ("> abc\n", ">\n>\n"),
+            ("> > abc\n", "> >\n> >\n"),
             ("- abc\n", "- "),
             ("> - abc\n", "> - "),
             ("> # heading\n", "> # "),

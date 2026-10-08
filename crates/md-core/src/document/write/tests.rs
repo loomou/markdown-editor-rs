@@ -302,19 +302,19 @@ fn a_first_block_that_fits_after_the_marker_shares_its_line() {
         "10. ***\n",
         "10) ***\n",
         "- ***\n- b",
-        "- ***\n  \n  p",
-        "- ***\n  \n  ***\n",
+        "- ***\n\n  p",
+        "- ***\n\n  ***\n",
         "- [^1]: n",
         "- [^1]: n\n- b",
-        "- [^1]: n\n  \n  p",
-        "- [^1]: n\n  \n  q\n  \n  r",
-        "- ![a](u)\n  \n  p",
+        "- [^1]: n\n\n  p",
+        "- [^1]: n\n\n  q\n\n  r",
+        "- ![a](u)\n\n  p",
         "- ![a](u)\n\n- b",
         "> - ***\n",
-        "> - ***\n>   \n>   p",
+        "> - ***\n>\n>   p",
         "> - [^1]: n",
-        "> - [^1]: n\n>   \n>   p",
-        "> - ![a](u)\n>   \n>   p",
+        "> - [^1]: n\n>\n>   p",
+        "> - ![a](u)\n>\n>   p",
         "- - ***\n",
         "- - [^1]: n",
         "- 1. ***\n",
@@ -336,8 +336,8 @@ fn a_thematic_break_the_marker_would_absorb_and_a_task_item_keep_the_marker_line
         "- \n  ---\n",
         "* \n  ***\n",
         "- \n  - - -\n",
-        "- \n  ---\n  \n  p",
-        "* \n  ***\n  \n  p",
+        "- \n  ---\n\n  p",
+        "* \n  ***\n\n  p",
         "- - \n    ---\n",
         "> - \n>   ---\n",
         "> * \n>   ***\n",
@@ -437,9 +437,9 @@ fn sibling_blocks_are_separated_by_exactly_one_blank_line() {
         ("p\n***\n", "p\n\n***\n"),
         ("- a\n***\n", "- a\n\n***\n"),
         ("p\n| a |\n| - |\n| b |\n", "p\n\n| a |\n| --- |\n| b |\n"),
-        ("> q\n> # h\n", "> q\n> \n> # h"),
-        ("> q\n> - a\n", "> q\n> \n> - a"),
-        ("> ```\n> x\n> ```\n> p\n", "> ```\n> x\n> ```\n> \n> p"),
+        ("> q\n> # h\n", "> q\n>\n> # h"),
+        ("> q\n> - a\n", "> q\n>\n> - a"),
+        ("> ```\n> x\n> ```\n> p\n", "> ```\n> x\n> ```\n>\n> p"),
         ("p\n\n\n# h\n", "p\n\n# h"),
     ] {
         let doc = load_markdown(source, editor_options());
@@ -495,13 +495,13 @@ fn an_ordered_list_renumbers_its_items_from_the_start_number() {
 }
 
 #[test]
-fn a_blank_line_inside_a_list_item_carries_the_item_indentation() {
+fn a_blank_line_inside_a_list_item_drops_the_item_indentation() {
     for (source, saved) in [
-        ("- a\n\n  z\n", "- a\n  \n  z"),
-        ("- p\n\n  p\n", "- p\n  \n  p"),
-        ("1. a\n\n   z\n", "1. a\n   \n   z"),
-        ("1. a\n\n\n   z\n", "1. a\n   \n   z"),
-        ("> - a\n>\n>   z\n", "> - a\n>   \n>   z"),
+        ("- a\n\n  z\n", "- a\n\n  z"),
+        ("- p\n\n  p\n", "- p\n\n  p"),
+        ("1. a\n\n   z\n", "1. a\n\n   z"),
+        ("1. a\n\n\n   z\n", "1. a\n\n   z"),
+        ("> - a\n>\n>   z\n", "> - a\n>\n>   z"),
     ] {
         let doc = load_markdown(source, editor_options());
         assert_eq!(doc.to_markdown(), saved, "source={source:?}");
@@ -529,9 +529,9 @@ fn a_loose_list_separates_every_pair_of_items_with_a_blank_line() {
     for (source, saved) in [
         ("- a\n- b\n", "- a\n- b"),
         ("- a\n\n- b\n", "- a\n\n- b"),
-        ("- a\n- b\n\n  c\n", "- a\n\n- b\n  \n  c"),
-        ("- a\n- b\n- c\n\n  d\n", "- a\n\n- b\n\n- c\n  \n  d"),
-        ("1. a\n1. b\n\n   c\n", "1. a\n\n2. b\n   \n   c"),
+        ("- a\n- b\n\n  c\n", "- a\n\n- b\n\n  c"),
+        ("- a\n- b\n- c\n\n  d\n", "- a\n\n- b\n\n- c\n\n  d"),
+        ("1. a\n1. b\n\n   c\n", "1. a\n\n2. b\n\n   c"),
     ] {
         let doc = load_markdown(source, editor_options());
         assert_eq!(doc.to_markdown(), saved, "source={source:?}");
@@ -570,12 +570,12 @@ fn a_paragraph_line_that_would_open_a_new_block_is_left_unprefixed() {
         ("[^1]: n\n| a |\n| --- |\n", "[^1]: n\n| a |\n| --- |"),
         ("[^1]: q\n===\n", "[^1]: q\n==="),
         ("[^1]: q\n--\n", "[^1]: q\n--"),
-        ("- a\n  \n  | a |\n| --- |\n", "- a\n  \n  | a |\n| --- |"),
+        ("- a\n\n  | a |\n| --- |\n", "- a\n\n  | a |\n| --- |"),
         ("> q\n> plain\n", "> q\n> plain"),
         ("- a\n  z\n", "- a\n  z"),
         ("- q\n  ===\n", "- q\n  ==="),
         ("> q\n> a | b\n> --- | ---\n", "> q\n> a | b\n> --- | ---"),
-        ("> q\n> | a |\n> | --- |\n", "> q\n> \n> | a |\n> | --- |\n"),
+        ("> q\n> | a |\n> | --- |\n", "> q\n>\n> | a |\n> | --- |\n"),
         ("- | a |\n  | --- |\n", "- | a |\n  | --- |\n"),
     ] {
         let doc = load_markdown(source, editor_options());
@@ -941,7 +941,7 @@ fn alert_label_case_and_blank_separator_round_trip() {
     for source in [
         "> [!note]\n> body",
         "> [!NoTe]\n> body",
-        "> [!warning]\n> \n> body",
+        "> [!warning]\n>\n> body",
     ] {
         let doc = load_markdown(source, editor_options());
         assert_eq!(doc.to_markdown(), source, "source={source:?}");
@@ -2022,7 +2022,7 @@ fn an_empty_paragraph_inside_a_quote_does_not_emit_a_duplicate_line() {
         2,
         "the quote holds two paragraphs"
     );
-    assert_eq!(doc.to_markdown(), "> hi\n> \n");
+    assert_eq!(doc.to_markdown(), "> hi\n>\n");
 }
 
 #[test]
@@ -2061,7 +2061,7 @@ fn trailing_blank_does_not_hide_an_unterminated_html_tail_from_the_writer() {
 
 #[test]
 fn a_leading_blank_paragraph_writes_two_lines() {
-    for (source, expected) in [("abc\n", "\n\nabc"), ("> abc\n", "> \n> \n> abc")] {
+    for (source, expected) in [("abc\n", "\n\nabc"), ("> abc\n", ">\n>\n> abc")] {
         let mut doc = load_markdown(source, editor_options());
         let leaf = doc.text_leaves()[0];
         let _ = apply(
@@ -2083,15 +2083,15 @@ fn edge_blank_lines_land_on_a_stable_shape() {
         ("\n", ""),
         ("\n\n", "\n\n"),
         ("\n\n\n", "\n\n"),
-        ("> \n", "> \n> \n"),
-        ("> \n> \n", "> \n> \n"),
-        ("> \n> \n> \n", "> \n> \n"),
+        ("> \n", ">\n>\n"),
+        ("> \n> \n", ">\n>\n"),
+        ("> \n> \n> \n", ">\n>\n"),
         ("> \n> abc\n", "> abc"),
-        ("> abc\n> \n", "> abc\n> \n"),
-        ("> abc\n> \n> \n", "> abc\n> \n"),
-        ("> > \n", "> > \n> > \n"),
-        ("> [!note]\n> \n", "> [!note]\n> \n> \n"),
-        ("> [!note]\n> \n> abc\n", "> [!note]\n> \n> abc"),
+        ("> abc\n> \n", "> abc\n>\n"),
+        ("> abc\n> \n> \n", "> abc\n>\n"),
+        ("> > \n", "> >\n> >\n"),
+        ("> [!note]\n> \n", "> [!note]\n>\n>\n"),
+        ("> [!note]\n> \n> abc\n", "> [!note]\n>\n> abc"),
         ("\nabc\n", "abc"),
         ("\n\nabc\n", "\n\nabc"),
         ("\n\n\nabc\n", "\n\nabc"),
@@ -2129,8 +2129,8 @@ fn blank_runs_between_blocks_fold_to_whole_pairs() {
         ("a\n\n\n\n\nb\n", "a\n\n\n\nb"),
         ("# h\n\n\np\n", "# h\n\np"),
         ("```\nx\n```\n\n\np\n", "```\nx\n```\n\np"),
-        ("> a\n> \n> b\n", "> a\n> \n> b"),
-        ("> a\n> \n> \n> b\n", "> a\n> \n> b"),
+        ("> a\n> \n> b\n", "> a\n>\n> b"),
+        ("> a\n> \n> \n> b\n", "> a\n>\n> b"),
         ("a\n\n\n> q\n", "a\n\n> q"),
     ] {
         let doc = load_markdown(source, editor_options());
@@ -2143,7 +2143,7 @@ fn blank_runs_between_blocks_fold_to_whole_pairs() {
 
 #[test]
 fn a_blank_line_after_a_list_inside_a_quote_survives() {
-    for source in ["> - \n> \n", "> - a\n> \n", "- a\n\n"] {
+    for source in ["> - \n>\n", "> - a\n>\n", "- a\n\n"] {
         let doc = load_markdown(source, editor_options());
         let saved = doc.to_markdown();
         assert_eq!(saved, source, "source={source:?}");
@@ -2163,13 +2163,13 @@ fn an_editor_snapshot_keeps_edge_blank_lines() {
         ("hi\n\n\n", "hi\n\n"),
         ("a\n\n\nb\n", "a\n\nb"),
         ("a\n\n\n\nb\n", "a\n\n\n\nb"),
-        ("> - \n> \n", "> - \n> \n"),
+        ("> - \n> \n", "> - \n>\n"),
         ("# h\n\n\np\n", "# h\n\np"),
-        ("> \n> \n", "> \n> \n"),
+        ("> \n> \n", ">\n>\n"),
         ("> \n> abc\n", "> abc"),
-        ("> abc\n> \n", "> abc\n> \n"),
-        ("> abc\n> \n> \n", "> abc\n> \n"),
-        ("> [!note]\n> \n", "> [!note]\n> \n> \n"),
+        ("> abc\n> \n", "> abc\n>\n"),
+        ("> abc\n> \n> \n", "> abc\n>\n"),
+        ("> [!note]\n> \n", "> [!note]\n>\n>\n"),
         ("\nabc\n", "abc"),
         ("\n\nabc\n", "\n\nabc"),
     ] {
