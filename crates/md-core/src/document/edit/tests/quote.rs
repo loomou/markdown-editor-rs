@@ -1,5 +1,5 @@
 use super::support::{caret, has_mark, type_chars};
-use crate::block::BlockKind;
+use crate::block::{AlertKind, BlockKind};
 use crate::document::edit::{Command, Sel, apply};
 use crate::document::{editor_options, load_markdown};
 
@@ -468,4 +468,160 @@ fn select_all_delete_undo_redo_round_trips_a_list_inside_a_quote() {
     );
     assert!(doc.redo().is_some());
     assert_eq!(doc.document.to_markdown(), "");
+}
+
+#[test]
+fn typing_the_alert_marker_binds_it_to_the_quote() {
+    let mut doc = load_markdown("", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let _ = type_chars(&mut doc, caret(leaf, 0), "> [!NOTE]");
+    let saved = doc.to_markdown();
+    println!("saved={saved:?}");
+    assert_eq!(
+        doc.extra(quote_of(&doc)).quote_alert(),
+        Some(AlertKind::Note)
+    );
+    assert_eq!(doc.text_of(leaf).unwrap(), "");
+    assert_eq!(saved, "> [!NOTE]\n> \n>\n");
+    assert_eq!(
+        load_markdown(&saved, editor_options()).to_markdown(),
+        saved,
+        "the bytes a typed alert saves must reload to themselves"
+    );
+    assert_eq!(
+        saved,
+        load_markdown("> [!NOTE]", editor_options()).to_markdown(),
+        "a typed alert must save what a loaded one saves"
+    );
+}
+
+#[test]
+fn typing_the_alert_marker_keeps_the_case_it_was_typed_in() {
+    let mut doc = load_markdown("", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let _ = type_chars(&mut doc, caret(leaf, 0), "> [!warning]");
+    assert_eq!(
+        doc.extra(quote_of(&doc)).quote_alert(),
+        Some(AlertKind::Warning)
+    );
+    assert_eq!(doc.to_markdown(), "> [!warning]\n> \n>\n");
+}
+
+#[test]
+fn a_typed_alert_keeps_its_body_inside_the_quote() {
+    let mut doc = load_markdown("", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let at = type_chars(&mut doc, caret(leaf, 0), "> [!NOTE]");
+    let body = apply(&mut doc, Sel::collapsed(at), Command::Break);
+    let _ = type_chars(&mut doc, body, "body");
+    let saved = doc.to_markdown();
+    println!("saved={saved:?}");
+    assert_eq!(
+        doc.extra(quote_of(&doc)).quote_alert(),
+        Some(AlertKind::Note)
+    );
+    assert_eq!(saved, "> [!NOTE]\n> body");
+    assert_eq!(
+        load_markdown(&saved, editor_options()).to_markdown(),
+        saved,
+        "an alert with a body must reload to the same bytes"
+    );
+}
+
+#[test]
+fn enter_on_a_typed_alert_marker_keeps_the_alert() {
+    let mut doc = load_markdown("", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let at = type_chars(&mut doc, caret(leaf, 0), "> [!NOTE]");
+    let _ = apply(&mut doc, Sel::collapsed(at), Command::Break);
+    let saved = doc.to_markdown();
+    println!("saved={saved:?}");
+    assert_eq!(
+        doc.extra(quote_of(&doc)).quote_alert(),
+        Some(AlertKind::Note),
+        "Enter must not dissolve the alert, saved={saved:?}"
+    );
+    assert_eq!(
+        load_markdown(&saved, editor_options()).to_markdown(),
+        saved,
+        "the bytes an empty alert saves must reload to themselves"
+    );
+}
+
+#[test]
+fn a_marker_that_is_not_a_whole_line_stays_text() {
+    let mut doc = load_markdown("", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let _ = type_chars(&mut doc, caret(leaf, 0), "> [!NOTEX]");
+    assert_eq!(doc.extra(quote_of(&doc)).quote_alert(), None);
+    assert!(doc.to_markdown().contains("[!NOTEX]"));
+}
+
+#[test]
+fn a_typed_alert_marker_undoes_and_redoes() {
+    use crate::doc::Doc;
+    let mut doc = Doc::new(load_markdown("", editor_options()));
+    let leaf = doc.text_leaves()[0];
+    let mut at = caret(leaf, 0);
+    for ch in "> [!NOTE]".chars() {
+        at = doc.apply(
+            Sel::collapsed(at),
+            Command::Insert {
+                text: ch.to_string(),
+            },
+        );
+    }
+    let quote = doc
+        .document
+        .preorder()
+        .into_iter()
+        .find(|&id| doc.document.arena.get(id).map(|n| n.kind) == Some(BlockKind::BlockQuote))
+        .expect("quote");
+    assert_eq!(
+        doc.document.extra(quote).quote_alert(),
+        Some(AlertKind::Note)
+    );
+    assert!(doc.undo().is_some());
+    assert_eq!(doc.document.extra(quote).quote_alert(), None);
+    assert!(doc.redo().is_some());
+    assert_eq!(
+        doc.document.extra(quote).quote_alert(),
+        Some(AlertKind::Note)
+    );
+}
+
+#[test]
+fn a_marker_in_a_later_paragraph_of_a_quote_stays_text() {
+    let mut doc = load_markdown("", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let at = type_chars(&mut doc, caret(leaf, 0), "> hi");
+    let empty = apply(&mut doc, Sel::collapsed(at), Command::Break);
+    let _ = type_chars(&mut doc, empty, "[!NOTE]");
+    assert_eq!(doc.extra(quote_of(&doc)).quote_alert(), None);
+    assert!(doc.to_markdown().contains("[!NOTE]"));
+}
+
+#[test]
+fn a_marker_typed_in_a_quoted_list_item_binds_it() {
+    let mut doc = load_markdown("- ", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let _ = type_chars(&mut doc, caret(leaf, 0), "> [!TIP]");
+    assert_eq!(
+        doc.extra(quote_of(&doc)).quote_alert(),
+        Some(AlertKind::Tip)
+    );
+    assert!(doc.to_markdown().starts_with("- > [!TIP]\n"));
+}
+
+#[test]
+fn enter_on_a_loaded_empty_alert_keeps_the_alert() {
+    let mut doc = load_markdown("> [!NOTE]\n", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let _ = apply(&mut doc, Sel::collapsed(caret(leaf, 0)), Command::Break);
+    assert_eq!(
+        doc.extra(quote_of(&doc)).quote_alert(),
+        Some(AlertKind::Note),
+        "Enter must not dissolve an alert the file already had"
+    );
+    assert_eq!(doc.to_markdown(), "> [!NOTE]\n> \n>\n");
 }

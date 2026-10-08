@@ -58,6 +58,11 @@ pub(super) fn after_paragraph_insert(doc: &mut Document, caret: Caret) -> Caret 
     if let Some(caret) = try_wrap_quote_line(doc, caret) {
         return caret;
     }
+    if let Some(leaf) = doc.live_id(caret.block)
+        && let Some(caret) = doc.try_bind_quote_alert(leaf)
+    {
+        return caret;
+    }
     if let Some(caret) = list::try_commit_task(doc, caret) {
         return caret;
     }
