@@ -489,6 +489,38 @@ fn a_list_item_keeps_the_blank_lines_between_its_blocks() {
 }
 
 #[test]
+fn a_quoted_blank_line_inside_a_list_item_is_a_fixed_point() {
+    for (source, saved) in [
+        ("- > \n", "- > \n  >"),
+        ("- > q\n  > \n", "- > q\n  >\n  > "),
+        ("- > q\n  > \n  > \n", "- > q\n  >\n  > "),
+        ("- > [!TIP]\n", "- > [!TIP]\n  > \n  >"),
+        ("- > [!TIP]\n  > body\n", "- > [!TIP]\n  > body"),
+        ("- > > q\n  > > \n", "- > > q\n  > >\n  > > "),
+        ("1. > [!NOTE]\n", "1. > [!NOTE]\n   > \n   >"),
+        ("> - > q\n>   > \n", "> - > q\n>   >\n>   > "),
+        ("- > q\n  > \nz\n", "- > q\n  >\n  > \n\nz"),
+        ("- > q\n  > \n- r\n", "- > q\n  >\n  > \n- r"),
+        ("- > [!TIP]\n\nz\n", "- > [!TIP]\n  > \n  >\n\nz"),
+    ] {
+        let before = load_markdown(source, editor_options());
+        let once = before.to_markdown();
+        assert_eq!(once, saved, "{source:?} must survive a save");
+        let after = load_markdown(&once, editor_options());
+        assert_eq!(
+            after.to_markdown(),
+            saved,
+            "{source:?} must be a fixed point"
+        );
+        assert_eq!(
+            shape(&before),
+            shape(&after),
+            "{source:?} must reload as the same tree"
+        );
+    }
+}
+
+#[test]
 fn blank_paragraphs_between_two_lists_survive() {
     for (source, saved) in [
         ("- a\n\n- b", "- a\n\n- b"),
