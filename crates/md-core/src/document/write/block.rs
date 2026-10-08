@@ -558,7 +558,8 @@ where
             out.write_str(&marker)?;
             if task.is_none() && shares_the_marker_line(doc, first, &marker) {
                 let text = block_text(doc, first);
-                push_first_and_rest(out, &rest, &text, false)?;
+                let text = text.strip_suffix('\n').unwrap_or(&text);
+                push_first_and_rest(out, &rest, text, false)?;
             } else {
                 out.write_str("\n")?;
                 steps.push(Step::Block {

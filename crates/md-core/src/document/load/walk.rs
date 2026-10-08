@@ -223,7 +223,8 @@ fn visit<'a, 'i>(
             builder.parents.push(id);
             let trailing = match innermost_trailing_item(source, &node) {
                 Some(item) if item.span() == span => blank_paragraphs_of_a_run(
-                    item_trailing_blanks(source, span, width as usize) + 1,
+                    item_trailing_blanks(source, span, width as usize, item_last_child_end(&node))
+                        + 1,
                 ),
                 _ => 0,
             };
@@ -951,29 +952,56 @@ fn innermost_trailing_item<'a, 'i>(
     }
 }
 
-fn item_trailing_blanks(source: &str, range: Range<usize>, indent: usize) -> usize {
+fn item_trailing_blanks(source: &str, range: Range<usize>, indent: usize, floor: usize) -> usize {
+    let end = last_content_end(source, &range).max(floor);
+    scan_trailing_blanks(&item_blank_lines(source, end, range.end), indent)
+}
+
+fn item_claimed_trailing_blanks(source: &str, range: Range<usize>, indent: usize) -> usize {
     let end = last_content_end(source, &range);
-    let Some(region) = source.get(end..range.end) else {
-        return 0;
+    let mut lines = item_blank_lines(source, end, range.end);
+    while lines
+        .last()
+        .is_some_and(|line| blank_line_width(line) == Some(0))
+    {
+        lines.pop();
+    }
+    scan_trailing_blanks(&lines, indent)
+}
+
+fn item_blank_lines(source: &str, start: usize, end: usize) -> Vec<&str> {
+    let Some(region) = source.get(start..end) else {
+        return Vec::new();
     };
     if region.is_empty() {
-        return 0;
+        return Vec::new();
     }
     let mut lines: Vec<&str> = region.split('\n').collect();
     if region.ends_with('\n') {
         lines.pop();
     }
-    if !ends_with_newline(source, end) && lines.first().is_some_and(|line| line.is_empty()) {
+    if !ends_with_newline(source, start) && lines.first().is_some_and(|line| line.is_empty()) {
         lines.remove(0);
     }
+    lines
+}
+
+fn scan_trailing_blanks(lines: &[&str], indent: usize) -> usize {
     let mut count = 0usize;
-    for line in lines.into_iter().rev() {
+    for line in lines.iter().rev() {
         match blank_line_width(line) {
             Some(width) if width >= indent => count += 1,
             _ => break,
         }
     }
     count
+}
+
+fn item_last_child_end(item: &NodeRef<'_, '_>) -> usize {
+    item.children()
+        .last()
+        .map(|child| child.span().end)
+        .unwrap_or(0)
 }
 
 fn gap_blanks(source: &str, range: Range<usize>, previous_terminated: bool) -> usize {
@@ -1049,24 +1077,45 @@ fn gaps_for(source: &str, node: &NodeRef<'_, '_>, span: Range<usize>, alert: boo
     )));
     for (index, pair) in kids.windows(2).enumerate() {
         let end = content_end(source, &children[index]).unwrap_or(pair[0].end);
+        let claimed = claimed_trailing_blanks(source, &children[index]);
         let count = gap_blanks(source, end..pair[1].start, ends_with_newline(source, end)) + 1;
-        gaps.push(blank_paragraphs_between_blocks(count));
+        gaps.push(blank_paragraphs_between_blocks(
+            count.saturating_sub(claimed),
+        ));
     }
     let last = kids[kids.len() - 1].end;
     let last_child = &children[children.len() - 1];
     let last = content_end(source, last_child).unwrap_or(last);
-    let claimed = innermost_trailing_item(source, last_child)
-        .map(|item| {
-            let span = item.span();
-            let indent = super::item_host_indent(source, span.start) as usize;
-            item_trailing_blanks(source, span, indent)
-        })
-        .unwrap_or(0);
+    let claimed = claimed_trailing_blanks(source, last_child);
     let trailing = trailing_blanks(source, last..span.end, ends_with_newline(source, last));
     gaps.push(blank_paragraphs_of_a_run(
         trailing.saturating_sub(claimed) + 1,
     ));
     gaps
+}
+
+fn claimed_trailing_blanks(source: &str, child: &NodeRef<'_, '_>) -> usize {
+    innermost_item(child)
+        .map(|item| {
+            let span = item.span();
+            let indent = super::item_host_indent(source, span.start) as usize;
+            item_claimed_trailing_blanks(source, span, indent)
+        })
+        .unwrap_or(0)
+}
+
+fn innermost_item<'a, 'i>(node: &NodeRef<'a, 'i>) -> Option<NodeRef<'a, 'i>> {
+    let mut current = *node;
+    loop {
+        if matches!(current.kind(), NodeKind::List(_)) || ends_with_a_list(&current) {
+            current = current.children().last()?;
+            continue;
+        }
+        if matches!(current.kind(), NodeKind::ListItem(_)) {
+            return Some(current);
+        }
+        return None;
+    }
 }
 
 impl Builder {
