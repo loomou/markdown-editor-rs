@@ -321,7 +321,7 @@ fn shape(doc: &md_core::document::Document) -> Vec<String> {
 #[test]
 fn shapes_the_editor_can_produce_are_fixed_points() {
     for (source, saved) in [
-        ("> hi\n> \n", "> hi\n>\n"),
+        ("> hi\n> \n", "> hi\n>\n> "),
         ("\nhi\n", "hi"),
         (
             "- hi\n  ```\n  abc\n  ```\n- \n",
@@ -739,7 +739,7 @@ fn an_empty_footnote_definition_roundtrips_with_its_blank_lines() {
         ("z\n\n[^1]:\n\n\n", "z\n\n[^1]:\n\n"),
         ("p[^1]\n\n[^1]:\n", "p[^1]\n\n[^1]:"),
         ("> [^1]:\n", "> [^1]:"),
-        ("> [^1]:\n> \n", "> [^1]:\n>\n"),
+        ("> [^1]:\n> \n", "> [^1]:\n>\n> "),
         ("- [^1]:\n", "- [^1]:"),
         ("[^1]: x\n\n[^2]: y\n", "[^1]: x\n\n[^2]: y"),
     ] {

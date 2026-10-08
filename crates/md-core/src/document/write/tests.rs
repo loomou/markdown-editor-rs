@@ -2022,7 +2022,7 @@ fn an_empty_paragraph_inside_a_quote_does_not_emit_a_duplicate_line() {
         2,
         "the quote holds two paragraphs"
     );
-    assert_eq!(doc.to_markdown(), "> hi\n>\n");
+    assert_eq!(doc.to_markdown(), "> hi\n>\n> ");
 }
 
 #[test]
@@ -2061,7 +2061,7 @@ fn trailing_blank_does_not_hide_an_unterminated_html_tail_from_the_writer() {
 
 #[test]
 fn a_leading_blank_paragraph_writes_two_lines() {
-    for (source, expected) in [("abc\n", "\n\nabc"), ("> abc\n", ">\n>\n> abc")] {
+    for (source, expected) in [("abc\n", "\n\nabc"), ("> abc\n", "> \n>\n> abc")] {
         let mut doc = load_markdown(source, editor_options());
         let leaf = doc.text_leaves()[0];
         let _ = apply(
@@ -2083,14 +2083,14 @@ fn edge_blank_lines_land_on_a_stable_shape() {
         ("\n", ""),
         ("\n\n", "\n\n"),
         ("\n\n\n", "\n\n"),
-        ("> \n", ">\n>\n"),
-        ("> \n> \n", ">\n>\n"),
-        ("> \n> \n> \n", ">\n>\n"),
+        ("> \n", "> \n>\n"),
+        ("> \n> \n", "> \n>\n"),
+        ("> \n> \n> \n", "> \n>\n"),
         ("> \n> abc\n", "> abc"),
-        ("> abc\n> \n", "> abc\n>\n"),
-        ("> abc\n> \n> \n", "> abc\n>\n"),
-        ("> > \n", "> >\n> >\n"),
-        ("> [!note]\n> \n", "> [!note]\n>\n>\n"),
+        ("> abc\n> \n", "> abc\n>\n> "),
+        ("> abc\n> \n> \n", "> abc\n>\n> "),
+        ("> > \n", "> > \n> >\n"),
+        ("> [!note]\n> \n", "> [!note]\n> \n>\n"),
         ("> [!note]\n> \n> abc\n", "> [!note]\n>\n> abc"),
         ("\nabc\n", "abc"),
         ("\n\nabc\n", "\n\nabc"),
@@ -2143,7 +2143,7 @@ fn blank_runs_between_blocks_fold_to_whole_pairs() {
 
 #[test]
 fn a_blank_line_after_a_list_inside_a_quote_survives() {
-    for source in ["> - \n>\n", "> - a\n>\n", "- a\n\n"] {
+    for source in ["> - \n>\n> ", "> - a\n>\n> ", "- a\n\n"] {
         let doc = load_markdown(source, editor_options());
         let saved = doc.to_markdown();
         assert_eq!(saved, source, "source={source:?}");
@@ -2163,13 +2163,13 @@ fn an_editor_snapshot_keeps_edge_blank_lines() {
         ("hi\n\n\n", "hi\n\n"),
         ("a\n\n\nb\n", "a\n\nb"),
         ("a\n\n\n\nb\n", "a\n\n\n\nb"),
-        ("> - \n> \n", "> - \n>\n"),
+        ("> - \n> \n", "> - \n>\n> "),
         ("# h\n\n\np\n", "# h\n\np"),
-        ("> \n> \n", ">\n>\n"),
+        ("> \n> \n", "> \n>\n"),
         ("> \n> abc\n", "> abc"),
-        ("> abc\n> \n", "> abc\n>\n"),
-        ("> abc\n> \n> \n", "> abc\n>\n"),
-        ("> [!note]\n> \n", "> [!note]\n>\n>\n"),
+        ("> abc\n> \n", "> abc\n>\n> "),
+        ("> abc\n> \n> \n", "> abc\n>\n> "),
+        ("> [!note]\n> \n", "> [!note]\n> \n>\n"),
         ("\nabc\n", "abc"),
         ("\n\nabc\n", "\n\nabc"),
     ] {

@@ -162,7 +162,7 @@ fn closing_fence_enter_keeps_the_quote_shape() {
     let out = apply(&mut doc, Sel::collapsed(at), Command::Break);
 
     assert_eq!(doc.kind(out.block), Some(BlockKind::Paragraph));
-    assert_eq!(doc.to_markdown(), "> hi\n>\n> ```\n> abc\n> ```\n>\n");
+    assert_eq!(doc.to_markdown(), "> hi\n>\n> ```\n> abc\n> ```\n>\n> ");
     let para = doc.live_id(out.block).expect("live");
     assert_eq!(
         doc.arena

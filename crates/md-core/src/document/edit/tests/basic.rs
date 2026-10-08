@@ -176,7 +176,7 @@ fn enter_at_the_end_of_an_image_starts_a_new_paragraph() {
     assert_eq!(out.offset, 0);
     assert_eq!(doc.kind(out.block), Some(BlockKind::Paragraph));
     assert_eq!(doc.text_of(out.block), Some(""));
-    assert_eq!(doc.to_markdown(), "> ![a](u)\n>\n");
+    assert_eq!(doc.to_markdown(), "> ![a](u)\n>\n> ");
 }
 
 #[test]

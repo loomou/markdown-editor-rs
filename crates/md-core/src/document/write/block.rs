@@ -44,6 +44,9 @@ enum Step {
     HardBlank {
         prefix: Prefix,
     },
+    EmptyLine {
+        prefix: Prefix,
+    },
     Newline,
 }
 
@@ -109,6 +112,10 @@ where
                 if !prefix.is_plain() {
                     prefix.write_open_bare(out)?;
                 }
+                out.write_str("\n")?;
+            }
+            Step::EmptyLine { prefix } => {
+                prefix.write_open(out)?;
                 out.write_str("\n")?;
             }
             Step::Block { id, prefix } => write_block_step(doc, id, &prefix, out, &mut stack)?,
@@ -395,17 +402,43 @@ where
             index += 1;
         }
         let blanks = index - start;
-        let lines = if start == 0 {
-            blanks * 2
-        } else if index < count {
-            blanks * 2 + 1
-        } else {
-            (blanks * 2).saturating_sub(1)
-        };
-        if previous.is_some() && lines > 0 {
+        let tail = index == count;
+        if previous.is_some() {
             steps.push(Step::Newline);
         }
-        for _ in 0..lines {
+        if start == 0 {
+            for _ in 0..blanks {
+                steps.push(Step::EmptyLine {
+                    prefix: prefix.clone(),
+                });
+                steps.push(Step::HardBlank {
+                    prefix: prefix.clone(),
+                });
+            }
+        } else if tail {
+            for i in 0..blanks {
+                steps.push(Step::HardBlank {
+                    prefix: prefix.clone(),
+                });
+                if i + 1 < blanks {
+                    steps.push(Step::EmptyLine {
+                        prefix: prefix.clone(),
+                    });
+                }
+            }
+            steps.push(Step::Block {
+                id: kids[index - 1],
+                prefix: prefix.clone(),
+            });
+        } else {
+            for _ in 0..blanks {
+                steps.push(Step::HardBlank {
+                    prefix: prefix.clone(),
+                });
+                steps.push(Step::EmptyLine {
+                    prefix: prefix.clone(),
+                });
+            }
             steps.push(Step::HardBlank {
                 prefix: prefix.clone(),
             });
