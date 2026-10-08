@@ -136,10 +136,11 @@ impl Document {
         if carried.is_empty() {
             return out;
         }
+        let mut skipped = 0usize;
         for def in carried {
             let mut piece = String::new();
             write::write_node(self, def, &mut piece);
-            push_piece(&mut out, &piece, true);
+            push_piece(&mut out, &piece, true, &mut skipped);
         }
         out
     }
@@ -214,6 +215,7 @@ impl Document {
         let rules = self.rules_between(leaves, lo_i, hi_i);
         let mut next_rule = 0;
         let mut jumped_item: Option<NodeId> = None;
+        let mut skipped = 0usize;
         let mut i = lo_i;
         while i <= hi_i {
             while next_rule < rules.len() && rules[next_rule].0 <= i {
@@ -223,7 +225,7 @@ impl Document {
                 if !skip {
                     let mut piece = String::new();
                     write::write_node(self, id, &mut piece);
-                    push_piece(&mut out, &piece, true);
+                    push_piece(&mut out, &piece, true, &mut skipped);
                 }
                 next_rule += 1;
             }
@@ -240,7 +242,7 @@ impl Document {
                 let mut piece = String::new();
                 write::write_node(self, def, &mut piece);
                 self.collect_subtree_deps(def, &mut deps.footnotes, &mut deps.links);
-                push_piece(&mut out, &piece, true);
+                push_piece(&mut out, &piece, true, &mut skipped);
                 deps.promoted_footnotes.push(def);
                 i = last + 1;
                 continue;
@@ -256,7 +258,7 @@ impl Document {
                 let mut piece = String::new();
                 write::write_list_item(self, item, &mut piece, extra.list_marker(), num);
                 self.collect_subtree_deps(item, &mut deps.footnotes, &mut deps.links);
-                push_piece(&mut out, &piece, !continuing || extra.list_loose());
+                push_piece(&mut out, &piece, !continuing, &mut skipped);
                 group = list.map(|l| (l, num));
                 jumped_item = Some(item);
                 i = last + 1;
@@ -267,7 +269,7 @@ impl Document {
                 write::write_node(self, table, &mut piece);
                 self.collect_subtree_deps(table, &mut deps.footnotes, &mut deps.links);
                 let piece = piece.trim_end_matches(['\n', '\r']);
-                push_piece(&mut out, piece, true);
+                push_piece(&mut out, piece, true, &mut skipped);
                 i = last + 1;
                 continue;
             }
@@ -281,10 +283,10 @@ impl Document {
                 let mut piece = String::new();
                 write::write_node(self, id, &mut piece);
                 self.collect_leaf_deps(id, &mut deps.footnotes, &mut deps.links);
-                push_piece(&mut out, &piece, true);
+                push_piece(&mut out, &piece, true, &mut skipped);
             } else {
                 let text = self.copy_leaf(id, start..end, deps);
-                push_piece(&mut out, &text, true);
+                push_piece(&mut out, &text, true, &mut skipped);
             }
             i += 1;
         }
@@ -518,18 +520,21 @@ impl Document {
     }
 }
 
-fn push_piece(out: &mut String, piece: &str, blank: bool) {
+fn push_piece(out: &mut String, piece: &str, blank: bool, skipped: &mut usize) {
     if piece.is_empty() {
+        if !out.is_empty() {
+            *skipped += 1;
+        }
         return;
     }
     if !out.is_empty() {
-        if !out.ends_with('\n') {
-            out.push('\n');
-        }
-        if blank && !out.ends_with("\n\n") {
+        let want = usize::from(blank) + 1 + *skipped * 2;
+        let have = out.len() - out.trim_end_matches('\n').len();
+        for _ in have..want {
             out.push('\n');
         }
     }
+    *skipped = 0;
     out.push_str(piece);
 }
 
