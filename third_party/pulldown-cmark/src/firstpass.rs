@@ -70,6 +70,18 @@ struct FirstPass<'a, 'b> {
     blank_lines: Vec<BlankLine>,
 }
 
+#[cfg(feature = "editor-mode")]
+const MATH_FENCE_LEN: usize = 2;
+
+#[cfg(feature = "editor-mode")]
+fn scan_math_fence(bytes: &[u8]) -> Option<usize> {
+    if !bytes.starts_with(b"$$") {
+        return None;
+    }
+    let i = MATH_FENCE_LEN + scan_ch_repeat(&bytes[MATH_FENCE_LEN..], b' ');
+    scan_eol(&bytes[i..]).map(|_| i)
+}
+
 impl<'a, 'b> FirstPass<'a, 'b> {
     fn run(mut self) -> (Tree<Item>, Allocations<'a>, Vec<BlankLine>) {
         let mut ix = 0;
@@ -396,6 +408,14 @@ impl<'a, 'b> FirstPass<'a, 'b> {
         if let Some((n, fence_ch)) = scan_code_fence(&bytes[ix..]) {
             self.finish_list(start_ix);
             return self.parse_fenced_code_block(ix, indent, fence_ch, n);
+        }
+
+        #[cfg(feature = "editor-mode")]
+        {
+            if let Some((content, close_ix, end_ix)) = self.scan_fenced_math(ix, indent) {
+                self.finish_list(start_ix);
+                return self.parse_fenced_math(content, ix, close_ix, end_ix);
+            }
         }
 
         // parse refdef
@@ -1443,6 +1463,70 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             self.append_code_text(remaining_space, ix, next_ix);
             ix = next_ix;
         }
+    }
+
+    #[cfg(feature = "editor-mode")]
+    fn scan_fenced_math(
+        &self,
+        start_ix: usize,
+        indent: usize,
+    ) -> Option<(CowStr<'a>, usize, usize)> {
+        let bytes = self.text.as_bytes();
+        let open_end = start_ix + scan_math_fence(&bytes[start_ix..])?;
+        let mut ix = open_end + scan_eol(&bytes[open_end..])?;
+        let mut buf = String::from(&self.text[start_ix + MATH_FENCE_LEN..ix]);
+        loop {
+            let mut line_start = LineStart::new(&bytes[ix..]);
+            let n_containers = scan_containers(&self.tree, &mut line_start, self.options);
+            if n_containers < self.tree.spine_len() {
+                return None;
+            }
+            line_start.scan_space(indent);
+            let mut close_line_start = line_start.clone();
+            if !close_line_start.scan_space(4 - indent) {
+                let close_ix = ix + close_line_start.bytes_scanned();
+                if let Some(n) = scan_math_fence(&bytes[close_ix..]) {
+                    let end_ix =
+                        close_ix + n + scan_blank_line(&bytes[close_ix + n..]).unwrap_or(0);
+                    return Some((buf.into(), close_ix, end_ix));
+                }
+            }
+            let remaining_space = line_start.remaining_space();
+            let content_at = ix + line_start.bytes_scanned();
+            let content_end = content_at + scan_nextline(&bytes[content_at..]);
+            if content_end <= content_at {
+                return None;
+            }
+            for _ in 0..remaining_space {
+                buf.push(' ');
+            }
+            buf.push_str(&self.text[content_at..content_end]);
+            ix = content_end;
+        }
+    }
+
+    #[cfg(feature = "editor-mode")]
+    fn parse_fenced_math(
+        &mut self,
+        content: CowStr<'a>,
+        start_ix: usize,
+        close_ix: usize,
+        end_ix: usize,
+    ) -> usize {
+        let cow_ix = self.allocs.allocate_cow(content);
+        self.tree.append(Item {
+            start: start_ix,
+            end: end_ix,
+            body: ItemBody::Paragraph,
+        });
+        self.tree.push();
+        self.tree.append(Item {
+            start: start_ix,
+            end: close_ix + MATH_FENCE_LEN,
+            body: ItemBody::Math(cow_ix, true),
+        });
+        self.pop(end_ix);
+        end_ix
     }
 
     fn parse_metadata_block(&mut self, start_ix: usize, metadata_block_ch: u8) -> usize {

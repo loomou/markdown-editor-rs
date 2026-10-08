@@ -79,10 +79,13 @@ bincode = "1.3.1"
 default = ["getopts", "html"]
 # Read-only access to the parse tree (`Parsed` / `NodeRef`), see src/tree_api.rs.
 tree = []
-# Read a blank line between two items of the same list as a list boundary instead of
-# turning that single list loose. Off by default, so `tests/suite/` keeps asserting
-# CommonMark; the fifteen cases there that spell a loose list with a blank line fail when
-# it is on. This repository builds the crate with it on.
+# Two deviations from CommonMark, both of them about what a blank line ends. A blank
+# line between two items of the same list is a list boundary instead of a loose list, and
+# a line that is nothing but `$$` opens a display math block that runs to the next such
+# line, blank lines included. Off by default, so `tests/suite/` keeps asserting CommonMark;
+# sixteen cases there fail when it is on -- fifteen that spell a loose list with a blank
+# line, plus `math::math_test_19`, which expects the `$$` fence to fall apart into four
+# paragraphs. This repository builds the crate with it on.
 editor-mode = []
 gen-tests = []
 simd = ["pulldown-cmark-escape?/simd"]
