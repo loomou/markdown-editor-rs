@@ -215,7 +215,7 @@ fn copy_then_paste_round_trips_inline_source(cx: &mut TestAppContext) {
     });
     cx.simulate_keystrokes("secondary-v");
     let markdown = cx.update(|_, app| editor.read(app).state.doc.document.to_markdown());
-    assert_eq!(markdown, "hello **bold** world**bold**\n");
+    assert_eq!(markdown, "hello **bold** world**bold**");
     let leaves = cx.update(|_, app| editor.read(app).state.doc.text_leaves().len());
     assert_eq!(leaves, 2);
 }
@@ -545,9 +545,9 @@ fn backspace_after_selecting_text_inside_a_fenced_quote_keeps_the_container(
 #[gpui::test]
 fn backspace_after_selecting_part_of_a_quoted_paragraph_keeps_the_quote(cx: &mut TestAppContext) {
     for (md, from, to, expected) in [
-        ("> abc\n", 1, 3, "> a\n"),
+        ("> abc\n", 1, 3, "> a"),
         ("> abc\n", 0, 3, "> \n> \n"),
-        ("- abc\n", 1, 3, "- a\n"),
+        ("- abc\n", 1, 3, "- a"),
         ("> > abc\n", 0, 3, "> > \n> > \n"),
     ] {
         let (editor, cx) = editor_with_doc(md, cx);

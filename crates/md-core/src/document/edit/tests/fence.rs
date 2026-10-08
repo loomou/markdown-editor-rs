@@ -107,7 +107,7 @@ fn closing_fence_enter_starts_a_new_item_in_a_list() {
 
     assert_eq!(doc.kind(out.block), Some(BlockKind::Paragraph));
     assert_eq!(doc.text_of(out.block).unwrap(), "");
-    assert_eq!(doc.to_markdown(), "- hi\n  ```\n  abc\n  ```\n- \n");
+    assert_eq!(doc.to_markdown(), "- hi\n  ```\n  abc\n  ```\n- ");
     let para = doc.live_id(out.block).expect("live");
     let item = doc.arena.get(para).and_then(|n| n.parent).expect("item");
     assert_eq!(

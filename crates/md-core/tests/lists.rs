@@ -344,7 +344,7 @@ fn escaped_task_marker_survives_typing() {
         d.document.to_markdown(),
         d.text(id)
     );
-    assert_eq!(d.document.to_markdown(), "- \\[ ] hiX\n");
+    assert_eq!(d.document.to_markdown(), "- \\[ ] hiX");
     assert_eq!(d.text(id), Some("[ ] hiX"));
 }
 
@@ -361,7 +361,7 @@ fn escaped_continuation_list_marker_survives_typing() {
         Command::Insert { text: "X".into() },
     );
     println!("saved={:?}", d.document.to_markdown());
-    assert_eq!(d.document.to_markdown(), "first\n\\- hiX\n");
+    assert_eq!(d.document.to_markdown(), "first\n\\- hiX");
 }
 
 #[test]
@@ -377,7 +377,7 @@ fn escaped_continuation_quote_marker_survives_typing() {
         Command::Insert { text: "X".into() },
     );
     println!("quote saved={:?}", d.document.to_markdown());
-    assert_eq!(d.document.to_markdown(), "first\n\\> hiX\n");
+    assert_eq!(d.document.to_markdown(), "first\n\\> hiX");
 }
 
 #[test]
@@ -394,7 +394,7 @@ fn live_markers_still_promote_on_typing() {
         },
     );
     println!("live task saved={:?}", d.document.to_markdown());
-    assert_eq!(d.document.to_markdown(), "- [ ] hi\n");
+    assert_eq!(d.document.to_markdown(), "- [ ] hi");
 
     let mut d = Doc::new(doc("hi\n"));
     let id = d.first_text_leaf().unwrap();
@@ -406,7 +406,7 @@ fn live_markers_still_promote_on_typing() {
         Command::Insert { text: "> ".into() },
     );
     println!("live quote saved={:?}", d.document.to_markdown());
-    assert_eq!(d.document.to_markdown(), "> hi\n");
+    assert_eq!(d.document.to_markdown(), "> hi");
 }
 
 #[test]
@@ -430,7 +430,7 @@ fn a_marker_insert_that_stays_text_is_escaped_on_save() {
                 != Some(md_core::block::BlockKind::List)),
         "the marker stays literal text, so nothing was promoted"
     );
-    assert_eq!(saved, "\\- hi\n");
+    assert_eq!(saved, "\\- hi");
     assert_eq!(
         doc(&saved).to_markdown(),
         saved,
@@ -603,7 +603,7 @@ fn an_empty_nested_item_takes_the_caret_and_can_be_selected_and_deleted() {
         },
     );
     assert_eq!(doc.text(caret.block), Some("x"));
-    assert_eq!(doc.document.to_markdown(), "- - x\n");
+    assert_eq!(doc.document.to_markdown(), "- - x");
 
     let mut doc = Doc::new(load_markdown("- -\n", editor_options()));
     doc.enable_trailing_blank();
@@ -627,12 +627,12 @@ fn backspacing_an_empty_item_that_follows_a_nested_list_removes_the_line() {
         }),
         Command::DeleteBackward,
     );
-    assert_eq!(doc.document.to_markdown(), "- - \n- \n");
+    assert_eq!(doc.document.to_markdown(), "- - \n- ");
 
     let caret = doc.apply(Sel::collapsed(caret), Command::DeleteBackward);
     assert_eq!(
         doc.document.to_markdown(),
-        "- - \n",
+        "- - ",
         "the emptied item must go, not linger as an indented blank line"
     );
     let text = doc
@@ -645,7 +645,7 @@ fn backspacing_an_empty_item_that_follows_a_nested_list_removes_the_line() {
     );
 
     let caret = doc.apply(Sel::collapsed(caret), Command::DeleteBackward);
-    assert_eq!(doc.document.to_markdown(), "- \n");
+    assert_eq!(doc.document.to_markdown(), "- ");
 
     let caret = doc.apply(Sel::collapsed(caret), Command::DeleteBackward);
     assert_eq!(doc.document.to_markdown(), "");
@@ -655,9 +655,9 @@ fn backspacing_an_empty_item_that_follows_a_nested_list_removes_the_line() {
 #[test]
 fn a_soft_break_in_an_empty_item_survives_a_save() {
     for (source, saved) in [
-        ("- \n", "- \n  \n"),
-        ("1. \n", "1. \n   \n"),
-        ("> - \n", "> - \n>   \n"),
+        ("- \n", "- \n  "),
+        ("1. \n", "1. \n   "),
+        ("> - \n", "> - \n>   "),
     ] {
         let mut doc = Doc::new(load_markdown(source, editor_options()));
         doc.enable_trailing_blank();

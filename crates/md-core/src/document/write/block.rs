@@ -572,16 +572,24 @@ where
             index += 1;
         }
         let blanks = index - start;
-        let lines = if index < kids.len() {
-            blanks * 2 + 1
-        } else {
+        let tail = index == kids.len();
+        let lines = if tail {
             (blanks * 2).saturating_sub(1)
+        } else {
+            blanks * 2 + 1
         };
         if !previous_blank && lines > 0 {
             steps.push(Step::Newline);
         }
-        for _ in 0..lines {
+        let hard = if tail { lines.saturating_sub(1) } else { lines };
+        for _ in 0..hard {
             steps.push(Step::HardBlank {
+                prefix: rest.clone(),
+            });
+        }
+        if tail {
+            steps.push(Step::Block {
+                id: kids[index - 1],
                 prefix: rest.clone(),
             });
         }

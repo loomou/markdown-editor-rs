@@ -22,7 +22,7 @@ fn outdent_mid_list_item_with_a_pasted_tail_keeps_the_rest() {
     let pasted = doc.document.to_markdown();
     assert_eq!(
         pasted,
-        "- first item> quoted\n  \n  \\`\\`\\`rust\n  fn q() {}\n  \\`\\`\\`\n\n- second item\n"
+        "- first item> quoted\n  \n  \\`\\`\\`rust\n  fn q() {}\n  \\`\\`\\`\n\n- second item"
     );
 
     let _ = doc.apply(Sel::collapsed(pasted_caret), Command::Outdent);
@@ -35,7 +35,7 @@ fn outdent_mid_list_item_with_a_pasted_tail_keeps_the_rest() {
     while doc.undo().is_some() {}
     assert_eq!(
         doc.document.to_markdown(),
-        "- first item\n- second item\n",
+        "- first item\n- second item",
         "undo-to-bottom lost the source: {lifted:?}"
     );
 }
@@ -171,7 +171,7 @@ fn outdent_nested_item_matches_lift() {
 
 #[test]
 fn outdent_only_nested_item_stays_reachable_and_undoable() {
-    for source in ["- - a\n", "- - a\n- b\n"] {
+    for (source, outdented) in [("- - a\n", "- a"), ("- - a\n- b\n", "- a\n- b")] {
         let mut doc = Doc::new(load_markdown(source, editor_options()));
         let a = doc
             .text_leaves()
@@ -180,7 +180,7 @@ fn outdent_only_nested_item_stays_reachable_and_undoable() {
             .expect("a");
         let _ = doc.apply(Sel::collapsed(caret(a, 1)), Command::Outdent);
 
-        assert_eq!(doc.document.to_markdown(), source.replace("- - a", "- a"));
+        assert_eq!(doc.document.to_markdown(), outdented);
         assert!(doc.document.live_id(a).is_some());
         assert!(doc.document.preorder().into_iter().any(|id| id.index == a));
 
@@ -200,7 +200,7 @@ fn outdent_only_nested_item_stays_reachable_and_undoable() {
         assert!(doc.document.preorder().into_iter().any(|id| id.index == a));
 
         let _ = doc.redo().expect("redo outdent");
-        assert_eq!(doc.document.to_markdown(), source.replace("- - a", "- a"));
+        assert_eq!(doc.document.to_markdown(), outdented);
         assert!(doc.document.live_id(a).is_some());
         assert!(doc.document.preorder().into_iter().any(|id| id.index == a));
     }
@@ -208,18 +208,18 @@ fn outdent_only_nested_item_stays_reachable_and_undoable() {
 
 #[test]
 fn outdent_last_root_item_undo_restores_the_list() {
-    let mut doc = Doc::new(load_markdown("- a\n", editor_options()));
+    let mut doc = Doc::new(load_markdown("- a", editor_options()));
     let a = doc.text_leaves()[0];
 
     let _ = doc.apply(Sel::collapsed(caret(a, 1)), Command::Outdent);
-    assert_eq!(doc.document.to_markdown(), "a\n");
+    assert_eq!(doc.document.to_markdown(), "a");
 
     let _ = doc.undo().expect("undo outdent");
-    assert_eq!(doc.document.to_markdown(), "- a\n");
+    assert_eq!(doc.document.to_markdown(), "- a");
     assert_eq!(doc.text(a), Some("a"));
 
     let _ = doc.redo().expect("redo outdent");
-    assert_eq!(doc.document.to_markdown(), "a\n");
+    assert_eq!(doc.document.to_markdown(), "a");
 }
 
 #[test]
@@ -247,7 +247,7 @@ fn indent_then_outdent_restores_tight() {
 
 #[test]
 fn indent_preserves_source_loose_spacing_and_undo_restores_it() {
-    let source = "- a\n\n- b\n";
+    let source = "- a\n\n- b";
     let mut doc = Doc::new(load_markdown(source, editor_options()));
     let list = first_list(&doc.document);
     assert!(doc.document.extra(list).list_loose());
@@ -256,7 +256,7 @@ fn indent_preserves_source_loose_spacing_and_undo_restores_it() {
     let _ = doc.apply(Sel::collapsed(caret(second, 0)), Command::Indent);
 
     assert!(doc.document.extra(list).list_loose());
-    let indented = "- a\n  \n  - b\n";
+    let indented = "- a\n  \n  - b";
     assert_eq!(doc.document.to_markdown(), indented);
     let _ = doc.undo().expect("undo indent");
     assert_eq!(doc.document.to_markdown(), source);
@@ -626,13 +626,13 @@ fn outdent_lifting_the_whole_list_then_undo_restores_the_subtree() {
     let _ = doc.take_changes();
     let _ = doc.apply(Sel::collapsed(caret(leaf, 0)), Command::Outdent);
     let lifted = doc.document.to_markdown();
-    assert_eq!(lifted, "first\n\n- second\n");
+    assert_eq!(lifted, "first\n\n- second");
 
     let restored = doc.undo();
     assert!(restored.is_some(), "the lift must be undoable");
     assert_eq!(
         doc.document.to_markdown(),
-        "- first\n  - second\n",
+        "- first\n  - second",
         "undo must return the nested list into the item"
     );
 }
@@ -674,7 +674,7 @@ fn undo_after_middle_outdent_restores_the_list() {
 
 #[test]
 fn outdent_two_nested_items_keeps_the_tail_after_them() {
-    let source = "- a\n  - b\n  - c\n  - d\n- e\n";
+    let source = "- a\n  - b\n  - c\n  - d\n- e";
     let mut doc = Doc::new(load_markdown(source, editor_options()));
     let leaves = doc.text_leaves();
     let (b, c) = (leaves[1], leaves[2]);
@@ -695,12 +695,12 @@ fn outdent_two_nested_items_keeps_the_tail_after_them() {
         ["a", "b", "c", "d", "e"],
         "tree order must not move d"
     );
-    assert_eq!(doc.document.to_markdown(), "- a\n- b\n- c\n  - d\n- e\n");
+    assert_eq!(doc.document.to_markdown(), "- a\n- b\n- c\n  - d\n- e");
     let changes = doc.take_changes();
     assert_changeset_parents_live(&doc.document, &changes);
 
     assert!(doc.undo().is_some());
     assert_eq!(doc.document.to_markdown(), source);
     assert!(doc.redo().is_some());
-    assert_eq!(doc.document.to_markdown(), "- a\n- b\n- c\n  - d\n- e\n");
+    assert_eq!(doc.document.to_markdown(), "- a\n- b\n- c\n  - d\n- e");
 }

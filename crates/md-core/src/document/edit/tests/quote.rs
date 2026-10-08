@@ -463,7 +463,7 @@ fn select_all_delete_undo_redo_round_trips_a_list_inside_a_quote() {
     assert!(doc.undo().is_some());
     assert_eq!(
         doc.document.to_markdown(),
-        "> 1. x\n",
+        "> 1. x",
         "undo must put the leaf back inside the list item, not beside it"
     );
     assert!(doc.redo().is_some());

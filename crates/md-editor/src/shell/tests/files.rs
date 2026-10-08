@@ -121,6 +121,6 @@ fn edit_menu_paste_lands_at_the_caret(cx: &mut TestAppContext) {
             editor.state.doc.text_leaves().len(),
         )
     });
-    assert_eq!(markdown, "# Heading**b**\n\nneedle appears twice: needle\n");
+    assert_eq!(markdown, "# Heading**b**\n\nneedle appears twice: needle");
     assert_eq!(leaves, 3);
 }

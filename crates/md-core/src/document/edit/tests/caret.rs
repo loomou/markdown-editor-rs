@@ -266,7 +266,7 @@ fn list_marker_on_a_soft_line_preserves_inline_source() {
     let id = doc.live_id(out.block).expect("list paragraph");
     assert_eq!(doc.leaf_source(id), "**hi**");
     assert!(has_list(&doc));
-    assert_eq!(doc.to_markdown(), "hello\n\n- **hi**\n");
+    assert_eq!(doc.to_markdown(), "hello\n\n- **hi**");
 }
 
 #[test]
@@ -353,7 +353,7 @@ fn cross_block_delete_preserves_inline_source_in_the_suffix() {
             .iter()
             .any(|run| run.marks.contains(InlineMarks::STRONG))
     );
-    assert_eq!(doc.to_markdown(), "a**bold**\n");
+    assert_eq!(doc.to_markdown(), "a**bold**");
 }
 
 #[test]

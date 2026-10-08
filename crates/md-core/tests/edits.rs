@@ -583,7 +583,7 @@ fn html_block_backspace_preserves_closing_tag() {
     let block = doc.text_leaves()[0];
     let caret = doc.retarget_focus(Caret { block, offset: 1 });
     doc.apply(Sel::collapsed(caret), Command::DeleteBackward);
-    assert_eq!(doc.document.to_markdown(), "<div>ello</div>\n");
+    assert_eq!(doc.document.to_markdown(), "<div>ello</div>");
 }
 
 #[test]
@@ -592,7 +592,7 @@ fn html_block_delete_forward_eats_visible_text() {
     let block = doc.text_leaves()[0];
     let caret = doc.retarget_focus(Caret { block, offset: 0 });
     doc.apply(Sel::collapsed(caret), Command::DeleteForward);
-    assert_eq!(doc.document.to_markdown(), "<div>ello</div>\n");
+    assert_eq!(doc.document.to_markdown(), "<div>ello</div>");
 }
 
 #[test]
@@ -602,7 +602,7 @@ fn html_block_multiline_maps_to_collapsed_visible_text() {
     assert_eq!(doc.text(block), Some("hello"));
     let caret = doc.retarget_focus(Caret { block, offset: 1 });
     doc.apply(Sel::collapsed(caret), Command::Insert { text: "X".into() });
-    assert_eq!(doc.document.to_markdown(), "<div>\nhXello\n</div>\n");
+    assert_eq!(doc.document.to_markdown(), "<div>\nhXello\n</div>");
 }
 
 #[test]
@@ -611,7 +611,7 @@ fn html_block_unicode_caret_lands_on_char_boundary() {
     let block = doc.text_leaves()[0];
     let caret = doc.retarget_focus(Caret { block, offset: 3 });
     doc.apply(Sel::collapsed(caret), Command::Insert { text: "X".into() });
-    assert_eq!(doc.document.to_markdown(), "<div>中X文</div>\n");
+    assert_eq!(doc.document.to_markdown(), "<div>中X文</div>");
 }
 
 #[test]
@@ -620,11 +620,11 @@ fn html_block_undo_redo_preserves_tags() {
     let block = doc.text_leaves()[0];
     let caret = doc.retarget_focus(Caret { block, offset: 1 });
     doc.apply(Sel::collapsed(caret), Command::Insert { text: "X".into() });
-    assert_eq!(doc.document.to_markdown(), "<div>hXello</div>\n");
+    assert_eq!(doc.document.to_markdown(), "<div>hXello</div>");
     doc.undo();
-    assert_eq!(doc.document.to_markdown(), "<div>hello</div>\n");
+    assert_eq!(doc.document.to_markdown(), "<div>hello</div>");
     doc.redo();
-    assert_eq!(doc.document.to_markdown(), "<div>hXello</div>\n");
+    assert_eq!(doc.document.to_markdown(), "<div>hXello</div>");
 }
 
 #[test]
@@ -633,7 +633,7 @@ fn inline_html_text_edit_misses_the_tags() {
     let block = doc.text_leaves()[0];
     let caret = doc.retarget_focus(Caret { block, offset: 2 });
     doc.apply(Sel::collapsed(caret), Command::Insert { text: "X".into() });
-    assert_eq!(doc.document.to_markdown(), "a <b>Xbold</b> tail\n");
+    assert_eq!(doc.document.to_markdown(), "a <b>Xbold</b> tail");
 }
 
 #[test]
@@ -923,7 +923,7 @@ fn quote_promotion_plain_quote_keeps_text() {
 
 #[test]
 fn undo_rich_paste_inside_image_restores_source() {
-    let source = "![long alternative text](/target)\n\ntail\n";
+    let source = "![long alternative text](/target)\n\ntail";
     let mut doc = Doc::new(load_markdown(source, editor_options()));
     let block = doc.text_leaves()[0];
     let caret = doc.retarget_focus(Caret { block, offset: 16 });
@@ -942,7 +942,7 @@ fn undo_rich_paste_inside_image_restores_source() {
 #[test]
 fn rich_paste_next_to_image_keeps_the_image_intact() {
     let mut doc = Doc::new(load_markdown(
-        "![long alternative text](/target)\n\ntail\n",
+        "![long alternative text](/target)\n\ntail",
         editor_options(),
     ));
     let block = doc.text_leaves()[0];
@@ -965,7 +965,7 @@ fn rich_paste_next_to_image_keeps_the_image_intact() {
 
 #[test]
 fn rich_paste_at_image_url_segment_keeps_the_image_intact() {
-    let source = "![alt](/target)\n\ntail\n";
+    let source = "![alt](/target)\n\ntail";
     let mut doc = Doc::new(load_markdown(source, editor_options()));
     let block = doc.text_leaves()[0];
     let caret = doc.retarget_focus(Caret { block, offset: 9 });
@@ -988,7 +988,7 @@ fn rich_paste_at_image_url_segment_keeps_the_image_intact() {
 
 #[test]
 fn rich_paste_replacing_image_selection_restores_source() {
-    let source = "![alt text](/target)\n\ntail\n";
+    let source = "![alt text](/target)\n\ntail";
     let mut doc = Doc::new(load_markdown(source, editor_options()));
     let block = doc.text_leaves()[0];
     let a = doc.retarget_focus(Caret { block, offset: 3 });
@@ -1007,7 +1007,7 @@ fn rich_paste_replacing_image_selection_restores_source() {
 
 #[test]
 fn plain_text_paste_inside_image_still_restores() {
-    let source = "![alt text](/target)\n\ntail\n";
+    let source = "![alt text](/target)\n\ntail";
     let mut doc = Doc::new(load_markdown(source, editor_options()));
     let block = doc.text_leaves()[0];
     let caret = doc.retarget_focus(Caret { block, offset: 5 });
@@ -1068,7 +1068,7 @@ fn multiline_insert_plain_quote_keeps_one_quote() {
     );
     let saved = doc.document.to_markdown();
     println!("saved={saved:?}");
-    assert_eq!(saved, "> hello\n> world\n", "saved={saved:?}");
+    assert_eq!(saved, "> hello\n> world", "saved={saved:?}");
 }
 
 #[test]
@@ -1083,7 +1083,7 @@ fn multiline_insert_plain_paragraphs_stay_literal() {
     );
     let saved = doc.document.to_markdown();
     println!("saved={saved:?}");
-    assert_eq!(saved, "a\n**b**\n");
+    assert_eq!(saved, "a\n**b**");
     let leaf = doc.first_text_leaf().unwrap();
     assert_eq!(doc.text(leaf), Some("a\n**b**"));
 }
@@ -1136,7 +1136,7 @@ fn multiline_insert_list_keeps_continuation() {
             .any(|id| doc.document.arena.get(id).unwrap().kind == BlockKind::List),
         "one batched list item must land as a real list, saved={saved:?}"
     );
-    assert_eq!(saved, "- item\n  cont\n");
+    assert_eq!(saved, "- item\n  cont");
 }
 
 #[test]
@@ -1204,7 +1204,7 @@ fn paste_into_heading_flattens_soft_breaks() {
             intent: PasteIntent::IndependentFragment,
         },
     );
-    assert_eq!(doc.document.to_markdown(), "# tia btle\n");
+    assert_eq!(doc.document.to_markdown(), "# tia btle");
 }
 
 #[test]
@@ -1218,7 +1218,7 @@ fn multiline_insert_with_blanks_into_heading_roundtrips() {
         },
     );
     let saved = doc.document.to_markdown();
-    assert_eq!(saved, "# tia b\n\nc dtle\n");
+    assert_eq!(saved, "# tia b\n\nc dtle");
     let reloaded = load_markdown(&saved, editor_options());
     assert_eq!(reloaded.to_markdown(), saved);
 }
@@ -1234,7 +1234,7 @@ fn multiline_insert_splice_in_list_item_roundtrips() {
         },
     );
     let saved = doc.document.to_markdown();
-    assert_eq!(saved, "- it\n  \n  > [!TIP]\n  > body\n  \n  em\n");
+    assert_eq!(saved, "- it\n  \n  > [!TIP]\n  > body\n  \n  em");
     let reloaded = load_markdown(&saved, editor_options());
     assert_eq!(reloaded.to_markdown(), saved, "resave must be byte-stable");
     assert_loose_in_sync(&doc.document, &reloaded);
@@ -1252,7 +1252,7 @@ fn paste_fragment_splice_in_list_item_roundtrips() {
         },
     );
     let saved = doc.document.to_markdown();
-    assert_eq!(saved, "- it\n  \n  > [!TIP]\n  > body\n  \n  em\n");
+    assert_eq!(saved, "- it\n  \n  > [!TIP]\n  > body\n  \n  em");
     let reloaded = load_markdown(&saved, editor_options());
     assert_eq!(reloaded.to_markdown(), saved, "resave must be byte-stable");
     assert_loose_in_sync(&doc.document, &reloaded);
@@ -1269,7 +1269,7 @@ fn multiline_insert_nested_list_in_item_roundtrips() {
         },
     );
     let saved = doc.document.to_markdown();
-    assert_eq!(saved, "- it\n  \n  - n1\n  - n2\n  \n  em\n");
+    assert_eq!(saved, "- it\n  \n  - n1\n  - n2\n  \n  em");
     let reloaded = load_markdown(&saved, editor_options());
     assert_eq!(reloaded.to_markdown(), saved, "resave must be byte-stable");
     assert_loose_in_sync(&doc.document, &reloaded);
@@ -1297,7 +1297,7 @@ fn collapsed_replace_keeps_code_span_closer() {
         },
         Command::Insert { text: "x".into() },
     );
-    assert_eq!(doc.document.to_markdown(), "`x` tail\n");
+    assert_eq!(doc.document.to_markdown(), "`x` tail");
 }
 
 #[test]
@@ -1311,7 +1311,7 @@ fn collapsed_replace_keeps_strong_closer() {
         },
         Command::Insert { text: "x".into() },
     );
-    assert_eq!(doc.document.to_markdown(), "**x** tail\n");
+    assert_eq!(doc.document.to_markdown(), "**x** tail");
 }
 
 #[test]
@@ -1325,7 +1325,7 @@ fn collapsed_replace_keeps_link_destination() {
         },
         Command::Insert { text: "x".into() },
     );
-    assert_eq!(doc.document.to_markdown(), "[x](url) tail\n");
+    assert_eq!(doc.document.to_markdown(), "[x](url) tail");
 }
 
 #[test]
@@ -1339,7 +1339,7 @@ fn collapsed_replace_keeps_html_closing_tag() {
         },
         Command::Insert { text: "x".into() },
     );
-    assert_eq!(doc.document.to_markdown(), "a<b>x</b> tail\n");
+    assert_eq!(doc.document.to_markdown(), "a<b>x</b> tail");
 }
 
 #[test]
@@ -1353,7 +1353,7 @@ fn collapsed_replace_keeps_adjacent_construct() {
         },
         Command::Insert { text: "x".into() },
     );
-    assert_eq!(doc.document.to_markdown(), "**x**`code` tail\n");
+    assert_eq!(doc.document.to_markdown(), "**x**`code` tail");
 }
 
 #[test]
@@ -1367,7 +1367,7 @@ fn collapsed_replace_utf8_keeps_closer() {
         },
         Command::Insert { text: "x".into() },
     );
-    assert_eq!(doc.document.to_markdown(), "**x文** tail\n");
+    assert_eq!(doc.document.to_markdown(), "**x文** tail");
 }
 
 #[test]
@@ -1381,7 +1381,7 @@ fn collapsed_replace_at_block_end_consumes_hidden_syntax() {
         },
         Command::Insert { text: "x".into() },
     );
-    assert_eq!(doc.document.to_markdown(), "x\n");
+    assert_eq!(doc.document.to_markdown(), "x");
 }
 
 #[test]
@@ -1392,7 +1392,7 @@ fn collapsed_caret_insert_stays_outside_span() {
         Sel::collapsed(Caret { block, offset: 4 }),
         Command::Insert { text: "x".into() },
     );
-    assert_eq!(doc.document.to_markdown(), "`code`x tail\n");
+    assert_eq!(doc.document.to_markdown(), "`code`x tail");
 }
 
 #[test]
@@ -1406,9 +1406,9 @@ fn collapsed_replace_undo_restores_source() {
         },
         Command::Insert { text: "x".into() },
     );
-    assert_eq!(doc.document.to_markdown(), "`x` tail\n");
+    assert_eq!(doc.document.to_markdown(), "`x` tail");
     while doc.undo().is_some() {}
-    assert_eq!(doc.document.to_markdown(), "`code` tail\n");
+    assert_eq!(doc.document.to_markdown(), "`code` tail");
 }
 
 #[test]
@@ -1453,5 +1453,5 @@ fn collapsed_replace_entity_consumes_whole_token() {
         },
         Command::Insert { text: "x".into() },
     );
-    assert_eq!(doc.document.to_markdown(), "a x b\n");
+    assert_eq!(doc.document.to_markdown(), "a x b");
 }

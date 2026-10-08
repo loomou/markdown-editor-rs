@@ -502,7 +502,7 @@ fn literal_merge_undo_redo_replays_display_coordinates() {
     let _ = d.undo().expect("undo literal merge");
     assert_eq!(d.text(code), Some("code"));
     assert_eq!(d.text(paragraph), Some("bold"));
-    assert_eq!(d.document.to_markdown(), "```\ncode\n```\n\n**bold**\n");
+    assert_eq!(d.document.to_markdown(), "```\ncode\n```\n\n**bold**");
 
     let redone = d.redo().expect("redo literal merge");
     assert_eq!(redone, Sel::collapsed(after));

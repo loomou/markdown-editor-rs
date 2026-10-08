@@ -319,7 +319,7 @@ fn select_all_delete_paints_the_empty_document_at_the_top(cx: &mut TestAppContex
         "after typing the caret did not move forward: {x0} -> {x1}"
     );
     let md_after = cx.update(|_, app| editor.read(app).state.doc.document.to_markdown());
-    assert_eq!(md_after, "z\n");
+    assert_eq!(md_after, "z");
 }
 
 #[gpui::test]
