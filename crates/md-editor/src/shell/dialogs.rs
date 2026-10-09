@@ -1,6 +1,6 @@
 use super::Shell;
 use crate::ui::theme::{DLG_MIN_H, DLG_W, MONO_FONT, RADIUS, ShellTheme};
-use crate::view::{EditorView, SaveConflictChoice, UnsavedChoice, unsaved_file_name};
+use crate::view::{EditorView, SaveConflictChoice, UnsavedChoice};
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, ClickEvent, Context, Div, Entity, FontWeight, InteractiveElement, IntoElement,
@@ -96,7 +96,6 @@ impl Shell {
         editor: &EditorView,
     ) -> Option<impl IntoElement> {
         editor.unsaved_nav?;
-        let name = unsaved_file_name(&editor.state.doc).to_string();
         let focus = editor.unsaved_focus.clone();
         Some(
             div()
@@ -124,7 +123,7 @@ impl Shell {
                         cx.stop_propagation();
                     }
                 })
-                .child(self.unsaved_dialog(t, this, name)),
+                .child(self.unsaved_dialog(t, this)),
         )
     }
 
@@ -285,8 +284,8 @@ impl Shell {
             .child(t18(label))
     }
 
-    fn unsaved_dialog(&self, t: ShellTheme, this: Entity<Self>, name: String) -> impl IntoElement {
-        let (question_head, question_tail) = md_i18n::fmt::save_changes_question();
+    fn unsaved_dialog(&self, t: ShellTheme, this: Entity<Self>) -> impl IntoElement {
+        let question = md_i18n::fmt::save_changes_question();
         div()
             .id("unsaved-dialog")
             .w(px(DLG_W))
@@ -303,20 +302,10 @@ impl Shell {
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(
                 div()
-                    .flex()
-                    .flex_wrap()
                     .text_size(px(15.))
                     .font_weight(FontWeight(600.0))
                     .text_color(t.text)
-                    .child(question_head)
-                    .child(
-                        div()
-                            .font_family(MONO_FONT)
-                            .text_size(px(12.5))
-                            .font_weight(FontWeight(500.0))
-                            .child(name),
-                    )
-                    .child(question_tail),
+                    .child(question),
             )
             .child(
                 div()
