@@ -2,6 +2,7 @@ use super::{Document, PasteIntent};
 use crate::block::BlockId;
 
 mod delete;
+mod fence;
 mod list;
 pub(crate) mod normalize;
 mod path;
@@ -14,6 +15,7 @@ mod typing;
 mod tests;
 
 use delete::{delete_backward, delete_forward};
+use fence::set_fence_lang;
 use structure::{break_block, indent, outdent, paste, soft_break, toggle_task, wrap_list};
 use typing::insert;
 
@@ -57,6 +59,7 @@ pub enum Command {
     WrapList { ordered: bool, task: Option<bool> },
     Paste { text: String, intent: PasteIntent },
     Table(TableOp),
+    SetFenceLang { block: BlockId, lang: String },
 }
 
 pub fn apply(doc: &mut Document, sel: Sel, cmd: Command) -> Caret {
@@ -72,6 +75,10 @@ pub fn apply(doc: &mut Document, sel: Sel, cmd: Command) -> Caret {
         Command::WrapList { ordered, task } => wrap_list(doc, sel, ordered, task),
         Command::Paste { text, intent } => paste(doc, sel, &text, intent),
         Command::Table(op) => table::apply_table(doc, sel, op),
+        Command::SetFenceLang { block, lang } => {
+            let _ = set_fence_lang(doc, block, &lang);
+            sel.head
+        }
     };
     doc.clamp_live_caret(caret)
 }

@@ -674,3 +674,172 @@ fn a_math_fence_after_a_soft_break_undoes_to_one_paragraph() {
     assert_eq!(d.document.text_of(leaf), Some("hi\n$$"));
     assert_eq!(d.document.text_leaves().len(), 1);
 }
+
+fn set_lang(doc: &mut Document, block: u32, lang: &str) -> bool {
+    let revision = doc.revision();
+    let sel = Sel::collapsed(caret(block, 0));
+    let _ = apply(
+        doc,
+        sel,
+        Command::SetFenceLang {
+            block,
+            lang: lang.to_string(),
+        },
+    );
+    doc.revision() != revision
+}
+
+#[test]
+fn setting_the_fence_language_rewrites_the_info_string() {
+    let mut doc = load_markdown("```rust\nfn x() {}\n```\n", editor_options());
+    let block = doc.text_leaves()[0];
+    assert!(set_lang(&mut doc, block, "python"));
+    assert_eq!(doc.to_markdown(), "```python\nfn x() {}\n```\n");
+    assert_eq!(doc.kind(block), Some(BlockKind::CodeBlock));
+    assert_eq!(doc.text_of(block), Some("fn x() {}"));
+}
+
+#[test]
+fn clearing_the_fence_language_drops_the_info_string() {
+    let mut doc = load_markdown("```rust\nfn x() {}\n```\n", editor_options());
+    let block = doc.text_leaves()[0];
+    assert!(set_lang(&mut doc, block, "   "));
+    assert_eq!(doc.to_markdown(), "```\nfn x() {}\n```\n");
+    let again = load_markdown(&doc.to_markdown(), editor_options());
+    assert_eq!(again.to_markdown(), doc.to_markdown());
+}
+
+#[test]
+fn setting_the_same_language_is_a_no_op() {
+    let mut doc = load_markdown("```rust\nfn x() {}\n```\n", editor_options());
+    let block = doc.text_leaves()[0];
+    assert!(!set_lang(&mut doc, block, "rust"));
+    assert!(!set_lang(&mut doc, block, "  rust  "));
+    assert_eq!(doc.to_markdown(), "```rust\nfn x() {}\n```\n");
+}
+
+#[test]
+fn the_language_is_trimmed_but_its_later_tokens_are_kept() {
+    let mut doc = load_markdown("```rust ignore\nfn x() {}\n```\n", editor_options());
+    let block = doc.text_leaves()[0];
+    assert!(set_lang(&mut doc, block, "  python,no_run  "));
+    assert_eq!(doc.to_markdown(), "```python,no_run\nfn x() {}\n```\n");
+    assert!(set_lang(&mut doc, block, "rust ignore"));
+    assert_eq!(doc.to_markdown(), "```rust ignore\nfn x() {}\n```\n");
+}
+
+#[test]
+fn mermaid_turns_a_code_block_into_a_mermaid_block() {
+    let mut doc = load_markdown("```rust\nfn x() {}\n```\n", editor_options());
+    let block = doc.text_leaves()[0];
+    assert!(set_lang(&mut doc, block, "Mermaid"));
+    assert_eq!(doc.kind(block), Some(BlockKind::Mermaid));
+    assert_eq!(doc.to_markdown(), "```Mermaid\nfn x() {}\n```\n");
+}
+
+#[test]
+fn leaving_mermaid_turns_the_block_back_into_a_code_block() {
+    let mut doc = load_markdown("```mermaid\ngraph TD;\n```\n", editor_options());
+    let block = doc.text_leaves()[0];
+    assert_eq!(doc.kind(block), Some(BlockKind::Mermaid));
+    assert!(set_lang(&mut doc, block, "rust"));
+    assert_eq!(doc.kind(block), Some(BlockKind::CodeBlock));
+    assert_eq!(doc.to_markdown(), "```rust\ngraph TD;\n```\n");
+}
+
+#[test]
+fn an_indented_code_block_keeps_its_language() {
+    let mut doc = load_markdown("    fn x() {}\n", editor_options());
+    let block = doc.text_leaves()[0];
+    assert_eq!(doc.kind(block), Some(BlockKind::CodeBlock));
+    assert!(!set_lang(&mut doc, block, "rust"));
+    assert_eq!(doc.to_markdown(), "    fn x() {}\n");
+}
+
+#[test]
+fn a_math_fence_and_front_matter_keep_their_language() {
+    for source in ["$$\na+b\n$$\n", "---\ntitle: x\n---\n"] {
+        let mut doc = load_markdown(source, editor_options());
+        let block = doc.text_leaves()[0];
+        let before = doc.to_markdown();
+        assert!(!set_lang(&mut doc, block, "rust"), "{source:?}");
+        assert_eq!(doc.to_markdown(), before, "{source:?}");
+    }
+}
+
+#[test]
+fn setting_the_language_inside_a_list_item_keeps_the_indent() {
+    let mut doc = load_markdown("- hi\n  ```rust\n  fn x() {}\n  ```\n", editor_options());
+    let block = doc
+        .text_leaves()
+        .into_iter()
+        .find(|&id| doc.kind(id) == Some(BlockKind::CodeBlock))
+        .expect("code block");
+    assert!(set_lang(&mut doc, block, "python"));
+    assert_eq!(doc.to_markdown(), "- hi\n  ```python\n  fn x() {}\n  ```\n");
+}
+
+#[test]
+fn setting_the_language_inside_a_quote_keeps_the_prefix() {
+    let mut doc = load_markdown("> ```rust\n> fn x() {}\n> ```\n", editor_options());
+    let block = doc.text_leaves()[0];
+    assert!(set_lang(&mut doc, block, "python"));
+    assert_eq!(doc.to_markdown(), "> ```python\n> fn x() {}\n> ```\n");
+}
+
+#[test]
+fn undo_restores_the_previous_language() {
+    let mut d = Doc::new(load_markdown("```rust\nfn x() {}\n```\n", editor_options()));
+    let block = d.document.text_leaves()[0];
+    let sel = Sel::collapsed(caret(block, 0));
+    let _ = d.apply(
+        sel,
+        Command::SetFenceLang {
+            block,
+            lang: "python".to_string(),
+        },
+    );
+    assert_eq!(d.document.to_markdown(), "```python\nfn x() {}\n```\n");
+
+    let _ = d.undo().expect("undo");
+
+    assert_eq!(d.document.to_markdown(), "```rust\nfn x() {}\n```\n");
+    assert_eq!(d.document.kind(block), Some(BlockKind::CodeBlock));
+}
+
+#[test]
+fn undo_restores_a_mermaid_block_that_became_a_code_block() {
+    let mut d = Doc::new(load_markdown(
+        "```mermaid\ngraph TD;\n```\n",
+        editor_options(),
+    ));
+    let block = d.document.text_leaves()[0];
+    let sel = Sel::collapsed(caret(block, 0));
+    let _ = d.apply(
+        sel,
+        Command::SetFenceLang {
+            block,
+            lang: "rust".to_string(),
+        },
+    );
+    assert_eq!(d.document.kind(block), Some(BlockKind::CodeBlock));
+
+    let _ = d.undo().expect("undo");
+
+    assert_eq!(d.document.kind(block), Some(BlockKind::Mermaid));
+    assert_eq!(d.document.to_markdown(), "```mermaid\ngraph TD;\n```\n");
+}
+
+#[test]
+fn setting_the_language_bumps_the_content_revision() {
+    let mut doc = load_markdown("```rust\nfn x() {}\n```\n", editor_options());
+    let block = doc.text_leaves()[0];
+    let id = doc.live_id(block).expect("live");
+    let before = doc.arena.get(id).map(|n| n.content_revision).expect("node");
+    assert!(set_lang(&mut doc, block, "python"));
+    let after = doc.arena.get(id).map(|n| n.content_revision).expect("node");
+    assert!(
+        after > before,
+        "the highlight is keyed by the content revision, so it has to move"
+    );
+}
