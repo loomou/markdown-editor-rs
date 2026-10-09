@@ -147,6 +147,51 @@ fn down_arrow_schedules_the_frame_that_paints_the_new_caret(cx: &mut TestAppCont
 }
 
 #[gpui::test]
+fn typing_the_alert_marker_leaves_the_caret_on_the_alert_body_line(cx: &mut TestAppContext) {
+    let loaded_y = {
+        let (editor, cx) = editor_with_doc("> [!NOTE]\n", cx);
+        cx.draw(
+            point(px(0.0), px(0.0)),
+            size(px(800.0), px(600.0)),
+            |_, _| EditorElement {
+                state: editor.clone(),
+            },
+        )
+        .1
+        .frame
+        .snapshot
+        .caret_logical_y
+        .expect("painted caret y")
+    };
+
+    let (editor, cx) = editor_with_doc("", cx);
+    focus_editor(&editor, cx);
+    for ch in "> [!NOTE]".chars() {
+        cx.simulate_input(&ch.to_string());
+    }
+    let drawn = cx.draw(
+        point(px(0.0), px(0.0)),
+        size(px(800.0), px(600.0)),
+        |_, _| EditorElement {
+            state: editor.clone(),
+        },
+    );
+    let typed_y = drawn
+        .1
+        .frame
+        .snapshot
+        .caret_logical_y
+        .expect("painted caret y");
+    let saved = cx.update(|_, app| editor.read(app).state.doc.document.to_markdown());
+
+    assert_eq!(saved, "> [!NOTE]\n> \n>\n");
+    assert!(
+        (typed_y - loaded_y).abs() < 0.51,
+        "a typed alert laid its body out at {typed_y} but a loaded one sits at {loaded_y}"
+    );
+}
+
+#[gpui::test]
 fn draw_marks_ime_range_without_replacing_caret(cx: &mut TestAppContext) {
     let (editor, cx) = editor_with_doc("hello", cx);
     cx.update(|_, app| {

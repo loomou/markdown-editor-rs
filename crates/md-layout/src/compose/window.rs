@@ -1,6 +1,6 @@
 use super::block_edit::{emit_preview, wants_preview};
 use super::emit;
-use super::flow_policy::{flow_top_margin, nested_list_margin_top};
+use super::flow_policy::{apply_quote_alert_lead, flow_top_margin, nested_list_margin_top};
 use super::theme::LayoutTheme;
 use crate::box_tree::{
     BoxChildren, BoxIntern, BoxNode, BoxStore, BoxStyleStore, BoxTree, DeferredBox, LayoutBoxId,
@@ -422,9 +422,7 @@ fn container_style(
             style.margin.top = top;
         }
     }
-    if kind == BlockKind::BlockQuote && doc.extra(id).quote_alert().is_some() {
-        style.padding.top = theme.quote_alert_lead;
-    }
+    apply_quote_alert_lead(theme, kind, doc.extra(id), &mut style);
     style
 }
 

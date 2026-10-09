@@ -757,3 +757,51 @@ fn absorbing_a_soft_break_gives_the_new_paragraph_a_box() {
         );
     }
 }
+
+#[test]
+fn binding_an_alert_restyles_the_quote_lead() {
+    use crate::box_tree::LayoutBoxId;
+    use md_core::block::BlockKind;
+    use md_core::doc::Doc;
+    use md_core::document::{Caret, Command, Sel};
+
+    let mut doc = Doc::new(load_markdown("> [!NOTE\n", editor_options()));
+    doc.enable_trailing_blank();
+    let layout = layout();
+    let mut tree = compose(&doc.document, &layout);
+    let _ = doc.take_changes();
+
+    let leaf = doc.text_leaves()[0];
+    let _ = doc.apply(
+        Sel::collapsed(Caret {
+            block: leaf,
+            offset: 6,
+        }),
+        Command::Insert { text: "]".into() },
+    );
+    let changes = doc.take_changes();
+    let _ = sync_layout(&mut tree, &doc.document, &changes, &layout);
+
+    let quote = doc
+        .document
+        .preorder()
+        .into_iter()
+        .find(|&id| {
+            doc.document
+                .arena
+                .get(id)
+                .is_some_and(|n| n.kind == BlockKind::BlockQuote)
+        })
+        .expect("the quote survived the bind");
+    let box_id = LayoutBoxId::for_kind(BlockKind::BlockQuote, quote.index);
+    let cold = compose(&doc.document, &layout);
+    assert_eq!(
+        tree.style_of(tree.get(box_id)).padding.top,
+        cold.style_of(cold.get(box_id)).padding.top,
+        "the hot quote kept a stale lead padding"
+    );
+    assert_eq!(
+        cold.style_of(cold.get(box_id)).padding.top,
+        layout.quote_alert_lead
+    );
+}

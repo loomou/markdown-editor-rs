@@ -1058,3 +1058,45 @@ fn cold_edited_image_expansion_matches_full_geometry() {
     assert_index_matches_scratch(&spine);
     assert_records_on_tree(&spine, &tree);
 }
+
+fn quote_box_of(doc: &md_core::document::Document) -> LayoutBoxId {
+    doc.preorder()
+        .into_iter()
+        .find(|&id| doc.arena.get(id).unwrap().kind == md_core::block::BlockKind::BlockQuote)
+        .map(|id| LayoutBoxId::frame(id.index))
+        .expect("a quote")
+}
+
+#[test]
+fn padding_refresh_follows_a_container_style_change() {
+    use crate::compose::restyle;
+    use crate::style::{BoxDisplay, BoxLayoutStyle, Edges};
+
+    let doc = md_core::document::load_markdown("> a\n> b\n", md_core::document::editor_options());
+    let theme = crate::compose::LayoutTheme::from_resolver(|_| BoxLayoutStyle {
+        display: BoxDisplay::FlowStack,
+        margin: Edges::ZERO,
+        padding: Edges::ZERO,
+        border: Edges::ZERO,
+        gap: 0.0,
+    });
+    let mut tree = crate::compose::compose(&doc, &theme);
+    let quote = quote_box_of(&doc);
+    let mut spine = FlowSpine::flatten(&tree, 800.0, &constant_height);
+    let _ = spine.expand_visible(&tree, 0.0, spine.total_height(), &constant_height);
+    let before = spine.total_height();
+
+    assert!(spine.refresh_padding_of(&tree, quote));
+    assert_eq!(
+        spine.total_height(),
+        before,
+        "refresh must be idempotent while the padding is unchanged"
+    );
+
+    restyle(&mut tree.nodes, &mut tree.styles, quote, |style| {
+        style.padding.top = 28.0
+    });
+    assert!(spine.refresh_padding_of(&tree, quote));
+    assert_eq!(spine.total_height(), before + 28.0);
+    assert_index_matches_scratch(&spine);
+}
