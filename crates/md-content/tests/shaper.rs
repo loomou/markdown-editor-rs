@@ -425,7 +425,7 @@ fn image_block_artifact(
 }
 
 #[gpui::test]
-fn an_image_caption_is_centered_under_the_picture(cx: &mut TestAppContext) {
+fn an_image_block_paints_the_picture_without_a_caption(cx: &mut TestAppContext) {
     let cx = cx.add_empty_window();
     cx.update(|window, app| {
         let theme = DocumentTheme::one_dark();
@@ -438,31 +438,17 @@ fn an_image_caption_is_centered_under_the_picture(cx: &mut TestAppContext) {
             media_with_image(0, "diagrams/overview.svg"),
         );
         let art = image_block_artifact(&shaper, "![The five stage relay](d.svg)\n", 600.0);
-        let caption_band = art
-            .bands
-            .iter()
-            .find(|b| b.parts.iter().all(|p| matches!(p, ShapePart::Text { .. })))
-            .expect("the alt text should paint as a caption band");
-        let left = caption_band
-            .parts
-            .iter()
-            .map(|p| match p {
-                ShapePart::Text { x, .. } => *x,
-                _ => unreachable!(),
-            })
-            .fold(f64::INFINITY, f64::min);
-        let right = caption_band
-            .parts
-            .iter()
-            .map(|p| match p {
-                ShapePart::Text { x, line, .. } => *x + f64::from(f32::from(line.width())),
-                _ => unreachable!(),
-            })
-            .fold(f64::NEG_INFINITY, f64::max);
-        let want_left = (600.0 - (right - left)) / 2.0;
+        assert_eq!(
+            art.bands.len(),
+            1,
+            "an image block should paint the picture band only"
+        );
         assert!(
-            (left - want_left).abs() < 0.5,
-            "the caption should sit centered on the image axis: left={left} want={want_left}"
+            art.bands[0]
+                .parts
+                .iter()
+                .all(|p| matches!(p, ShapePart::Image { .. })),
+            "the single band should hold the image and no alt text"
         );
     });
 }
