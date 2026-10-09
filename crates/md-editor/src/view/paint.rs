@@ -718,6 +718,7 @@ fn table_reorder_paint_args(
     Some(ReorderChrome {
         origin,
         visual,
+        radius: v.state.theme.decoration.table_radius,
         accent: shell.accent,
         panel_bg: shell.panel_bg,
         border: shell.border,

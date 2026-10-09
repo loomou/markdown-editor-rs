@@ -46,8 +46,18 @@ pub(super) struct GripHit {
 
 #[derive(Clone, Copy, Debug)]
 pub(super) enum DropGuide {
-    H { y: Px, x0: Px, x1: Px },
-    V { x: Px, y0: Px, y1: Px },
+    H {
+        y: Px,
+        x0: Px,
+        x1: Px,
+        at_edge: bool,
+    },
+    V {
+        x: Px,
+        y0: Px,
+        y1: Px,
+        at_edge: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -195,6 +205,10 @@ fn target_index(pos: Px, bands: &[(usize, Px, Px)], count: usize) -> usize {
         }
     }
     count - 1
+}
+
+fn at_table_edge(pos: Px, lo: Px, hi: Px) -> bool {
+    pos <= lo + 0.5 || pos >= hi - 0.5
 }
 
 fn packed_rows(bands: &TableBands) -> Vec<(usize, Px, Px)> {
@@ -382,6 +396,7 @@ fn drag_visual(bands: &TableBands, drag: ReorderDrag) -> ReorderVisual {
                     y,
                     x0: bands.x0,
                     x1: bands.x1,
+                    at_edge: at_table_edge(y, bands.y0, bands.y1),
                 }
             });
             ReorderVisual {
@@ -415,6 +430,7 @@ fn drag_visual(bands: &TableBands, drag: ReorderDrag) -> ReorderVisual {
                     x,
                     y0: bands.y0,
                     y1: bands.y1,
+                    at_edge: at_table_edge(x, bands.x0, bands.x1),
                 }
             });
             ReorderVisual {
@@ -703,7 +719,46 @@ impl EditorView {
 
 #[cfg(test)]
 mod tests {
-    use super::target_index;
+    use super::{DropGuide, ReorderAxis, ReorderDrag, TableBands, drag_visual, target_index};
+    use md_core::Px;
+
+    fn bands() -> TableBands {
+        TableBands {
+            rows_n: 3,
+            cols_n: 2,
+            x0: 0.0,
+            y0: 0.0,
+            x1: 200.0,
+            y1: 90.0,
+            row_y0: vec![Some(0.0), Some(30.0), Some(60.0)],
+            row_y1: vec![Some(30.0), Some(60.0), Some(90.0)],
+            col_x0: vec![Some(0.0), Some(100.0)],
+            col_x1: vec![Some(100.0), Some(200.0)],
+            row_cell: vec![Some(1), Some(2), Some(3)],
+            col_cell: vec![Some(1), Some(4)],
+        }
+    }
+
+    fn drag(axis: ReorderAxis, from: usize, dest: usize) -> ReorderDrag {
+        ReorderDrag {
+            table: 9,
+            axis,
+            from,
+            cell: 1,
+            grab: (0.0, 0.0),
+            pointer: (0.0, 0.0),
+            dest,
+        }
+    }
+
+    fn drop_line(axis: ReorderAxis, from: usize, dest: usize) -> (Px, bool) {
+        let visual = drag_visual(&bands(), drag(axis, from, dest));
+        match (axis, visual.drop) {
+            (ReorderAxis::Row, Some(DropGuide::H { y, at_edge, .. })) => (y, at_edge),
+            (ReorderAxis::Col, Some(DropGuide::V { x, at_edge, .. })) => (x, at_edge),
+            (_, other) => panic!("expected a drop guide on the dragged axis, got {other:?}"),
+        }
+    }
 
     #[test]
     fn target_index_uses_containing_band() {
@@ -717,5 +772,15 @@ mod tests {
         assert_eq!(target_index(200.0, &bands, 3), 2);
         assert_eq!(target_index(250.0, &bands, 3), 2);
         assert_eq!(target_index(400.0, &bands, 3), 2);
+    }
+
+    #[test]
+    fn a_drop_line_on_the_table_edge_is_flagged() {
+        assert_eq!(drop_line(ReorderAxis::Row, 2, 0), (0.0, true));
+        assert_eq!(drop_line(ReorderAxis::Row, 0, 2), (90.0, true));
+        assert_eq!(drop_line(ReorderAxis::Row, 2, 1), (30.0, false));
+        assert_eq!(drop_line(ReorderAxis::Row, 0, 1), (60.0, false));
+        assert_eq!(drop_line(ReorderAxis::Col, 1, 0), (0.0, true));
+        assert_eq!(drop_line(ReorderAxis::Col, 0, 1), (200.0, true));
     }
 }

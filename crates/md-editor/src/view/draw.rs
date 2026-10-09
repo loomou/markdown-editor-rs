@@ -471,29 +471,13 @@ fn paint_corner_arc(
     }
 }
 
-pub(super) fn paint_fail_box(
+fn dash_round_rect(
     window: &mut Window,
-    cx: &mut App,
-    theme: &DocumentTheme,
     rect: (f32, f32, f32, f32),
-    label: &str,
+    radius: f32,
+    stroke: DashStroke,
 ) {
     let (x, y, w, h) = rect;
-    let w = w.max(1.0);
-    let h = h.max(1.0);
-    let bounds = Bounds {
-        origin: point(px(x), px(y)),
-        size: size(px(w), px(h)),
-    };
-    let fill = theme.inline.image_fill.hsla();
-    let stroke = DashStroke {
-        t: 1.0,
-        dash: theme.decoration.placeholder_dash as f32,
-        gap: theme.decoration.placeholder_gap as f32,
-        color: theme.inline.image_border.hsla(),
-    };
-    let radius = theme.decoration.code_radius.min(w * 0.5).min(h * 0.5);
-    window.paint_quad(gpui::fill(bounds, fill).corner_radii(px(radius)));
     let inner_w = (w - 2.0 * radius).max(0.0);
     let inner_h = (h - 2.0 * radius).max(0.0);
     dash_h(window, x + radius, y, inner_w, stroke);
@@ -533,6 +517,32 @@ pub(super) fn paint_fail_box(
         pi,
         stroke,
     );
+}
+
+pub(super) fn paint_fail_box(
+    window: &mut Window,
+    cx: &mut App,
+    theme: &DocumentTheme,
+    rect: (f32, f32, f32, f32),
+    label: &str,
+) {
+    let (x, y, w, h) = rect;
+    let w = w.max(1.0);
+    let h = h.max(1.0);
+    let bounds = Bounds {
+        origin: point(px(x), px(y)),
+        size: size(px(w), px(h)),
+    };
+    let fill = theme.inline.image_fill.hsla();
+    let stroke = DashStroke {
+        t: 1.0,
+        dash: theme.decoration.placeholder_dash as f32,
+        gap: theme.decoration.placeholder_gap as f32,
+        color: theme.inline.image_border.hsla(),
+    };
+    let radius = theme.decoration.code_radius.min(w * 0.5).min(h * 0.5);
+    window.paint_quad(gpui::fill(bounds, fill).corner_radii(px(radius)));
+    dash_round_rect(window, (x, y, w, h), radius, stroke);
     if h < 16.0 || w < 36.0 || label.is_empty() {
         return;
     }
@@ -948,6 +958,7 @@ pub(super) fn paint_col_resize_guide(window: &mut Window, cx: &mut App, g: &ColR
 pub(super) struct ReorderChrome {
     pub origin: (f32, f32),
     pub visual: super::table_reorder::ReorderVisual,
+    pub radius: f32,
     pub accent: Hsla,
     pub panel_bg: Hsla,
     pub border: Hsla,
@@ -959,67 +970,66 @@ pub(super) struct ReorderChrome {
 pub(super) fn paint_table_reorder(window: &mut Window, g: &ReorderChrome) {
     let ox = g.origin.0;
     let oy = g.origin.1;
-    if let Some((x, y, w, h)) = g.visual.ghost {
+    if let Some((gx, gy, gw, gh)) = g.visual.ghost {
+        let x = ox + gx as f32;
+        let y = oy + gy as f32;
+        let w = gw as f32;
+        let h = gh as f32;
+        let radius = g.radius.min(w * 0.5).min(h * 0.5);
         let mut fill = g.accent;
         fill.a *= 0.07;
-        let bounds = Bounds {
-            origin: point(px(ox + x as f32), px(oy + y as f32)),
-            size: size(px(w as f32), px(h as f32)),
-        };
         window.paint_quad(
-            gpui::fill(bounds, fill)
-                .corner_radii(px(3.0))
-                .border_widths(px(1.0))
-                .border_color(g.accent),
+            gpui::fill(
+                Bounds {
+                    origin: point(px(x), px(y)),
+                    size: size(px(w), px(h)),
+                },
+                fill,
+            )
+            .corner_radii(px(radius))
+            .border_widths(px(1.0))
+            .border_color(g.accent),
         );
-        let stroke = DashStroke {
-            t: 1.0,
-            dash: 4.0,
-            gap: 3.0,
-            color: g.accent,
-        };
-        dash_h(window, ox + x as f32, oy + y as f32, w as f32, stroke);
-        dash_h(
+        dash_round_rect(
             window,
-            ox + x as f32,
-            oy + (y + h) as f32 - 1.0,
-            w as f32,
-            stroke,
-        );
-        dash_v(window, ox + x as f32, oy + y as f32, h as f32, stroke);
-        dash_v(
-            window,
-            ox + (x + w) as f32 - 1.0,
-            oy + y as f32,
-            h as f32,
-            stroke,
+            (x, y, w, h),
+            radius,
+            DashStroke {
+                t: 1.0,
+                dash: 4.0,
+                gap: 3.0,
+                color: g.accent,
+            },
         );
     }
     if let Some(drop) = g.visual.drop {
-        paint_drop_line(window, ox, oy, drop, g.accent);
+        paint_drop_line(window, ox, oy, drop, g.accent, g.radius);
     }
     if let Some(clone) = g.visual.clone {
+        let w = clone.w as f32;
+        let h = clone.h as f32;
+        let radius = g.radius.min(w * 0.5).min(h * 0.5);
         let shadow = Bounds {
             origin: point(px(ox + clone.x as f32 + 2.0), px(oy + clone.y as f32 + 6.0)),
-            size: size(px(clone.w as f32), px(clone.h as f32)),
+            size: size(px(w), px(h)),
         };
-        window.paint_quad(gpui::fill(shadow, hsla(0.0, 0.0, 0.0, 0.28)).corner_radii(px(5.0)));
+        window.paint_quad(gpui::fill(shadow, hsla(0.0, 0.0, 0.0, 0.28)).corner_radii(px(radius)));
         let bounds = Bounds {
             origin: point(px(ox + clone.x as f32), px(oy + clone.y as f32)),
-            size: size(px(clone.w as f32), px(clone.h as f32)),
+            size: size(px(w), px(h)),
         };
         window.paint_quad(
             gpui::fill(bounds, g.editor_bg)
-                .corner_radii(px(5.0))
+                .corner_radii(px(radius))
                 .border_widths(px(1.0))
                 .border_color(g.border),
         );
         if clone.row {
             let gx = ox + clone.x as f32 + 3.5;
-            let gy = oy + clone.y as f32 + (clone.h as f32 - 20.0) * 0.5;
+            let gy = oy + clone.y as f32 + (h - 20.0) * 0.5;
             paint_grip_dots(window, gx, gy, true, g.muted);
         } else {
-            let gx = ox + clone.x as f32 + (clone.w as f32 - 20.0) * 0.5;
+            let gx = ox + clone.x as f32 + (w - 20.0) * 0.5;
             let gy = oy + clone.y as f32 + (clone.cap as f32 - 20.0).max(0.0) * 0.5;
             paint_grip_dots(window, gx, gy, false, g.muted);
         }
@@ -1127,30 +1137,33 @@ fn paint_drop_line(
     oy: f32,
     drop: super::table_reorder::DropGuide,
     accent: Hsla,
+    radius: f32,
 ) {
     match drop {
-        super::table_reorder::DropGuide::H { y, x0, x1 } => {
-            let x = ox + x0 as f32;
+        super::table_reorder::DropGuide::H { y, x0, x1, at_edge } => {
+            let trim = if at_edge { radius } else { 0.0 };
+            let x = ox + x0 as f32 + trim;
             let yy = oy + y as f32 - 1.0;
-            let w = (x1 - x0) as f32;
+            let w = ((x1 - x0) as f32 - 2.0 * trim).max(1.0);
             window.paint_quad(gpui::fill(
                 Bounds {
                     origin: point(px(x), px(yy)),
-                    size: size(px(w.max(1.0)), px(2.0)),
+                    size: size(px(w), px(2.0)),
                 },
                 accent,
             ));
             paint_drop_dot(window, x - 4.0, yy - 3.0, accent);
             paint_drop_dot(window, x + w - 4.0, yy - 3.0, accent);
         }
-        super::table_reorder::DropGuide::V { x, y0, y1 } => {
+        super::table_reorder::DropGuide::V { x, y0, y1, at_edge } => {
+            let trim = if at_edge { radius } else { 0.0 };
             let xx = ox + x as f32 - 1.0;
-            let y = oy + y0 as f32;
-            let h = (y1 - y0) as f32;
+            let y = oy + y0 as f32 + trim;
+            let h = ((y1 - y0) as f32 - 2.0 * trim).max(1.0);
             window.paint_quad(gpui::fill(
                 Bounds {
                     origin: point(px(xx), px(y)),
-                    size: size(px(2.0), px(h.max(1.0))),
+                    size: size(px(2.0), px(h)),
                 },
                 accent,
             ));
