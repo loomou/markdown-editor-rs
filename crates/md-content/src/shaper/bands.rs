@@ -95,6 +95,7 @@ pub(super) struct BandFlow<'a> {
     pub(super) role: &'a ResolvedType,
     pub(super) parent_size: f32,
     pub(super) dpr: f32,
+    pub(super) center_text: bool,
 }
 
 impl BandFlow<'_> {
@@ -106,6 +107,7 @@ impl BandFlow<'_> {
             self.dpr,
             self.bands,
             Some(self.avail),
+            self.center_text,
         );
         *self.x = 0.0;
     }
@@ -178,9 +180,36 @@ pub(super) fn flush_band(
     dpr: f32,
     bands: &mut Vec<ShapeBand>,
     lone_avail: Option<Px>,
+    center_text: bool,
 ) {
     if pending.is_empty() {
         return;
+    }
+    if let Some(avail) = lone_avail.filter(|_| center_text) {
+        let row_w = pending
+            .iter()
+            .map(|p| match p {
+                Pending::Text { x, line, .. } => x + f32::from(line.width()),
+                Pending::Math {
+                    x,
+                    metrics,
+                    fallback,
+                    ..
+                } => match fallback {
+                    Some(line) => x + f32::from(line.width()),
+                    None => x + metrics.box_width(font_size, dpr),
+                },
+                Pending::Image { x, slot_w, .. } => x + slot_w,
+            })
+            .fold(0.0f32, f32::max);
+        let dx = ((avail as f32 - row_w) * 0.5).max(0.0);
+        for p in pending.iter_mut() {
+            match p {
+                Pending::Text { x, .. } | Pending::Math { x, .. } | Pending::Image { x, .. } => {
+                    *x += dx;
+                }
+            }
+        }
     }
     let lone_avail = lone_avail.filter(|_| is_lone_display(pending));
     if let Some(avail) = lone_avail

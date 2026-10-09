@@ -119,7 +119,7 @@ impl GpuiShaper {
             fallback: None,
         }];
         let mut bands = Vec::new();
-        flush_band(&mut pending, role, font_size, dpr, &mut bands, None);
+        flush_band(&mut pending, role, font_size, dpr, &mut bands, None, false);
         bands_to_artifact(bands, role)
     }
 

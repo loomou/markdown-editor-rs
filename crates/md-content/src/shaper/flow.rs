@@ -114,6 +114,7 @@ impl GpuiShaper {
             role,
             parent_size: font_size,
             dpr,
+            center_text: false,
         };
         if block_kind == BlockKind::Image {
             let dest = self
@@ -133,6 +134,7 @@ impl GpuiShaper {
                 fallback: None,
             });
             flow.flush();
+            flow.center_text = true;
         }
         let atoms = line_atoms(text, runs, self.link_dests.as_ref(), self.link_raw.as_ref());
         let planned = self.line_break.mode != LineBreakMode::Greedy

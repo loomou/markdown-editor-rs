@@ -398,3 +398,115 @@ fn a_front_matter_body_is_highlighted_like_a_code_block(cx: &mut TestAppContext)
         assert_eq!(front.line_colors, code.line_colors);
     });
 }
+
+fn media_with_image(index: u32, dest: &str) -> ShapeMedia {
+    let mut m = media();
+    m.block_image_dest = Rc::new([(index, dest.to_string())].into_iter().collect());
+    m
+}
+
+fn image_block_artifact(
+    shaper: &GpuiShaper,
+    md: &str,
+    width: f64,
+) -> Rc<md_content::shaper::ShapeArtifact> {
+    let doc = md_core::document::load_markdown(md, md_core::document::editor_options());
+    let block = doc.text_leaves()[0];
+    let node = doc.live_id(block).expect("the image leaf is live");
+    let text = doc.text_of(block).expect("the leaf has text").to_owned();
+    let kind = doc.kind(block).expect("the leaf has a kind");
+    assert_eq!(
+        kind,
+        BlockKind::Image,
+        "the fixture must land as an image block"
+    );
+    let runs = doc.runs(node).to_vec();
+    shaper.artifact(&text, &runs, width, kind, ShapeIdentity::default())
+}
+
+#[gpui::test]
+fn an_image_caption_is_centered_under_the_picture(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let theme = DocumentTheme::one_dark();
+        let shaper = GpuiShaper::new(
+            window,
+            app,
+            &theme,
+            1.0,
+            ShapeCache::new(),
+            media_with_image(0, "diagrams/overview.svg"),
+        );
+        let art = image_block_artifact(&shaper, "![The five stage relay](d.svg)\n", 600.0);
+        let caption_band = art
+            .bands
+            .iter()
+            .find(|b| b.parts.iter().all(|p| matches!(p, ShapePart::Text { .. })))
+            .expect("the alt text should paint as a caption band");
+        let left = caption_band
+            .parts
+            .iter()
+            .map(|p| match p {
+                ShapePart::Text { x, .. } => *x,
+                _ => unreachable!(),
+            })
+            .fold(f64::INFINITY, f64::min);
+        let right = caption_band
+            .parts
+            .iter()
+            .map(|p| match p {
+                ShapePart::Text { x, line, .. } => *x + f64::from(f32::from(line.width())),
+                _ => unreachable!(),
+            })
+            .fold(f64::NEG_INFINITY, f64::max);
+        let want_left = (600.0 - (right - left)) / 2.0;
+        assert!(
+            (left - want_left).abs() < 0.5,
+            "the caption should sit centered on the image axis: left={left} want={want_left}"
+        );
+    });
+}
+
+#[gpui::test]
+fn an_inline_image_paragraph_keeps_its_text_at_the_left_edge(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let theme = DocumentTheme::one_dark();
+        let shaper = GpuiShaper::new(
+            window,
+            app,
+            &theme,
+            1.0,
+            ShapeCache::new(),
+            media_with_image(0, "inline.svg"),
+        );
+        let doc = md_core::document::load_markdown(
+            "lead ![tag](inline.svg) tail\n",
+            md_core::document::editor_options(),
+        );
+        let block = doc.text_leaves()[0];
+        let node = doc.live_id(block).expect("the paragraph is live");
+        let text = doc.text_of(block).expect("the leaf has text").to_owned();
+        let kind = doc.kind(block).expect("the leaf has a kind");
+        assert_eq!(
+            kind,
+            BlockKind::Paragraph,
+            "an image inside a paragraph must stay a paragraph"
+        );
+        let runs = doc.runs(node).to_vec();
+        let art = shaper.artifact(&text, &runs, 600.0, kind, ShapeIdentity::default());
+        let lead_x = art
+            .bands
+            .iter()
+            .flat_map(|b| b.parts.iter())
+            .find_map(|p| match p {
+                ShapePart::Text { x, line, .. } if line.text.as_ref().contains("lead") => Some(*x),
+                _ => None,
+            })
+            .expect("the lead text should paint as its own band");
+        assert!(
+            lead_x.abs() < 0.5,
+            "centering must stay scoped to a whole-block image caption: x={lead_x}"
+        );
+    });
+}
