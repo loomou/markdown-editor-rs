@@ -62,7 +62,7 @@ impl BoxScale {
             doc_root: flow(
                 Edges::ZERO,
                 Edges {
-                    top: 32.0,
+                    top: 48.0,
                     right: 48.0,
                     bottom: 48.0,
                     left: 48.0,

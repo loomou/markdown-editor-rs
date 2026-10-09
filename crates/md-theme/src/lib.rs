@@ -526,7 +526,7 @@ mod tests {
     #[test]
     fn v2_editor_spacing_matches_box_scale() {
         let boxes = DocumentTheme::one_dark().boxes;
-        assert_eq!(boxes.doc_root.padding.top, 32.0);
+        assert_eq!(boxes.doc_root.padding.top, 48.0);
         assert_eq!(boxes.doc_root.padding.right, 48.0);
         assert_eq!(boxes.doc_root.padding.bottom, 48.0);
         assert_eq!(boxes.doc_root.padding.left, 48.0);
