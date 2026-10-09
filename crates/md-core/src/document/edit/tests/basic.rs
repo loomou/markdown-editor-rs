@@ -301,26 +301,36 @@ fn enter_promotes_a_lone_image_inside_a_quote() {
 }
 
 #[test]
-fn enter_does_not_promote_an_image_inside_a_list_item() {
-    let doc = {
-        let mut doc = load_markdown("- \n", editor_options());
-        let leaf = doc.text_leaves()[0];
-        let at = type_chars(&mut doc, caret(leaf, 0), "![a](u)");
-        apply(&mut doc, Sel::collapsed(at), Command::Break);
-        doc
-    };
+fn enter_promotes_a_lone_image_inside_a_list_item() {
+    let mut doc = load_markdown("- \n", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let at = type_chars(&mut doc, caret(leaf, 0), "![a](u)");
 
-    assert!(
-        kinds(&doc).iter().all(|&k| k != Some(BlockKind::Image)),
-        "a list item host must not be promoted to an image block, kinds {:?}",
-        kinds(&doc)
+    let _ = apply(&mut doc, Sel::collapsed(at), Command::Break);
+
+    assert_eq!(
+        kinds(&doc),
+        vec![Some(BlockKind::Image), Some(BlockKind::Paragraph)],
+        "a lone image line inside a list item is promoted like a root one"
+    );
+    assert_eq!(doc.to_markdown(), "- ![a](u)\n  ");
+    assert_eq!(
+        kinds(&load_markdown(&doc.to_markdown(), editor_options())),
+        kinds(&doc),
+        "the item shape must survive a reload"
+    );
+
+    let mut loaded = load_markdown("- ![a](u)\n", editor_options());
+    let image = loaded.text_leaves()[0];
+    let _ = apply(
+        &mut loaded,
+        Sel::collapsed(caret(image, "- ![a](u)".len())),
+        Command::Break,
     );
     assert_eq!(
-        load_markdown(&doc.to_markdown(), editor_options())
-            .text_leaves()
-            .len(),
-        doc.text_leaves().len(),
-        "the item shape must survive a reload"
+        loaded.to_markdown(),
+        doc.to_markdown(),
+        "typing the item image and loading it must behave the same on Enter"
     );
 }
 

@@ -344,7 +344,8 @@ fn visit<'a, 'i>(
             }
             let id = builder.alloc(BlockKind::Paragraph);
             builder.enter_leaf(id, BlockKind::Paragraph, LeafSink::Text, span);
-            let allow_standalone = matches!(node.kind(), NodeKind::Paragraph);
+            let allow_standalone =
+                matches!(node.kind(), NodeKind::Paragraph | NodeKind::TightParagraph);
             builder.leaf_allows_standalone = allow_standalone;
             builder.image_only = true;
             builder.image_count = 0;

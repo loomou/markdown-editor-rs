@@ -319,9 +319,6 @@ impl Document {
         if transition.old_kind != BlockKind::Paragraph {
             return None;
         }
-        if self.enclosed_by(id, BlockKind::ListItem) {
-            return None;
-        }
         let source = syntax::normalize_source(&transition.old_source);
         if source.is_empty() {
             return None;
