@@ -1,4 +1,5 @@
 use super::support::{TABLE_2X2, editor_with_doc, focus_editor, place_table_caret, table_leaf};
+use crate::view::insert_table::InsertTableField;
 use gpui::TestAppContext;
 use md_core::block::BlockKind;
 
@@ -53,9 +54,11 @@ fn insert_table_dialog_create_inserts_sized_table(cx: &mut TestAppContext) {
     cx.update(|window, app| {
         editor.update(app, |view, cx| {
             view.open_insert_table(window, cx);
-            let state = view.insert_table.as_mut().expect("dialog");
-            state.rows = "3".into();
-            state.cols = "4".into();
+            let dialog = view.insert_table.clone().expect("dialog");
+            dialog.update(cx, |dialog, cx| {
+                dialog.set_dim(InsertTableField::Rows, "3", cx);
+                dialog.set_dim(InsertTableField::Cols, "4", cx);
+            });
             view.confirm_insert_table(window, cx);
             assert!(view.insert_table.is_none());
             let loc = view
@@ -80,7 +83,10 @@ fn insert_table_dialog_rejects_invalid_dims(cx: &mut TestAppContext) {
     cx.update(|window, app| {
         editor.update(app, |view, cx| {
             view.open_insert_table(window, cx);
-            view.insert_table.as_mut().expect("dialog").rows = "0".into();
+            let dialog = view.insert_table.clone().expect("dialog");
+            dialog.update(cx, |dialog, cx| {
+                dialog.set_dim(InsertTableField::Rows, "0", cx);
+            });
             view.confirm_insert_table(window, cx);
             assert!(view.insert_table.is_some());
             assert!(!view.caret_in_table());

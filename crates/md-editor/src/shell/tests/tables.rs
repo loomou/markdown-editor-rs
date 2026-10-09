@@ -178,3 +178,36 @@ fn insert_table_menu_is_noop_inside_a_table(cx: &mut TestAppContext) {
         assert_eq!(table_row_count(&editor.state.doc), 2);
     });
 }
+
+#[gpui::test]
+fn typing_into_the_insert_table_dialog_replaces_the_selected_default(cx: &mut TestAppContext) {
+    let (shell, cx) =
+        cx.add_window_view(|_, cx| Shell::new(Doc::new(load_markdown("", editor_options())), cx));
+    stop_blink(&shell, cx);
+    cx.update(|window, app| {
+        shell.update(app, |shell, cx| {
+            shell.run_menu_action(MenuAction::Cmd(Cmd::InsertTable), window, cx);
+        })
+    });
+    cx.simulate_input("3");
+    cx.simulate_keystrokes("tab");
+    cx.simulate_input("4");
+    cx.update(|window, app| {
+        shell.update(app, |shell, cx| {
+            shell.editor.update(cx, |editor, cx| {
+                editor.confirm_insert_table(window, cx);
+            });
+        })
+    });
+    cx.update(|_, app| {
+        let editor = shell.read(app).editor.read(app);
+        assert!(editor.insert_table.is_none());
+        let loc = editor
+            .state
+            .doc
+            .table_loc(editor.state.cursor.block)
+            .expect("loc");
+        assert_eq!(loc.rows, 3);
+        assert_eq!(loc.cols, 4);
+    });
+}

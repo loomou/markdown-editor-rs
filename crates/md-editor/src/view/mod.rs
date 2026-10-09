@@ -50,7 +50,6 @@ pub mod find_bar;
 pub(crate) mod table_commands;
 pub(crate) mod table_toolbar;
 
-pub(crate) use insert_table::InsertTableField;
 pub(crate) use save::SaveConflictChoice;
 pub(crate) use unsaved::{PendingNav, UnsavedChoice, doc_file_name, unsaved_file_name};
 
@@ -457,8 +456,7 @@ pub struct EditorView {
     force_close: bool,
     pub(crate) unsaved_nav: Option<PendingNav>,
     pub(crate) unsaved_focus: gpui::FocusHandle,
-    pub(crate) insert_table: Option<insert_table::InsertTableState>,
-    pub(crate) insert_table_focus: gpui::FocusHandle,
+    pub(crate) insert_table: Option<gpui::Entity<insert_table::InsertTableDialog>>,
     os_title: Option<String>,
     pub(crate) notice: Option<crate::Error>,
     recovery: Option<crate::store::recovery::Recovery>,
