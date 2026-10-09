@@ -198,6 +198,64 @@ fn backspace_clears_and_escape_cancels(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn escape_cancels_the_recording_on_its_own(cx: &mut TestAppContext) {
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
+    open_shortcuts_page(&shell, cx);
+    let before = key_for(Cmd::Save);
+
+    click_shortcut_row(Cmd::Save, cx);
+    assert_eq!(
+        shell.read_with(cx, |s, _| s.recording),
+        Some(Cmd::Save),
+        "precondition: clicking that row must arm the recorder"
+    );
+
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+
+    assert_eq!(
+        shell.read_with(cx, |s, _| s.recording),
+        None,
+        "the recorder must cancel on Esc by itself, with nothing else binding that key"
+    );
+    assert_eq!(
+        shell
+            .read_with(cx, |s, _| s.settings.keymap.chord_for(Cmd::Save).cloned())
+            .map(|c| c.unparse()),
+        Some(before),
+        "cancelling must leave the shortcut exactly as it was"
+    );
+}
+
+#[gpui::test]
+fn a_modified_escape_is_still_recordable(cx: &mut TestAppContext) {
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
+    open_shortcuts_page(&shell, cx);
+
+    click_shortcut_row(Cmd::ToggleOutline, cx);
+    let chord = Chord::new(Mods::primary(), "escape").unparse();
+    cx.simulate_keystrokes(&chord);
+    cx.run_until_parked();
+
+    assert_eq!(
+        shell
+            .read_with(cx, |s, _| s
+                .settings
+                .keymap
+                .chord_for(Cmd::ToggleOutline)
+                .cloned())
+            .map(|c| c.unparse()),
+        Some(chord.clone()),
+        "only the bare key cancels; `{chord}` is a shortcut like any other"
+    );
+    assert_eq!(
+        shell.read_with(cx, |s, _| s.recording),
+        None,
+        "recording `{chord}` should have ended the armed state"
+    );
+}
+
+#[gpui::test]
 fn a_refused_combination_says_which_kind_and_stays_armed(cx: &mut TestAppContext) {
     let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
     open_shortcuts_page(&shell, cx);
