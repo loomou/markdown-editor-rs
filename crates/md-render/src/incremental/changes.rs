@@ -94,9 +94,7 @@ impl IncrementalEngine {
                 });
                 let mut removed_boxes = Vec::new();
                 for r in removed {
-                    if let Some(id) = self.collect_removed_islands(r.index, &mut drop_ids) {
-                        removed_boxes.push(id);
-                    }
+                    removed_boxes.extend(self.collect_removed_islands(r.index, &mut drop_ids));
                 }
                 let inserted_boxes: Vec<LayoutBoxId> = inserted
                     .iter()
@@ -283,11 +281,8 @@ impl IncrementalEngine {
         }
     }
 
-    fn collect_removed_islands(
-        &self,
-        index: u32,
-        out: &mut Vec<LayoutBoxId>,
-    ) -> Option<LayoutBoxId> {
+    fn collect_removed_islands(&self, index: u32, out: &mut Vec<LayoutBoxId>) -> Vec<LayoutBoxId> {
+        let mut removed = Vec::new();
         let main = self.box_id_in_tree(index).or_else(|| {
             let frame = LayoutBoxId::frame(index);
             (self.spine.content_id(frame).is_some() || self.spine.collapsed_id(frame).is_some())
@@ -295,12 +290,18 @@ impl IncrementalEngine {
         });
         if let Some(id) = main {
             self.collect_islands(id, out);
+            removed.push(id);
         }
         let preview = LayoutBoxId::preview(index);
         if self.tree.nodes().contains_key(&preview) {
             out.push(preview);
+            removed.push(preview);
+        } else if self.spine.content_id(preview).is_some()
+            || self.spine.collapsed_id(preview).is_some()
+        {
+            removed.push(preview);
         }
-        main
+        removed
     }
 
     pub(super) fn collect_islands(&self, id: LayoutBoxId, out: &mut Vec<LayoutBoxId>) {
