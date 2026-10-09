@@ -146,6 +146,8 @@ impl EditorView {
             unsaved_nav: None,
             unsaved_focus: cx.focus_handle(),
             insert_table: None,
+            code_lang: None,
+            code_lang_token: 0,
             os_title: None,
             notice: None,
             recovery: None,

@@ -22,6 +22,7 @@ use std::rc::Rc;
 
 mod anchor;
 mod clipboard;
+pub(crate) mod code_lang;
 mod draw;
 mod drop;
 mod editor;
@@ -107,6 +108,30 @@ struct WellHeadHit {
 impl WellHeadHit {
     fn contains(&self, x: Px, y: Px) -> bool {
         x >= self.x && x < self.x + self.w && y >= self.y && y < self.y + self.h
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct WellLangHit {
+    id: BlockId,
+    x: Px,
+    y: Px,
+    w: Px,
+    h: Px,
+}
+
+impl WellLangHit {
+    fn contains(&self, x: Px, y: Px) -> bool {
+        x >= self.x && x < self.x + self.w && y >= self.y && y < self.y + self.h
+    }
+
+    fn window_rect(&self, origin: (f32, f32)) -> (f32, f32, f32, f32) {
+        (
+            origin.0 + self.x as f32,
+            origin.1 + self.y as f32,
+            self.w as f32,
+            self.h as f32,
+        )
     }
 }
 
@@ -457,6 +482,8 @@ pub struct EditorView {
     pub(crate) unsaved_nav: Option<PendingNav>,
     pub(crate) unsaved_focus: gpui::FocusHandle,
     pub(crate) insert_table: Option<gpui::Entity<insert_table::InsertTableDialog>>,
+    pub(crate) code_lang: Option<gpui::Entity<code_lang::CodeLangInput>>,
+    pub(crate) code_lang_token: u64,
     os_title: Option<String>,
     pub(crate) notice: Option<crate::Error>,
     recovery: Option<crate::store::recovery::Recovery>,
