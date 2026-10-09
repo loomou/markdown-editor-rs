@@ -4,9 +4,9 @@ use crate::ui::icons;
 use crate::ui::theme::{MONO_FONT, RADIUS, ShellTheme};
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, BoxShadow, ClickEvent, Context, Div, Entity, FontWeight, InteractiveElement, IntoElement,
+    App, ClickEvent, Context, Div, Entity, FontWeight, InteractiveElement, IntoElement,
     MouseButton, MouseUpEvent, ParentElement, SharedString, Stateful, StatefulInteractiveElement,
-    Styled, Window, div, hsla, point, px, rgba, svg,
+    Styled, Window, div, hsla, px, svg,
 };
 use md_core::Px;
 use md_core::block::TableCellAlign;
@@ -275,16 +275,6 @@ pub(crate) fn overlay(
         })
 }
 
-fn bar_shadow() -> Vec<BoxShadow> {
-    vec![BoxShadow {
-        color: rgba(0x00000066).into(),
-        offset: point(px(0.), px(10.)),
-        blur_radius: px(28.),
-        spread_radius: px(0.),
-        inset: false,
-    }]
-}
-
 fn cluster(id: &'static str, t: ShellTheme) -> Stateful<Div> {
     div()
         .id(id)
@@ -297,7 +287,6 @@ fn cluster(id: &'static str, t: ShellTheme) -> Stateful<Div> {
         .border_1()
         .border_color(t.border)
         .rounded(px(RADIUS))
-        .shadow(bar_shadow())
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
 }
 
@@ -428,13 +417,6 @@ fn picker_panel(
         .border_1()
         .border_color(t.border)
         .rounded(px(RADIUS))
-        .shadow(vec![BoxShadow {
-            color: rgba(0x00000080).into(),
-            offset: point(px(0.), px(14.)),
-            blur_radius: px(40.),
-            spread_radius: px(0.),
-            inset: false,
-        }])
         .occlude()
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_mouse_down(MouseButton::Right, {
@@ -687,13 +669,6 @@ fn more_menu(t: ShellTheme, chord: Option<String>, editor: Entity<EditorView>) -
         .border_1()
         .border_color(t.border)
         .rounded(px(RADIUS))
-        .shadow(vec![BoxShadow {
-            color: rgba(0x00000080).into(),
-            offset: point(px(0.), px(14.)),
-            blur_radius: px(40.),
-            spread_radius: px(0.),
-            inset: false,
-        }])
         .occlude()
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_mouse_down(MouseButton::Right, move |_, _, cx| {

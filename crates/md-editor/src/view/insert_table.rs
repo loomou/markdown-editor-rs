@@ -5,11 +5,11 @@ use crate::ui::text_input::{
 use crate::ui::theme::{DLG_W, MONO_FONT, RADIUS, ShellTheme};
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, AppContext, BoxShadow, ClickEvent, Context, CursorStyle, Div, Entity, EntityInputHandler,
+    App, AppContext, ClickEvent, Context, CursorStyle, Div, Entity, EntityInputHandler,
     FocusHandle, Font, FontFeatures, FontStyle, FontWeight, InteractiveElement, IntoElement,
     KeyDownEvent, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
     ParentElement, Render, Stateful, StatefulInteractiveElement, Styled, UTF16Selection,
-    WeakEntity, Window, div, point, px, rgba,
+    WeakEntity, Window, div, px, rgba,
 };
 use md_core::document::Command;
 use md_core::document::{
@@ -509,13 +509,6 @@ impl Render for InsertTableDialog {
                     .border_1()
                     .border_color(t.border)
                     .rounded(px(RADIUS))
-                    .shadow(vec![BoxShadow {
-                        color: rgba(0x0000008c).into(),
-                        offset: point(px(0.), px(18.)),
-                        blur_radius: px(50.),
-                        spread_radius: px(0.),
-                        inset: false,
-                    }])
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .child(
                         div()

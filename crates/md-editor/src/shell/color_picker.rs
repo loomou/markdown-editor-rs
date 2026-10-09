@@ -2,12 +2,12 @@ use super::{Shell, VIEW_MARGIN};
 use crate::ui::text_input::{InputStyle, TextInput, TextInputElement};
 use crate::ui::theme::{MONO_FONT, RADIUS, ShellTheme};
 use gpui::{
-    AnyElement, App, Background, Bounds, BoxShadow, ClickEvent, CursorStyle, DispatchPhase, Div,
-    Element, Entity, FocusHandle, Font, FontFeatures, FontStyle, FontWeight, GlobalElementId,
+    AnyElement, App, Background, Bounds, ClickEvent, CursorStyle, DispatchPhase, Div, Element,
+    Entity, FocusHandle, Font, FontFeatures, FontStyle, FontWeight, GlobalElementId,
     InspectorElementId, InteractiveElement, IntoElement, KeyDownEvent, LayoutId, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, Position, Size,
     Stateful, StatefulInteractiveElement, Style, Styled, Window, canvas, div, fill,
-    linear_color_stop, linear_gradient, point, px, rgba,
+    linear_color_stop, linear_gradient, point, px,
 };
 use md_content::gpui_theme::ThemeColorExt;
 use md_theme::{ColorSlot, ThemeColor};
@@ -382,13 +382,6 @@ impl ColorPicker {
             .border_1()
             .border_color(t.border)
             .rounded(px(RADIUS))
-            .shadow(vec![BoxShadow {
-                color: rgba(0x00000080).into(),
-                offset: point(px(0.), px(14.)),
-                blur_radius: px(40.),
-                spread_radius: px(0.),
-                inset: false,
-            }])
             .occlude()
             .on_mouse_down_out(move |_: &MouseDownEvent, _: &mut Window, cx: &mut App| {
                 close.update(cx, |shell, cx| {

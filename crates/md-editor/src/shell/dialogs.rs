@@ -3,9 +3,9 @@ use crate::ui::theme::{DLG_MIN_H, DLG_W, MONO_FONT, RADIUS, ShellTheme};
 use crate::view::{EditorView, SaveConflictChoice, UnsavedChoice, unsaved_file_name};
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, BoxShadow, ClickEvent, Context, Div, Entity, FontWeight, InteractiveElement, IntoElement,
+    App, ClickEvent, Context, Div, Entity, FontWeight, InteractiveElement, IntoElement,
     KeyDownEvent, MouseButton, ParentElement, Stateful, StatefulInteractiveElement, Styled, Window,
-    div, point, px, rgba,
+    div, px, rgba,
 };
 use md_i18n::{Key, t as t18};
 
@@ -190,13 +190,6 @@ impl Shell {
             .border_1()
             .border_color(t.border)
             .rounded(px(RADIUS))
-            .shadow(vec![BoxShadow {
-                color: rgba(0x0000008c).into(),
-                offset: point(px(0.), px(18.)),
-                blur_radius: px(50.),
-                spread_radius: px(0.),
-                inset: false,
-            }])
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(
                 div()
@@ -307,13 +300,6 @@ impl Shell {
             .border_1()
             .border_color(t.border)
             .rounded(px(RADIUS))
-            .shadow(vec![BoxShadow {
-                color: rgba(0x0000008c).into(),
-                offset: point(px(0.), px(18.)),
-                blur_radius: px(50.),
-                spread_radius: px(0.),
-                inset: false,
-            }])
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(
                 div()

@@ -7,7 +7,7 @@ use gpui::{
     App, Bounds, ClickEvent, Context, CursorStyle, Div, Entity, EntityInputHandler, FocusHandle,
     InteractiveElement, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent,
     MouseUpEvent, ParentElement, Pixels, Point, Render, SharedString, Stateful,
-    StatefulInteractiveElement, Styled, UTF16Selection, Window, div, point, px, rgba, svg,
+    StatefulInteractiveElement, Styled, UTF16Selection, Window, div, px, svg,
 };
 use md_content::gpui_theme::ThemeColorExt;
 use std::ops::Range;
@@ -318,13 +318,6 @@ impl Render for FindBar {
             .border_1()
             .border_color(app.border.hsla())
             .rounded(px(6.))
-            .shadow(vec![gpui::BoxShadow {
-                color: rgba(0x00000066).into(),
-                offset: point(px(0.), px(10.)),
-                blur_radius: px(28.),
-                spread_radius: px(0.),
-                inset: false,
-            }])
             .font_family(chrome.status_font)
             .text_size(px(chrome.status_size_px))
             .track_focus(&self.focus)
