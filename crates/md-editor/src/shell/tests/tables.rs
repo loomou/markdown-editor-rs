@@ -98,13 +98,8 @@ fn insert_table_menu_creates_a_2x2_on_confirm(cx: &mut TestAppContext) {
         assert!(editor.insert_table.is_some());
         assert_eq!(table_row_count(&editor.state.doc), 0);
     });
-    cx.update(|window, app| {
-        shell.update(app, |shell, cx| {
-            shell.editor.update(cx, |editor, cx| {
-                editor.confirm_insert_table(window, cx);
-            });
-        })
-    });
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
     cx.update(|_, app| {
         let editor = shell.read(app).editor.read(app);
         assert!(editor.insert_table.is_none());
@@ -192,13 +187,8 @@ fn typing_into_the_insert_table_dialog_replaces_the_selected_default(cx: &mut Te
     cx.simulate_input("3");
     cx.simulate_keystrokes("tab");
     cx.simulate_input("4");
-    cx.update(|window, app| {
-        shell.update(app, |shell, cx| {
-            shell.editor.update(cx, |editor, cx| {
-                editor.confirm_insert_table(window, cx);
-            });
-        })
-    });
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
     cx.update(|_, app| {
         let editor = shell.read(app).editor.read(app);
         assert!(editor.insert_table.is_none());

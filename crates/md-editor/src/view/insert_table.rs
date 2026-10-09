@@ -400,10 +400,13 @@ impl InsertTableDialog {
             .update(cx, |editor, cx| editor.close_insert_table(window, cx));
     }
 
-    fn confirm(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
-        let _ = self
-            .editor
-            .update(cx, |editor, cx| editor.confirm_insert_table(window, cx));
+    pub(crate) fn confirm(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
+        let Some((rows, cols)) = self.parsed(cx) else {
+            return;
+        };
+        let _ = self.editor.update(cx, |editor, cx| {
+            editor.insert_table_sized(rows, cols, window, cx)
+        });
     }
 
     fn on_key(
@@ -631,31 +634,20 @@ impl EditorView {
         cx.notify();
     }
 
-    pub(crate) fn confirm_insert_table(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
-        let Some((rows, cols)) = self
-            .insert_table
-            .as_ref()
-            .and_then(|dialog| dialog.read(cx).parsed(cx))
-        else {
+    pub(crate) fn insert_table_sized(
+        &mut self,
+        rows: usize,
+        cols: usize,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if self.insert_table.take().is_none() {
             return;
-        };
-        self.insert_table = None;
+        }
         self.apply_cmd(Command::Table(TableOp::Insert { rows, cols }));
         self.note_edit(cx);
         window.focus(&self.focus, cx);
         cx.notify();
-    }
-
-    pub(crate) fn on_insert_table_key(
-        &mut self,
-        ev: &KeyDownEvent,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) -> bool {
-        let Some(dialog) = self.insert_table.clone() else {
-            return false;
-        };
-        dialog.update(cx, |dialog, cx| dialog.on_key(ev, window, cx))
     }
 }
 
