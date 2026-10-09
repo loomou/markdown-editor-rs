@@ -702,3 +702,116 @@ fn picking_the_system_default_clears_a_chosen_code_font(cx: &mut TestAppContext)
         let _ = std::fs::remove_dir_all(dir);
     }
 }
+
+#[gpui::test]
+fn a_narrow_window_keeps_the_settings_controls_inside_the_viewport(cx: &mut TestAppContext) {
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
+    stop_blink(&shell, cx);
+    cx.update(|_, app| {
+        shell.update(app, |s, cx| {
+            s.show_settings = true;
+            cx.notify();
+        });
+    });
+    cx.run_until_parked();
+
+    let wide = cx.update(|window, _| f32::from(window.viewport_size().width));
+    let outline = cx
+        .debug_bounds("settings-nav")
+        .expect("the nav must paint")
+        .size
+        .width;
+    assert!(
+        f32::from(outline) < wide,
+        "premise: with the default window the nav should be a side column, not a full-width strip"
+    );
+    let row = cx
+        .debug_bounds("row:SetLanguage")
+        .expect("the language row must paint");
+    assert!(
+        f32::from(row.right()) <= wide + 1.0,
+        "premise: at the default width the row must already fit, but it ends at {}",
+        f32::from(row.right())
+    );
+
+    cx.simulate_resize(gpui::size(px(400.), px(680.)));
+    cx.run_until_parked();
+
+    let narrow = cx.update(|window, _| f32::from(window.viewport_size().width));
+    assert!(
+        narrow < crate::shell::settings::SETTINGS_WIDE_VIEWPORT,
+        "premise: 400px must land below the wide breakpoint"
+    );
+    let strip = cx
+        .debug_bounds("settings-nav")
+        .expect("the nav must still paint when narrow")
+        .size
+        .width;
+    assert!(
+        (f32::from(strip) - narrow).abs() <= 1.0,
+        "a narrow window should turn the nav into a full-width strip: nav {strip} vs viewport {narrow}"
+    );
+    for selector in ["row:SetLanguage", "row:Theme"] {
+        let bounds = cx
+            .debug_bounds(selector)
+            .unwrap_or_else(|| panic!("the {selector} row must still paint when narrow"));
+        assert!(
+            f32::from(bounds.right()) <= narrow + 1.0,
+            "{selector} runs to {} but the viewport is only {narrow}px wide",
+            f32::from(bounds.right())
+        );
+        assert!(
+            f32::from(bounds.left()) >= -1.0,
+            "{selector} starts off the left edge at {}",
+            f32::from(bounds.left())
+        );
+    }
+}
+
+#[gpui::test]
+fn a_narrow_settings_row_keeps_its_label_on_one_line(cx: &mut TestAppContext) {
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
+    stop_blink(&shell, cx);
+    cx.update(|_, app| {
+        shell.update(app, |s, cx| {
+            s.show_settings = true;
+            cx.notify();
+        });
+    });
+    cx.run_until_parked();
+
+    let wide_row = cx
+        .debug_bounds("row:SetLineBreak")
+        .expect("the line break row must paint")
+        .size
+        .height;
+
+    cx.simulate_resize(gpui::size(px(400.), px(680.)));
+    cx.run_until_parked();
+
+    let row = cx
+        .debug_bounds("row:SetLineBreak")
+        .expect("the line break row must paint when narrow");
+    let cell = cx
+        .debug_bounds("seg:SetLineBreakGreedy")
+        .expect("the line break control must paint");
+    assert!(
+        f32::from(cell.size.width) > 0.0,
+        "premise: the control must have real painted bounds"
+    );
+    assert!(
+        f32::from(row.size.height) <= f32::from(wide_row) * 1.6,
+        "narrowing the window must not balloon the row: it is {}px tall against {}px wide, \
+         where the wide layout was {}px — the title/desc column is being squeezed instead of \
+         giving the control its own space",
+        f32::from(row.size.height),
+        f32::from(row.size.width),
+        f32::from(wide_row),
+    );
+    assert!(
+        f32::from(cell.right()) <= f32::from(row.right()) + 1.0,
+        "the control must stay inside the row: control ends at {}, row ends at {}",
+        f32::from(cell.right()),
+        f32::from(row.right()),
+    );
+}

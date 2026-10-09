@@ -21,16 +21,26 @@ const SETTINGS_NAV: [Key; 5] = [
     Key::NavAbout,
 ];
 
+pub(super) const SETTINGS_WIDE_VIEWPORT: f32 = 640.0;
+
 impl Shell {
-    pub(super) fn settings_page(&self, t: ShellTheme, this: Entity<Self>) -> Div {
-        div()
+    pub(super) fn settings_page(&self, t: ShellTheme, this: Entity<Self>, viewport_w: f32) -> Div {
+        let wide = viewport_w >= SETTINGS_WIDE_VIEWPORT;
+        let page = div()
             .flex_1()
             .min_h_0()
             .flex()
             .overflow_hidden()
-            .bg(t.editor_bg)
-            .child(self.settings_nav(t, this.clone()))
-            .child(self.settings_main(t, this))
+            .bg(t.editor_bg);
+        if wide {
+            page.flex_row()
+                .child(self.settings_nav(t, this.clone(), true))
+                .child(self.settings_main(t, this, true))
+        } else {
+            page.flex_col()
+                .child(self.settings_nav(t, this.clone(), false))
+                .child(self.settings_main(t, this, false))
+        }
     }
 
     fn settings_nav_item(
@@ -63,37 +73,51 @@ impl Shell {
             .child(t18(label))
     }
 
-    fn settings_nav(&self, t: ShellTheme, this: Entity<Self>) -> Div {
-        div()
-            .w(px(172.))
+    fn settings_nav(&self, t: ShellTheme, this: Entity<Self>, wide: bool) -> Stateful<Div> {
+        let nav = div()
+            .id("settings-nav")
+            .debug_selector(|| "settings-nav".into())
             .flex_none()
             .flex()
-            .flex_col()
             .gap(px(2.))
-            .py(px(10.))
-            .px(px(8.))
-            .bg(t.panel_bg)
-            .border_r_1()
-            .border_color(t.border)
-            .children(
-                SETTINGS_NAV
-                    .iter()
-                    .copied()
-                    .enumerate()
-                    .map(|(i, label)| self.settings_nav_item(t, this.clone(), i, label)),
-            )
+            .bg(t.panel_bg);
+        let nav = if wide {
+            nav.w(px(172.))
+                .flex_col()
+                .py(px(10.))
+                .px(px(8.))
+                .border_r_1()
+                .border_color(t.border)
+        } else {
+            nav.w_full()
+                .flex_row()
+                .items_center()
+                .overflow_x_scroll()
+                .py(px(6.))
+                .px(px(8.))
+                .border_b_1()
+                .border_color(t.border)
+        };
+        nav.children(
+            SETTINGS_NAV
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(i, label)| self.settings_nav_item(t, this.clone(), i, label)),
+        )
     }
 
-    fn settings_main(&self, t: ShellTheme, this: Entity<Self>) -> Stateful<Div> {
+    fn settings_main(&self, t: ShellTheme, this: Entity<Self>, wide: bool) -> Stateful<Div> {
         let title = SETTINGS_NAV[self.settings_nav];
         let theme = self.settings.appearance.document_theme();
         div()
             .id("settings-main")
             .flex_1()
+            .min_w_0()
             .overflow_y_scroll()
             .track_scroll(&self.settings_scroll)
-            .px(px(34.))
-            .py(px(24.))
+            .px(px(if wide { 34. } else { 14. }))
+            .py(px(if wide { 24. } else { 16. }))
             .flex()
             .flex_col()
             .items_center()
@@ -301,13 +325,17 @@ impl Shell {
             .debug_selector(move || format!("row:{}", title.debug_name()))
             .w_full()
             .flex()
+            .flex_wrap()
             .items_center()
             .justify_between()
+            .gap(px(8.))
             .py(px(13.))
             .border_b_1()
             .border_color(t.border_variant)
             .child(
                 div()
+                    .flex_1()
+                    .min_w(px(0.))
                     .flex()
                     .flex_col()
                     .child(
@@ -325,7 +353,7 @@ impl Shell {
                             .child(desc.to_string()),
                     ),
             )
-            .child(control)
+            .child(div().flex_none().child(control))
     }
 
     fn font_picker_button(
