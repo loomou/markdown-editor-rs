@@ -35,6 +35,7 @@ fn grid_scaling_samples() {
                 table: 1,
                 rect: (((i % 100) * 30) as f64, ((i / 100) * 24) as f64, 30.0, 24.0),
                 is_header: i < 100,
+                corners: md_render::snapshot::TableCorners::default(),
             })
             .collect();
         let started = Instant::now();

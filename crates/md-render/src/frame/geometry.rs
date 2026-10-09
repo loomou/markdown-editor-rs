@@ -1,9 +1,9 @@
 use super::decoration::collect_decorations_window;
 use super::request::Pass;
 use crate::boxtree::{block_id_of, inline_offset};
-use crate::snapshot::{AtomSpan, CellPiece, DecorationPiece, TextPiece};
+use crate::snapshot::{AtomSpan, CellPiece, DecorationPiece, TableCorners, TextPiece};
 use md_core::Px;
-use md_layout::box_tree::{BoxChildren, LayoutBoxId};
+use md_layout::box_tree::{BoxChildren, BoxTree, LayoutBoxId};
 use md_layout::spine::{FlowItemKind, FlowWindow};
 use std::collections::BTreeMap;
 
@@ -41,6 +41,7 @@ fn paint_content(pass: &Pass<'_>, box_id: LayoutBoxId, a_top: Px, out: &mut Visi
         BoxChildren::Island(_) => {
             let row_x = inline_offset(&assembly.tree, box_id, env.content_inset);
             if let Some(g) = assembly.geometries.get(&box_id) {
+                let placement = row_placement(&assembly.tree, box_id);
                 for cg in &g.cells {
                     let Some(block) = block_id_of(cg.cell_box) else {
                         out.absent_visible.push(cg.cell_box);
@@ -80,6 +81,7 @@ fn paint_content(pass: &Pass<'_>, box_id: LayoutBoxId, a_top: Px, out: &mut Visi
                         align: cell.inline_align(),
                         header: cell.extra().table_header()
                             || cell.type_slot() == md_layout::box_tree::TypeSlot::TableHeader,
+                        corners: placement.corners_of(cg.cell_box),
                     });
                 }
             } else {
@@ -123,6 +125,47 @@ fn paint_content(pass: &Pass<'_>, box_id: LayoutBoxId, a_top: Px, out: &mut Visi
         BoxChildren::Vertical(_) => {
             out.absent_visible.push(box_id);
         }
+    }
+}
+
+struct RowPlacement<'a> {
+    first_row: bool,
+    last_row: bool,
+    cols: &'a [LayoutBoxId],
+}
+
+impl RowPlacement<'_> {
+    fn corners_of(&self, cell: LayoutBoxId) -> TableCorners {
+        let first_col = self.cols.first() == Some(&cell);
+        let last_col = self.cols.last() == Some(&cell);
+        TableCorners {
+            top_left: self.first_row && first_col,
+            top_right: self.first_row && last_col,
+            bottom_right: self.last_row && last_col,
+            bottom_left: self.last_row && first_col,
+        }
+    }
+}
+
+fn row_placement<'a>(tree: &'a BoxTree, row: LayoutBoxId) -> RowPlacement<'a> {
+    let alone = RowPlacement {
+        first_row: false,
+        last_row: false,
+        cols: &[],
+    };
+    let Some(table) = tree.get(row).parent() else {
+        return alone;
+    };
+    let BoxChildren::Vertical(rows) = tree.get(table).children() else {
+        return alone;
+    };
+    let BoxChildren::Island(cols) = tree.get(row).children() else {
+        return alone;
+    };
+    RowPlacement {
+        first_row: rows.first() == Some(&row),
+        last_row: rows.last() == Some(&row),
+        cols: cols.as_slice(),
     }
 }
 

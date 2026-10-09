@@ -20,6 +20,40 @@ pub enum DecorationScope {
     Leaf,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Corner {
+    TopLeft,
+    TopRight,
+    BottomRight,
+    BottomLeft,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Radii {
+    pub top_left: f32,
+    pub top_right: f32,
+    pub bottom_right: f32,
+    pub bottom_left: f32,
+}
+
+impl Radii {
+    pub fn all(radius: f32) -> Self {
+        Radii {
+            top_left: radius,
+            top_right: radius,
+            bottom_right: radius,
+            bottom_left: radius,
+        }
+    }
+
+    pub fn any(self) -> bool {
+        self.top_left > 0.0
+            || self.top_right > 0.0
+            || self.bottom_right > 0.0
+            || self.bottom_left > 0.0
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum PaintOp {
     Fill {
@@ -29,14 +63,21 @@ pub enum PaintOp {
     Round {
         rect: (Px, Px, Px, Px),
         color: Hsla,
-        radius: f32,
+        radii: Radii,
     },
     RoundBorder {
         rect: (Px, Px, Px, Px),
         fill: Hsla,
-        radius: f32,
+        radii: Radii,
         border_width: f32,
         border_color: Hsla,
+    },
+    Arc {
+        corner: Corner,
+        at: (Px, Px),
+        radius: f32,
+        width: f32,
+        color: Hsla,
     },
     Check {
         origin: (Px, Px),
