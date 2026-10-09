@@ -679,6 +679,7 @@ impl<V: TextInputHost> Element for TextInputElement<V> {
         cx: &mut App,
     ) -> Self::PrepaintState {
         let st = &self.style;
+        let live = self.host.read(cx).caret_live(window);
         let Some((text, selection, caret_at, marked, scroll_x)) =
             self.host.read(cx).input().map(|input| {
                 (
@@ -746,8 +747,8 @@ impl<V: TextInputHost> Element for TextInputElement<V> {
                 color,
             )
         };
-        let selection =
-            (!placeholder && !selection.is_empty()).then(|| row_quad(&selection, st.selection));
+        let selection = (live && !placeholder && !selection.is_empty())
+            .then(|| row_quad(&selection, st.selection));
         let marked = marked
             .filter(|m| !placeholder && !m.is_empty() && m.end <= line.len())
             .map(|m| row_quad(&m, st.ime));
