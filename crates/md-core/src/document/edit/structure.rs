@@ -54,6 +54,11 @@ pub(super) fn break_block(doc: &mut Document, sel: Sel) -> Caret {
     {
         return caret;
     }
+    if let Some(id) = doc.live_id(at.block)
+        && let Some(caret) = doc.try_commit_image(id)
+    {
+        return caret;
+    }
     if let Some(caret) = super::table::try_commit_pipe_table(doc, at) {
         return caret;
     }

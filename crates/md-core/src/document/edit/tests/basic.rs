@@ -1,7 +1,7 @@
 use super::support::{caret, type_chars};
 use crate::block::BlockKind;
 use crate::document::edit::{Command, Sel, apply};
-use crate::document::{PasteIntent, editor_options, load_markdown};
+use crate::document::{Document, PasteIntent, editor_options, load_markdown};
 use crate::inline::InlineMarks;
 
 #[test]
@@ -204,6 +204,123 @@ fn enter_after_an_image_matches_enter_after_a_typed_image() {
         typed.to_markdown(),
         loaded.to_markdown(),
         "typing the image and loading it must behave the same on Enter"
+    );
+    assert_eq!(
+        kinds(&typed),
+        kinds(&loaded),
+        "typing the image and loading it must reach the same kinds"
+    );
+}
+
+fn kinds(doc: &Document) -> Vec<Option<BlockKind>> {
+    doc.text_leaves().iter().map(|&b| doc.kind(b)).collect()
+}
+
+fn typed_then_broken(source: &str) -> Document {
+    let mut doc = load_markdown("", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let at = type_chars(&mut doc, caret(leaf, 0), source);
+    apply(&mut doc, Sel::collapsed(at), Command::Break);
+    doc
+}
+
+#[test]
+fn enter_promotes_a_lone_image_line_to_an_image_block() {
+    for (source, alt) in [
+        ("![a](u)", "a"),
+        ("![正则](C:\\Users\\me\\Desktop\\正则.png)", "正则"),
+    ] {
+        let mut doc = load_markdown("", editor_options());
+        let leaf = doc.text_leaves()[0];
+        let at = type_chars(&mut doc, caret(leaf, 0), source);
+        assert_eq!(
+            doc.kind(at.block),
+            Some(BlockKind::Paragraph),
+            "{source}: typing alone does not promote"
+        );
+
+        let out = apply(&mut doc, Sel::collapsed(at), Command::Break);
+
+        assert_eq!(
+            kinds(&doc),
+            vec![Some(BlockKind::Image), Some(BlockKind::Paragraph)],
+            "{source}: Enter turns the line into an image and opens a fresh line"
+        );
+        let image = doc.text_leaves()[0];
+        assert_eq!(doc.text_of(image), Some(alt));
+        assert_eq!(doc.kind(out.block), Some(BlockKind::Paragraph));
+        assert_eq!(doc.text_of(out.block), Some(""));
+        assert_eq!(doc.to_markdown(), format!("{source}\n\n"));
+
+        let reloaded = load_markdown(&doc.to_markdown(), editor_options());
+        assert_eq!(
+            kinds(&reloaded),
+            kinds(&doc),
+            "{source}: the promoted shape must survive a reload"
+        );
+    }
+}
+
+#[test]
+fn enter_leaves_a_paragraph_that_merely_contains_an_image_alone() {
+    for source in [
+        "![a](u) ![b](v)",
+        "z ![a](u)",
+        "![a](u) z",
+        "![a](u",
+        "![a](u)\n![b](v)",
+    ] {
+        let doc = typed_then_broken(source);
+        assert!(
+            kinds(&doc).iter().all(|&k| k != Some(BlockKind::Image)),
+            "{source}: only a lone image line may be promoted, kinds {:?}",
+            kinds(&doc)
+        );
+    }
+}
+
+#[test]
+fn enter_promotes_a_lone_image_inside_a_quote() {
+    let mut doc = load_markdown("> \n", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let at = type_chars(&mut doc, caret(leaf, 0), "![a](u)");
+
+    let _ = apply(&mut doc, Sel::collapsed(at), Command::Break);
+
+    assert_eq!(
+        kinds(&doc),
+        vec![Some(BlockKind::Image), Some(BlockKind::Paragraph)],
+        "a lone image line inside a quote is promoted just like a root one"
+    );
+    assert_eq!(doc.to_markdown(), "> ![a](u)\n>\n> ");
+    assert_eq!(
+        kinds(&load_markdown(&doc.to_markdown(), editor_options())),
+        kinds(&doc),
+        "the quoted shape must survive a reload"
+    );
+}
+
+#[test]
+fn enter_does_not_promote_an_image_inside_a_list_item() {
+    let doc = {
+        let mut doc = load_markdown("- \n", editor_options());
+        let leaf = doc.text_leaves()[0];
+        let at = type_chars(&mut doc, caret(leaf, 0), "![a](u)");
+        apply(&mut doc, Sel::collapsed(at), Command::Break);
+        doc
+    };
+
+    assert!(
+        kinds(&doc).iter().all(|&k| k != Some(BlockKind::Image)),
+        "a list item host must not be promoted to an image block, kinds {:?}",
+        kinds(&doc)
+    );
+    assert_eq!(
+        load_markdown(&doc.to_markdown(), editor_options())
+            .text_leaves()
+            .len(),
+        doc.text_leaves().len(),
+        "the item shape must survive a reload"
     );
 }
 
