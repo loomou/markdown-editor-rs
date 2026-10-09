@@ -440,10 +440,16 @@ impl Render for Shell {
                         .flex_1()
                         .flex()
                         .overflow_hidden()
-                        .child(self.body(this.clone()))
+                        .on_children_prepainted({
+                            let this = this.clone();
+                            move |_, window, cx| {
+                                this.update(cx, |shell, cx| shell.outline_follow_paint(window, cx));
+                            }
+                        })
                         .children(show_outline.then(|| {
                             self.outline_panel(t, this.clone(), window.viewport_size().width, cx)
-                        })),
+                        }))
+                        .child(self.body(this.clone())),
                 )
             })
             .child(self.status_bar(t, this.clone(), status))

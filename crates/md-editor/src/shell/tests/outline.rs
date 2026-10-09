@@ -307,7 +307,7 @@ fn dragging_the_outline_seam_changes_panel_width(cx: &mut TestAppContext) {
 
     let hit = cx
         .debug_bounds("outline-resize")
-        .expect("the left edge should expose a drag-to-widen zone while the outline is open");
+        .expect("the right edge should expose a drag-to-widen zone while the outline is open");
     assert!(
         (shell.read_with(cx, |s, _| s.outline_width) - OUTLINE_W).abs() < 0.5,
         "the width should start at the factory default"
@@ -327,7 +327,7 @@ fn dragging_the_outline_seam_changes_panel_width(cx: &mut TestAppContext) {
     );
 
     cx.simulate_event(MouseMoveEvent {
-        position: point(hit.center().x - px(80.0), hit.center().y),
+        position: point(hit.center().x + px(80.0), hit.center().y),
         pressed_button: Some(MouseButton::Left),
         modifiers: gpui::Modifiers::default(),
     });
@@ -335,12 +335,12 @@ fn dragging_the_outline_seam_changes_panel_width(cx: &mut TestAppContext) {
     let wide = shell.read_with(cx, |s, _| s.outline_width);
     assert!(
         (wide - (OUTLINE_W + 80.0)).abs() < 1.0,
-        "dragging left should widen the panel: got {wide}"
+        "dragging right should widen the panel: got {wide}"
     );
 
     cx.simulate_event(MouseUpEvent {
         button: MouseButton::Left,
-        position: point(hit.center().x - px(80.0), hit.center().y),
+        position: point(hit.center().x + px(80.0), hit.center().y),
         modifiers: gpui::Modifiers::default(),
         click_count: 1,
     });
@@ -351,7 +351,7 @@ fn dragging_the_outline_seam_changes_panel_width(cx: &mut TestAppContext) {
     );
 
     cx.simulate_event(MouseMoveEvent {
-        position: point(hit.center().x - px(160.0), hit.center().y),
+        position: point(hit.center().x + px(160.0), hit.center().y),
         pressed_button: Some(MouseButton::Left),
         modifiers: gpui::Modifiers::default(),
     });
@@ -370,7 +370,7 @@ fn dragging_the_outline_seam_stops_at_min_width(cx: &mut TestAppContext) {
     open_outline(&shell, cx);
     let hit = cx
         .debug_bounds("outline-resize")
-        .expect("the left edge should expose a drag-to-widen zone while the outline is open");
+        .expect("the right edge should expose a drag-to-widen zone while the outline is open");
 
     cx.simulate_event(MouseDownEvent {
         button: MouseButton::Left,
@@ -381,7 +381,7 @@ fn dragging_the_outline_seam_stops_at_min_width(cx: &mut TestAppContext) {
     });
     cx.run_until_parked();
     cx.simulate_event(MouseMoveEvent {
-        position: point(hit.center().x + px(400.0), hit.center().y),
+        position: point(hit.center().x - px(400.0), hit.center().y),
         pressed_button: Some(MouseButton::Left),
         modifiers: gpui::Modifiers::default(),
     });
@@ -389,7 +389,7 @@ fn dragging_the_outline_seam_stops_at_min_width(cx: &mut TestAppContext) {
     assert_eq!(
         shell.read_with(cx, |s, _| s.outline_width),
         OUTLINE_MIN_W,
-        "dragging right should stop at the minimum width"
+        "dragging left should stop at the minimum width"
     );
 }
 
@@ -400,7 +400,7 @@ fn outline_resize_state_does_not_survive_a_lost_mouse_up(cx: &mut TestAppContext
     open_outline(&shell, cx);
     let hit = cx
         .debug_bounds("outline-resize")
-        .expect("the left edge should expose a drag-to-widen zone while the outline is open");
+        .expect("the right edge should expose a drag-to-widen zone while the outline is open");
 
     cx.simulate_event(MouseDownEvent {
         button: MouseButton::Left,
@@ -411,7 +411,7 @@ fn outline_resize_state_does_not_survive_a_lost_mouse_up(cx: &mut TestAppContext
     });
     cx.run_until_parked();
     cx.simulate_event(MouseMoveEvent {
-        position: point(hit.center().x - px(80.0), hit.center().y),
+        position: point(hit.center().x + px(80.0), hit.center().y),
         pressed_button: Some(MouseButton::Left),
         modifiers: gpui::Modifiers::default(),
     });
@@ -436,7 +436,7 @@ fn outline_resize_state_does_not_survive_a_lost_mouse_up(cx: &mut TestAppContext
     );
 
     cx.simulate_event(MouseMoveEvent {
-        position: point(hit.center().x - px(160.0), hit.center().y),
+        position: point(hit.center().x + px(160.0), hit.center().y),
         pressed_button: Some(MouseButton::Left),
         modifiers: gpui::Modifiers::default(),
     });
