@@ -333,11 +333,7 @@ impl EditorView {
 
     fn apply_code_lang(&mut self, block: BlockId, text: String, cx: &mut Context<'_, Self>) {
         let before = self.state.doc.document.revision();
-        let sel = self.editing_sel();
-        let _ = self
-            .state
-            .doc
-            .apply(sel, Command::SetFenceLang { block, lang: text });
+        self.apply_cmd(Command::SetFenceLang { block, lang: text });
         if self.state.doc.document.revision() != before {
             self.note_edit(cx);
         }
