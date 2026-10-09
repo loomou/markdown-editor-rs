@@ -291,11 +291,10 @@ fn a_fresh_document_matches_the_old_three_pass_answer() {
     }
     let mut langs = HashMap::new();
     for id in doc.document.preorder() {
-        if let Some(l) = doc.document.extra(id).code_fence_lang() {
+        if let md_core::block::NodeExtra::CodeFence { lang, .. } = doc.document.extra(id) {
             langs.insert(
                 id.index,
-                doc.document
-                    .lang(l)
+                lang.and_then(|l| doc.document.lang(l))
                     .unwrap_or("")
                     .split_whitespace()
                     .next()
@@ -315,6 +314,10 @@ fn a_fresh_document_matches_the_old_three_pass_answer() {
     assert!(
         !langs.is_empty(),
         "the fixture should contain a fenced code block with a lang"
+    );
+    assert!(
+        langs.values().any(|l| l.is_empty()),
+        "the fixture's fence with no info string must still be listed"
     );
 }
 

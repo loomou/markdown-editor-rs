@@ -225,6 +225,64 @@ fn typing_mermaid_turns_the_block_into_a_diagram(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn a_fence_without_an_info_string_can_gain_one(cx: &mut TestAppContext) {
+    let (shell, cx) = cx.add_window_view(|_, cx| {
+        Shell::new(
+            Doc::new(load_markdown("```\nfn x() {}\n```\n", editor_options())),
+            cx,
+        )
+    });
+    stop_blink(&shell, cx);
+    open_code_lang(&shell, cx);
+    cx.update(|_, app| {
+        let editor = shell.read(app).editor.read(app);
+        assert!(
+            editor.code_lang_rect(app).is_some(),
+            "a fence with no info string must still open the input"
+        );
+    });
+
+    cx.simulate_input("rust");
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+
+    cx.update(|_, app| {
+        let editor = shell.read(app).editor.read(app);
+        assert_eq!(
+            editor.state.doc.document.to_markdown(),
+            "```rust\nfn x() {}\n```\n"
+        );
+    });
+}
+
+#[gpui::test]
+fn an_indented_code_block_has_no_language_input(cx: &mut TestAppContext) {
+    let (shell, cx) = cx.add_window_view(|_, cx| {
+        Shell::new(
+            Doc::new(load_markdown("    fn x() {}\n", editor_options())),
+            cx,
+        )
+    });
+    stop_blink(&shell, cx);
+    cx.run_until_parked();
+    let at = cx.update(|_, app| {
+        let editor = shell.read(app).editor.read(app);
+        lang_label_click(editor, BlockKind::CodeBlock)
+    });
+    cx.simulate_click(at, Modifiers::none());
+    cx.run_until_parked();
+
+    cx.update(|_, app| {
+        let editor = shell.read(app).editor.read(app);
+        assert!(
+            editor.code_lang.is_none(),
+            "an indented code block has no fence to rewrite"
+        );
+        assert_eq!(editor.state.doc.document.to_markdown(), "    fn x() {}\n");
+    });
+}
+
+#[gpui::test]
 fn the_input_starts_from_the_info_string_that_is_on_disk(cx: &mut TestAppContext) {
     let (shell, cx) = cx.add_window_view(|_, cx| {
         Shell::new(
