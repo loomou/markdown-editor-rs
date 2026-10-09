@@ -27,9 +27,19 @@ use std::rc::Rc;
 const WELL_LANG_HIT_PAD: f32 = 8.0;
 const WELL_LANG_HIT_MIN_W: f32 = 80.0;
 
-fn well_lang_is_editable(kind: BlockKind, role: md_layout::box_tree::BoxRole) -> bool {
-    matches!(kind, BlockKind::CodeBlock | BlockKind::Mermaid)
-        && role != md_layout::box_tree::BoxRole::Preview
+fn well_lang_is_editable(
+    kind: BlockKind,
+    role: md_layout::box_tree::BoxRole,
+    edit_source: bool,
+) -> bool {
+    if role == md_layout::box_tree::BoxRole::Preview {
+        return false;
+    }
+    match kind {
+        BlockKind::CodeBlock => true,
+        BlockKind::Mermaid => edit_source,
+        _ => false,
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -392,7 +402,8 @@ impl EditorElement {
                     w: geom.hit.2 as Px,
                     h: geom.hit.3 as Px,
                 });
-                if well_lang_is_editable(t.kind, t.box_id.role) && code_langs.contains_key(&t.block)
+                if well_lang_is_editable(t.kind, t.box_id.role, t.edit_source)
+                    && code_langs.contains_key(&t.block)
                 {
                     let d = &theme.decoration;
                     let line_h = d.well_head_h - d.code_border - 2.0 * d.well_lang_top;

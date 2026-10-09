@@ -506,3 +506,75 @@ fn the_mermaid_preview_has_no_language_input(cx: &mut TestAppContext) {
         );
     });
 }
+
+#[gpui::test]
+fn a_mermaid_away_from_the_caret_has_no_language_input(cx: &mut TestAppContext) {
+    let (shell, cx) = cx.add_window_view(|_, cx| {
+        Shell::new(
+            Doc::new(load_markdown(
+                "```mermaid\ngraph TD;\n```\n\ntail\n",
+                editor_options(),
+            )),
+            cx,
+        )
+    });
+    stop_blink(&shell, cx);
+    cx.run_until_parked();
+    let at = cx.update(|_, app| {
+        let editor = shell.read(app).editor.read(app);
+        assert_eq!(
+            editor.state.doc.block_edit(),
+            None,
+            "the caret is in another block, so the diagram is not being edited"
+        );
+        lang_label_click(editor, BlockKind::Mermaid)
+    });
+    cx.simulate_click(at, Modifiers::none());
+    cx.run_until_parked();
+
+    cx.update(|_, app| {
+        let editor = shell.read(app).editor.read(app);
+        assert!(
+            editor.code_lang.is_none(),
+            "a diagram that is not being edited is a preview, not a fence to rewrite"
+        );
+        assert_eq!(
+            editor.state.doc.document.to_markdown(),
+            "```mermaid\ngraph TD;\n```\n\ntail"
+        );
+    });
+}
+
+#[gpui::test]
+fn a_code_block_away_from_the_caret_keeps_its_language_input(cx: &mut TestAppContext) {
+    let (shell, cx) = cx.add_window_view(|_, cx| {
+        Shell::new(
+            Doc::new(load_markdown(
+                "```rust\nfn x() {}\n```\n\ntail\n",
+                editor_options(),
+            )),
+            cx,
+        )
+    });
+    stop_blink(&shell, cx);
+    cx.run_until_parked();
+    let at = cx.update(|_, app| {
+        let editor = shell.read(app).editor.read(app);
+        assert_eq!(
+            editor.state.doc.block_edit(),
+            None,
+            "the caret is in another block, so the fence is not being edited"
+        );
+        lang_label_click(editor, BlockKind::CodeBlock)
+    });
+    cx.simulate_click(at, Modifiers::none());
+    cx.run_until_parked();
+
+    cx.update(|_, app| {
+        let editor = shell.read(app).editor.read(app);
+        assert!(
+            editor.code_lang_rect(app).is_some(),
+            "a code block is a fence wherever the caret is, so its label stays editable"
+        );
+    });
+}
