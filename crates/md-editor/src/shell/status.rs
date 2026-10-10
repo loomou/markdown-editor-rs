@@ -156,6 +156,11 @@ impl Shell {
             .on_any_mouse_down(|_: &MouseDownEvent, window: &mut Window, _: &mut App| {
                 window.prevent_default();
             })
+            .when(!self.show_settings, |bar| {
+                bar.child(self.outline_toggle(t, this.clone()))
+                    .child(self.reading_toggle(t, this))
+            })
+            .child(div().flex_1())
             .child(match status {
                 None => div()
                     .flex()
@@ -176,11 +181,6 @@ impl Shell {
                     .child(self.status_sep(t))
                     .child(self.status_item(&md_i18n::fmt::status_words(words)))
                     .child(self.status_item(&md_i18n::fmt::status_chars(chars))),
-            })
-            .child(div().flex_1())
-            .when(!self.show_settings, |bar| {
-                bar.child(self.reading_toggle(t, this.clone()))
-                    .child(self.outline_toggle(t, this))
             })
     }
 

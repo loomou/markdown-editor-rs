@@ -60,6 +60,10 @@ impl Shell {
         ) {
             return true;
         }
+        if key == "escape" && Mods::from(ev.keystroke.modifiers) == Mods::none() {
+            self.cancel_recording(window, cx);
+            return true;
+        }
         if key == "backspace" && Mods::from(ev.keystroke.modifiers) == Mods::none() {
             self.settings.keymap.clear(cmd);
             self.commit_recording(None, window, cx);

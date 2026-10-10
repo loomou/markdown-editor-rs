@@ -246,7 +246,7 @@ impl Shell {
             .flex()
             .flex_col()
             .bg(t.panel_bg)
-            .border_l_1()
+            .border_r_1()
             .border_color(t.border)
             .child(
                 div()
@@ -262,35 +262,12 @@ impl Shell {
                             .flex_1()
                             .min_h_0()
                             .overflow_hidden()
-                            .on_children_prepainted({
-                                let this = this.clone();
-                                move |_, window, cx| {
-                                    let scrolled = this.update(cx, |shell, cx| {
-                                        let Some((ix, going_down)) = shell.outline_follow.take()
-                                        else {
-                                            return false;
-                                        };
-                                        if !shell.follow_outline_row(ix, going_down) {
-                                            return false;
-                                        }
-                                        cx.notify();
-                                        true
-                                    });
-                                    if scrolled {
-                                        window.on_next_frame(|window, _| window.refresh());
-                                    }
-                                }
-                            })
                             .id("outline-list")
                             .child(
                                 list(
                                     self.outline_scroll.clone(),
-                                    cx.processor(|this, ix: usize, _window, cx| {
+                                    cx.processor(|this, ix: usize, _window, _cx| {
                                         let t = this.theme();
-                                        let current = this.outline_follow_current(cx);
-                                        if current != this.outline_current {
-                                            this.note_outline_row(current);
-                                        }
                                         let Some(row) = this.outline_cache.rows.get(ix).cloned()
                                         else {
                                             return div().into_any_element();
@@ -307,6 +284,22 @@ impl Shell {
             .child(self.outline_resize_handle(this))
     }
 
+    pub(super) fn outline_follow_paint(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
+        let current = self.outline_follow_current(cx);
+        if current != self.outline_current {
+            self.note_outline_row(current);
+            cx.notify();
+        }
+        let Some((ix, going_down)) = self.outline_follow.take() else {
+            return;
+        };
+        if !self.follow_outline_row(ix, going_down) {
+            return;
+        }
+        cx.notify();
+        window.on_next_frame(|window, _| window.refresh());
+    }
+
     fn begin_outline_resize(&mut self, x: Pixels, cx: &mut Context<'_, Self>) {
         self.outline_resize = Some((x, self.outline_width));
         cx.notify();
@@ -316,7 +309,7 @@ impl Shell {
         let Some((start_x, start_w)) = self.outline_resize else {
             return;
         };
-        let next = start_w + f32::from(start_x - x);
+        let next = start_w - f32::from(start_x - x);
         let next = clamp_outline_width(next, viewport_w);
         if (next - self.outline_width).abs() < 0.5 {
             return;
@@ -335,7 +328,7 @@ impl Shell {
         div()
             .id("outline-resize")
             .absolute()
-            .left(px(-(OUTLINE_RESIZE_HIT + 1.0) * 0.5))
+            .right(px(-(OUTLINE_RESIZE_HIT + 1.0) * 0.5))
             .top_0()
             .h_full()
             .w(px(OUTLINE_RESIZE_HIT))
@@ -582,6 +575,7 @@ impl Shell {
         };
         div()
             .id("btn-outline")
+            .debug_selector(|| "btn-outline".into())
             .px(px(8.))
             .py(px(2.))
             .rounded(px(4.))

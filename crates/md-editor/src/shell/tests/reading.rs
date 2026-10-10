@@ -59,3 +59,25 @@ fn the_reading_button_leaves_the_editor_focused(cx: &mut TestAppContext) {
         "leaving reading mode should not take the keyboard away either"
     );
 }
+
+#[gpui::test]
+fn the_outline_toggle_sits_before_the_reading_toggle(cx: &mut TestAppContext) {
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
+    stop_blink(&shell, cx);
+    cx.run_until_parked();
+
+    let outline = cx
+        .debug_bounds("btn-outline")
+        .expect("the status bar should paint the outline toggle")
+        .center();
+    let reading = cx
+        .debug_bounds("btn-reading")
+        .expect("the status bar should paint the reading toggle")
+        .center();
+    assert!(
+        f32::from(outline.x) < f32::from(reading.x),
+        "the outline toggle should come first: outline at {}, reading at {}",
+        f32::from(outline.x),
+        f32::from(reading.x)
+    );
+}
