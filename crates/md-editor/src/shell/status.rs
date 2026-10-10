@@ -157,8 +157,8 @@ impl Shell {
                 window.prevent_default();
             })
             .when(!self.show_settings, |bar| {
-                bar.child(self.reading_toggle(t, this.clone()))
-                    .child(self.outline_toggle(t, this))
+                bar.child(self.outline_toggle(t, this.clone()))
+                    .child(self.reading_toggle(t, this))
             })
             .child(div().flex_1())
             .child(match status {

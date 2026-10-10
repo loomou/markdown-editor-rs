@@ -815,3 +815,58 @@ fn a_narrow_settings_row_keeps_its_label_on_one_line(cx: &mut TestAppContext) {
         f32::from(row.right()),
     );
 }
+
+#[gpui::test]
+fn clicking_the_open_font_trigger_again_closes_the_popover(cx: &mut TestAppContext) {
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
+    stop_blink(&shell, cx);
+    cx.update(|_, app| {
+        shell.update(app, |s, cx| {
+            s.show_settings = true;
+            cx.notify();
+        });
+    });
+    cx.run_until_parked();
+
+    let click = |cx: &mut gpui::VisualTestContext, bounds: gpui::Bounds<gpui::Pixels>| {
+        cx.simulate_event(MouseDownEvent {
+            button: MouseButton::Left,
+            position: bounds.center(),
+            modifiers: gpui::Modifiers::default(),
+            click_count: 1,
+            first_mouse: false,
+        });
+        cx.simulate_event(MouseUpEvent {
+            button: MouseButton::Left,
+            position: bounds.center(),
+            modifiers: gpui::Modifiers::default(),
+            click_count: 1,
+        });
+        cx.run_until_parked();
+    };
+
+    let trigger = cx
+        .debug_bounds("font-trigger")
+        .expect("the body font trigger must be painted");
+    click(cx, trigger);
+    assert!(
+        shell.read_with(cx, |s, _| s.font_menu.is_some()),
+        "the first click must open the popover"
+    );
+    cx.debug_bounds("font-menu")
+        .expect("the popover must be painted while it is open");
+    click(cx, trigger);
+    assert!(
+        shell.read_with(cx, |s, _| s.font_menu.is_none()),
+        "clicking the trigger of an open popover must close it, not reopen it"
+    );
+    assert!(
+        cx.debug_bounds("font-menu").is_none(),
+        "the closed popover must stop painting"
+    );
+    click(cx, trigger);
+    assert!(
+        shell.read_with(cx, |s, _| s.font_menu.is_some()),
+        "a third click must open it again"
+    );
+}

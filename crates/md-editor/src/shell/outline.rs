@@ -575,6 +575,7 @@ impl Shell {
         };
         div()
             .id("btn-outline")
+            .debug_selector(|| "btn-outline".into())
             .px(px(8.))
             .py(px(2.))
             .rounded(px(4.))

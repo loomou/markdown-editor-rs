@@ -395,22 +395,23 @@ impl Shell {
             .text_size(px(12.))
             .text_color(if open { t.text } else { t.text_muted })
             .hover(move |s| s.bg(t.hover))
-            .on_click(move |ev: &ClickEvent, window: &mut Window, cx: &mut App| {
-                let viewport = window.viewport_size();
-                let at = match ev {
-                    ClickEvent::Mouse(m) => m.up.position,
-                    ClickEvent::Touch(t) => t.position,
-                    ClickEvent::Keyboard(_) => point(viewport.width * 0.5, viewport.height * 0.3),
-                };
-                trigger.update(cx, |shell, cx| {
-                    shell.open_menu = None;
-                    shell.font_menu = match shell.font_menu.take() {
-                        Some(m) if m.target() == target => None,
-                        _ => Some(FontMenu::open(at, viewport, window, target)),
-                    };
-                    cx.notify();
-                });
-            })
+            .capture_any_mouse_down(
+                move |ev: &MouseDownEvent, window: &mut Window, cx: &mut App| {
+                    if ev.button != MouseButton::Left {
+                        return;
+                    }
+                    cx.stop_propagation();
+                    let viewport = window.viewport_size();
+                    trigger.update(cx, |shell, cx| {
+                        shell.open_menu = None;
+                        shell.font_menu = match shell.font_menu.take() {
+                            Some(m) if m.target() == target => None,
+                            _ => Some(FontMenu::open(ev.position, viewport, window, target)),
+                        };
+                        cx.notify();
+                    });
+                },
+            )
             .children(probe)
             .child(div().child(label))
             .child(
