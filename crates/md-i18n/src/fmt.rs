@@ -37,14 +37,14 @@ pub fn overrides_count_in(lang: Lang, n: usize) -> String {
     }
 }
 
-pub fn save_changes_question() -> (&'static str, &'static str) {
+pub fn save_changes_question() -> &'static str {
     save_changes_question_in(current())
 }
 
-pub fn save_changes_question_in(lang: Lang) -> (&'static str, &'static str) {
+pub fn save_changes_question_in(lang: Lang) -> &'static str {
     match lang {
-        Lang::ZhCn => ("是否保存对 ", " 的更改？"),
-        Lang::En => ("Save changes to ", "?"),
+        Lang::ZhCn => "是否保存更改？",
+        Lang::En => "Save changes?",
     }
 }
 
@@ -242,16 +242,15 @@ mod tests {
                     lang.key()
                 );
             }
-            let (head, tail) = save_changes_question_in(lang);
-            let whole = format!("{head}题.md{tail}");
+            let question = save_changes_question_in(lang);
             assert!(
-                !whole.contains('{'),
-                "save_changes_question 在 {} 下有个没填的占位符：`{whole}`",
+                !question.contains('{'),
+                "save_changes_question 在 {} 下有个没填的占位符：`{question}`",
                 lang.key()
             );
             assert!(
-                !head.is_empty() && !tail.is_empty(),
-                "save_changes_question 在 {} 下有一截是空的：`{head}` / `{tail}`",
+                !question.is_empty(),
+                "save_changes_question 在 {} 下是空的",
                 lang.key()
             );
         }
@@ -277,8 +276,8 @@ mod tests {
             ),
             (
                 "save_changes_question",
-                save_changes_question_in(Lang::ZhCn).0.to_owned(),
-                save_changes_question_in(Lang::En).0.to_owned(),
+                save_changes_question_in(Lang::ZhCn).to_owned(),
+                save_changes_question_in(Lang::En).to_owned(),
             ),
             (
                 "group_count",

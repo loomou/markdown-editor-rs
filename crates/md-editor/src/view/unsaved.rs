@@ -24,10 +24,6 @@ pub(crate) fn doc_file_name(doc: &Doc) -> Option<&str> {
         .and_then(|n| n.to_str())
 }
 
-pub(crate) fn unsaved_file_name(doc: &Doc) -> &str {
-    doc_file_name(doc).unwrap_or("untitled")
-}
-
 pub(crate) fn window_title(doc: &Doc) -> String {
     let name = doc_file_name(doc).unwrap_or(crate::APP_NAME);
     if doc.is_dirty() {
