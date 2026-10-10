@@ -7,7 +7,7 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, ClickEvent, Context, Div, Entity, FontWeight, InteractiveElement, IntoElement,
     MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Stateful,
-    StatefulInteractiveElement, Styled, Window, canvas, div, point, px, rgba,
+    StatefulInteractiveElement, Styled, Window, canvas, div, px, rgba,
 };
 use md_i18n::{Key, t as t18};
 use md_theme::{Density, LineBreakMode, ThemeVariant};
