@@ -11,7 +11,9 @@ use super::{
     WellHeadHit, WellHit, WellScroll, events, overlay_diag_labels,
 };
 use crate::ui::theme::ShellTheme;
-use gpui::{App, Bounds, ContentMask, ElementInputHandler, Hsla, Pixels, Window, point, px, size};
+use gpui::{
+    App, Bounds, ContentMask, ElementInputHandler, Hsla, Pixels, Point, Window, point, px, size,
+};
 use md_content::gpui_theme::{ThemeColorExt, TypeRoleExt};
 use md_content::{images, math, mermaid};
 use md_core::Px;
@@ -716,6 +718,7 @@ fn table_reorder_paint_args(
     Some(ReorderChrome {
         origin,
         visual,
+        radius: v.state.theme.decoration.table_radius,
         accent: shell.accent,
         panel_bg: shell.panel_bg,
         border: shell.border,
@@ -725,31 +728,97 @@ fn table_reorder_paint_args(
     })
 }
 
+fn corners_of(radii: md_render::blocks::Radii) -> gpui::Corners<Pixels> {
+    gpui::Corners {
+        top_left: px(radii.top_left),
+        top_right: px(radii.top_right),
+        bottom_right: px(radii.bottom_right),
+        bottom_left: px(radii.bottom_left),
+    }
+}
+
+fn paint_corner_arc(
+    window: &mut Window,
+    corner: md_render::blocks::Corner,
+    origin: Point<Pixels>,
+    radius: f32,
+    width: f32,
+    color: Hsla,
+) {
+    use md_render::blocks::Corner;
+    let r = (radius - width * 0.5).max(0.0);
+    let k = 0.552_284_8 * r;
+    let (cx, cy) = match corner {
+        Corner::TopLeft => (origin.x + px(radius), origin.y + px(radius)),
+        Corner::TopRight => (origin.x - px(radius), origin.y + px(radius)),
+        Corner::BottomRight => (origin.x - px(radius), origin.y - px(radius)),
+        Corner::BottomLeft => (origin.x + px(radius), origin.y - px(radius)),
+    };
+    let (start, end, ctrl_a, ctrl_b) = match corner {
+        Corner::TopLeft => (
+            point(cx, cy - px(r)),
+            point(cx - px(r), cy),
+            point(cx - px(k), cy - px(r)),
+            point(cx - px(r), cy - px(k)),
+        ),
+        Corner::TopRight => (
+            point(cx + px(r), cy),
+            point(cx, cy - px(r)),
+            point(cx + px(r), cy - px(k)),
+            point(cx + px(k), cy - px(r)),
+        ),
+        Corner::BottomRight => (
+            point(cx, cy + px(r)),
+            point(cx + px(r), cy),
+            point(cx + px(k), cy + px(r)),
+            point(cx + px(r), cy + px(k)),
+        ),
+        Corner::BottomLeft => (
+            point(cx - px(r), cy),
+            point(cx, cy + px(r)),
+            point(cx - px(r), cy + px(k)),
+            point(cx - px(k), cy + px(r)),
+        ),
+    };
+    let mut path = gpui::PathBuilder::stroke(px(width));
+    path.move_to(start);
+    path.cubic_bezier_to(end, ctrl_a, ctrl_b);
+    if let Ok(path) = path.build() {
+        window.paint_path(path, color);
+    }
+}
+
 fn paint_block_op(op: md_render::blocks::PaintOp, ctx: &PaintCtx<'_>, window: &mut Window) {
     match op {
         md_render::blocks::PaintOp::Fill { rect, color } => {
             window.paint_quad(gpui::fill(ctx.bounds(rect), color));
         }
-        md_render::blocks::PaintOp::Round {
-            rect,
-            color,
-            radius,
-        } => {
-            window.paint_quad(gpui::fill(ctx.bounds(rect), color).corner_radii(px(radius)));
+        md_render::blocks::PaintOp::Round { rect, color, radii } => {
+            window.paint_quad(gpui::fill(ctx.bounds(rect), color).corner_radii(corners_of(radii)));
         }
         md_render::blocks::PaintOp::RoundBorder {
             rect,
             fill,
-            radius,
+            radii,
             border_width,
             border_color,
         } => {
             window.paint_quad(
                 gpui::fill(ctx.bounds(rect), fill)
-                    .corner_radii(px(radius))
+                    .corner_radii(corners_of(radii))
                     .border_widths(px(border_width))
                     .border_color(border_color),
             );
+        }
+        md_render::blocks::PaintOp::Arc {
+            corner,
+            at,
+            radius,
+            width,
+            color,
+        } => {
+            let origin = ctx.bounds((at.0, at.1, 0.0, 0.0)).origin;
+            paint_corner_arc(window, corner, origin, radius, width, color);
         }
         md_render::blocks::PaintOp::Check {
             origin,

@@ -1,4 +1,4 @@
-use super::{BlockComponent, PaintOp};
+use super::{BlockComponent, PaintOp, Radii};
 use crate::snapshot::DecorationPiece;
 use gpui::Hsla;
 use md_content::gpui_theme::ThemeColorExt;
@@ -38,7 +38,7 @@ impl BlockComponent for ListItemBlock {
             let mut ops = vec![PaintOp::RoundBorder {
                 rect: (dx, dy, size, size),
                 fill,
-                radius,
+                radii: Radii::all(radius),
                 border_width,
                 border_color: border,
             }];
@@ -62,12 +62,12 @@ impl BlockComponent for ListItemBlock {
                     PaintOp::Round {
                         rect: (dx, dy, size, size),
                         color,
-                        radius: (size * 0.5) as f32,
+                        radii: Radii::all((size * 0.5) as f32),
                     },
                     PaintOp::Round {
                         rect: (dx + 1.0, dy + 1.0, inner, inner),
                         color: canvas,
-                        radius: (inner * 0.5) as f32,
+                        radii: Radii::all((inner * 0.5) as f32),
                     },
                 ]
             }
@@ -78,7 +78,7 @@ impl BlockComponent for ListItemBlock {
             _ => vec![PaintOp::Round {
                 rect: (dx, dy, size, size),
                 color,
-                radius: (size * 0.5) as f32,
+                radii: Radii::all((size * 0.5) as f32),
             }],
         }
     }
@@ -87,7 +87,7 @@ impl BlockComponent for ListItemBlock {
 #[cfg(test)]
 mod tests {
     use super::ListItemBlock;
-    use crate::blocks::{BlockComponent, PaintOp};
+    use crate::blocks::{BlockComponent, PaintOp, Radii};
     use crate::snapshot::DecorationPiece;
     use md_content::gpui_theme::ThemeColorExt;
     use md_core::block::BlockKind;
@@ -137,14 +137,14 @@ mod tests {
         match ops.as_slice() {
             [
                 PaintOp::RoundBorder {
-                    radius,
+                    radii,
                     border_width,
                     border_color,
                     fill,
                     ..
                 },
             ] => {
-                assert!((*radius - theme.decoration.task_radius).abs() < f32::EPSILON);
+                assert_eq!(*radii, Radii::all(theme.decoration.task_radius));
                 assert!((*border_width - theme.decoration.task_border as f32).abs() < f32::EPSILON);
                 assert_eq!(*border_color, theme.paint.task_border.hsla());
                 assert_eq!(fill.a, 0.0);
@@ -160,14 +160,14 @@ mod tests {
                 PaintOp::RoundBorder {
                     fill,
                     border_color,
-                    radius,
+                    radii,
                     ..
                 },
                 PaintOp::Check { color, .. },
             ] => {
                 assert_eq!(*fill, theme.paint.task_checked.hsla());
                 assert_eq!(*border_color, theme.paint.task_checked.hsla());
-                assert!((*radius - 4.0).abs() < f32::EPSILON);
+                assert_eq!(*radii, Radii::all(4.0));
                 assert_eq!(*color, theme.paint.task_check.hsla());
             }
             other => panic!("done task: {other:?}"),

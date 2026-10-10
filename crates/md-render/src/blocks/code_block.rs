@@ -1,4 +1,4 @@
-use super::{BlockComponent, DecorationScope, PaintOp};
+use super::{BlockComponent, DecorationScope, PaintOp, Radii};
 use crate::snapshot::DecorationPiece;
 use md_content::gpui_theme::ThemeColorExt;
 use md_core::Px;
@@ -14,7 +14,7 @@ pub(crate) fn code_well_ops(rect: (Px, Px, Px, Px), theme: &DocumentTheme) -> Ve
         vec![PaintOp::RoundBorder {
             rect,
             fill,
-            radius,
+            radii: Radii::all(radius),
             border_width,
             border_color: theme.paint.code_border.hsla(),
         }]
@@ -22,7 +22,7 @@ pub(crate) fn code_well_ops(rect: (Px, Px, Px, Px), theme: &DocumentTheme) -> Ve
         vec![PaintOp::Round {
             rect,
             color: fill,
-            radius,
+            radii: Radii::all(radius),
         }]
     } else {
         vec![PaintOp::Fill { rect, color: fill }]
@@ -55,7 +55,7 @@ impl BlockComponent for WellBlock {
 mod tests {
     use super::CodeBlock;
     use crate::blocks::for_kind;
-    use crate::blocks::{BlockComponent, DecorationScope, PaintOp};
+    use crate::blocks::{BlockComponent, DecorationScope, PaintOp, Radii};
     use crate::snapshot::DecorationPiece;
     use md_content::gpui_theme::ThemeColorExt;
     use md_core::block::BlockKind;
@@ -93,14 +93,14 @@ mod tests {
                 PaintOp::RoundBorder {
                     rect,
                     fill,
-                    radius,
+                    radii,
                     border_width,
                     border_color,
                 },
             ] => {
                 assert_eq!(*rect, (1.0, 2.0, 30.0, 40.0), "{kind:?}");
                 assert_eq!(*fill, theme.paint.code_fill.hsla(), "{kind:?}");
-                assert_eq!(*radius, 6.0, "{kind:?}");
+                assert_eq!(*radii, Radii::all(6.0), "{kind:?}");
                 assert_eq!(*border_width, 1.0, "{kind:?}");
                 assert_eq!(*border_color, theme.paint.code_border.hsla(), "{kind:?}");
             }
@@ -131,8 +131,8 @@ mod tests {
         theme.decoration.code_radius = 4.0;
         let ops = CodeBlock.paint_decoration(&piece(BlockKind::CodeBlock), &theme);
         match ops.as_slice() {
-            [PaintOp::Round { radius, color, .. }] => {
-                assert_eq!(*radius, 4.0);
+            [PaintOp::Round { radii, color, .. }] => {
+                assert_eq!(*radii, Radii::all(4.0));
                 assert_eq!(*color, theme.paint.code_fill.hsla());
             }
             other => panic!("radius without border should round-fill: {other:?}"),

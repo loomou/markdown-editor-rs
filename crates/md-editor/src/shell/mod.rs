@@ -455,7 +455,7 @@ impl Render for Shell {
             .children(self.color_picker_overlay(t, &this))
             .children(self.font_menu_overlay(t, &this))
             .children(self.unsaved_overlay(t, this.clone(), editor))
-            .children(self.insert_table_overlay(t, this.clone(), editor))
+            .children(editor.insert_table.clone())
             .children(self.save_conflict_overlay(t, this, editor))
     }
 }

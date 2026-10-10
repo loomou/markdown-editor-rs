@@ -1,13 +1,11 @@
 use super::Shell;
 use crate::ui::theme::{DLG_MIN_H, DLG_W, MONO_FONT, RADIUS, ShellTheme};
-use crate::view::{
-    EditorView, InsertTableField, SaveConflictChoice, UnsavedChoice, unsaved_file_name,
-};
+use crate::view::{EditorView, SaveConflictChoice, UnsavedChoice, unsaved_file_name};
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, BoxShadow, ClickEvent, Context, Div, Entity, FontWeight, InteractiveElement, IntoElement,
+    App, ClickEvent, Context, Div, Entity, FontWeight, InteractiveElement, IntoElement,
     KeyDownEvent, MouseButton, ParentElement, Stateful, StatefulInteractiveElement, Styled, Window,
-    div, point, px, rgba,
+    div, px, rgba,
 };
 use md_i18n::{Key, t as t18};
 
@@ -24,23 +22,6 @@ struct UnsavedBtnSpec {
     label: Key,
     kind: UnsavedBtnKind,
     choice: UnsavedChoice,
-}
-
-struct InsertTableDialogSpec {
-    rows: String,
-    cols: String,
-    field: InsertTableField,
-    selected: bool,
-    can_create: bool,
-}
-
-struct InsertTableFieldSpec {
-    id: &'static str,
-    label: Key,
-    value: String,
-    field: InsertTableField,
-    focused: bool,
-    selected: bool,
 }
 
 impl Shell {
@@ -209,13 +190,6 @@ impl Shell {
             .border_1()
             .border_color(t.border)
             .rounded(px(RADIUS))
-            .shadow(vec![BoxShadow {
-                color: rgba(0x0000008c).into(),
-                offset: point(px(0.), px(18.)),
-                blur_radius: px(50.),
-                spread_radius: px(0.),
-                inset: false,
-            }])
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(
                 div()
@@ -326,13 +300,6 @@ impl Shell {
             .border_1()
             .border_color(t.border)
             .rounded(px(RADIUS))
-            .shadow(vec![BoxShadow {
-                color: rgba(0x0000008c).into(),
-                offset: point(px(0.), px(18.)),
-                blur_radius: px(50.),
-                spread_radius: px(0.),
-                inset: false,
-            }])
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(
                 div()
@@ -444,272 +411,6 @@ impl Shell {
                 this.update(cx, |shell, cx| {
                     shell.editor.update(cx, |editor, cx| {
                         editor.apply_unsaved_choice(choice, window, cx);
-                    });
-                    cx.notify();
-                });
-            })
-            .child(t18(label))
-    }
-
-    pub(super) fn insert_table_overlay(
-        &self,
-        t: ShellTheme,
-        this: Entity<Self>,
-        editor: &EditorView,
-    ) -> Option<impl IntoElement> {
-        let state = editor.insert_table.as_ref()?;
-        let rows = state.rows.clone();
-        let cols = state.cols.clone();
-        let field = state.field;
-        let selected = state.selected;
-        let can_create = state.can_create();
-        let focus = editor.insert_table_focus.clone();
-        Some(
-            div()
-                .id("insert-table-mask")
-                .absolute()
-                .top(px(0.))
-                .left(px(0.))
-                .right(px(0.))
-                .bottom(px(0.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .bg(t.overlay)
-                .occlude()
-                .track_focus(&focus)
-                .on_mouse_down(MouseButton::Left, {
-                    let this = this.clone();
-                    move |_, window, cx| {
-                        this.update(cx, |shell, cx| {
-                            shell.editor.update(cx, |editor, cx| {
-                                editor.close_insert_table(window, cx);
-                            });
-                        });
-                        cx.stop_propagation();
-                    }
-                })
-                .on_key_down({
-                    let this = this.clone();
-                    move |ev: &KeyDownEvent, window, cx| {
-                        this.update(cx, |shell, cx| {
-                            shell.editor.update(cx, |editor, cx| {
-                                editor.on_insert_table_key(ev, window, cx);
-                            });
-                        });
-                        cx.stop_propagation();
-                    }
-                })
-                .child(self.insert_table_dialog(
-                    t,
-                    this,
-                    InsertTableDialogSpec {
-                        rows,
-                        cols,
-                        field,
-                        selected,
-                        can_create,
-                    },
-                )),
-        )
-    }
-
-    fn insert_table_dialog(
-        &self,
-        t: ShellTheme,
-        this: Entity<Self>,
-        spec: InsertTableDialogSpec,
-    ) -> impl IntoElement {
-        let InsertTableDialogSpec {
-            rows,
-            cols,
-            field,
-            selected,
-            can_create,
-        } = spec;
-        div()
-            .id("insert-table-dialog")
-            .w(px(DLG_W))
-            .flex()
-            .flex_col()
-            .px(px(16.))
-            .pt(px(22.))
-            .pb(px(16.))
-            .bg(t.editor_bg)
-            .border_1()
-            .border_color(t.border)
-            .rounded(px(RADIUS))
-            .shadow(vec![BoxShadow {
-                color: rgba(0x0000008c).into(),
-                offset: point(px(0.), px(18.)),
-                blur_radius: px(50.),
-                spread_radius: px(0.),
-                inset: false,
-            }])
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .child(
-                div()
-                    .text_size(px(15.))
-                    .font_weight(FontWeight(600.0))
-                    .text_color(t.text)
-                    .child(t18(Key::DlgInsertTable)),
-            )
-            .child(self.insert_table_field_row(
-                t,
-                this.clone(),
-                InsertTableFieldSpec {
-                    label: Key::DlgTableRows,
-                    id: "insert-table-rows",
-                    value: rows,
-                    field: InsertTableField::Rows,
-                    focused: field == InsertTableField::Rows,
-                    selected,
-                },
-            ))
-            .child(self.insert_table_field_row(
-                t,
-                this.clone(),
-                InsertTableFieldSpec {
-                    label: Key::DlgTableCols,
-                    id: "insert-table-cols",
-                    value: cols,
-                    field: InsertTableField::Cols,
-                    focused: field == InsertTableField::Cols,
-                    selected,
-                },
-            ))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .pt(px(22.))
-                    .child(div().flex_1())
-                    .child(self.insert_table_btn(
-                        t,
-                        "insert-table-cancel",
-                        Key::DlgCancel,
-                        false,
-                        true,
-                        this.clone(),
-                    ))
-                    .child(self.insert_table_btn(
-                        t,
-                        "insert-table-create",
-                        Key::DlgCreate,
-                        true,
-                        can_create,
-                        this,
-                    )),
-            )
-    }
-
-    fn insert_table_field_row(
-        &self,
-        t: ShellTheme,
-        this: Entity<Self>,
-        spec: InsertTableFieldSpec,
-    ) -> impl IntoElement {
-        let InsertTableFieldSpec {
-            id,
-            label,
-            value,
-            field,
-            focused,
-            selected,
-        } = spec;
-        let highlight = focused && selected;
-        div()
-            .flex()
-            .items_center()
-            .gap(px(12.))
-            .pt(px(14.))
-            .child(
-                div()
-                    .w(px(72.))
-                    .text_size(px(12.5))
-                    .text_color(t.text_muted)
-                    .child(t18(label)),
-            )
-            .child(
-                div()
-                    .id(id)
-                    .h(px(28.))
-                    .w(px(88.))
-                    .px(px(8.))
-                    .flex()
-                    .items_center()
-                    .rounded(px(RADIUS))
-                    .border_1()
-                    .border_color(if focused { t.accent } else { t.border })
-                    .bg(t.panel_bg)
-                    .text_size(px(13.))
-                    .font_family(MONO_FONT)
-                    .text_color(t.text)
-                    .on_click(move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
-                        this.update(cx, |shell, cx| {
-                            shell.editor.update(cx, |editor, cx| {
-                                editor.set_insert_table_field(field, cx);
-                            });
-                        });
-                    })
-                    .child(
-                        div()
-                            .when(highlight, |d| d.bg(t.accent).text_color(t.on_accent))
-                            .child(value),
-                    ),
-            )
-    }
-
-    fn insert_table_btn(
-        &self,
-        t: ShellTheme,
-        id: &'static str,
-        label: Key,
-        primary: bool,
-        enabled: bool,
-        this: Entity<Self>,
-    ) -> Stateful<Div> {
-        let fg = if !enabled {
-            t.text_disabled
-        } else if primary {
-            t.on_accent
-        } else {
-            t.text_muted
-        };
-        let border = if primary {
-            rgba(0x00000000).into()
-        } else {
-            t.border_variant
-        };
-        div()
-            .id(id)
-            .h(px(26.))
-            .px(px(12.))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(px(RADIUS))
-            .text_size(px(12.5))
-            .text_color(fg)
-            .border_1()
-            .border_color(border)
-            .when(primary, |d| d.font_weight(FontWeight(500.0)))
-            .when(primary && enabled, |d| d.bg(t.accent))
-            .when(!primary && enabled, |d| {
-                d.hover(move |s| s.bg(t.hover).text_color(t.text))
-            })
-            .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
-                if !enabled {
-                    return;
-                }
-                this.update(cx, |shell, cx| {
-                    shell.editor.update(cx, |editor, cx| {
-                        if primary {
-                            editor.confirm_insert_table(window, cx);
-                        } else {
-                            editor.close_insert_table(window, cx);
-                        }
                     });
                     cx.notify();
                 });

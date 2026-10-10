@@ -1,4 +1,5 @@
 use super::support::{TABLE_2X2, editor_with_doc, focus_editor, place_table_caret, table_leaf};
+use crate::view::insert_table::InsertTableField;
 use gpui::TestAppContext;
 use md_core::block::BlockKind;
 
@@ -50,26 +51,33 @@ fn insert_table_dialog_escape_closes_without_mutating(cx: &mut TestAppContext) {
 fn insert_table_dialog_create_inserts_sized_table(cx: &mut TestAppContext) {
     let (editor, cx) = editor_with_doc("", cx);
     focus_editor(&editor, cx);
-    cx.update(|window, app| {
+    let dialog = cx.update(|window, app| {
         editor.update(app, |view, cx| {
             view.open_insert_table(window, cx);
-            let state = view.insert_table.as_mut().expect("dialog");
-            state.rows = "3".into();
-            state.cols = "4".into();
-            view.confirm_insert_table(window, cx);
-            assert!(view.insert_table.is_none());
-            let loc = view
-                .state
-                .doc
-                .table_loc(view.state.cursor.block)
-                .expect("loc");
-            assert_eq!(loc.rows, 3);
-            assert_eq!(loc.cols, 4);
-            assert_eq!(
-                view.state.doc.kind(view.state.cursor.block),
-                Some(BlockKind::TableCell)
-            );
+            view.insert_table.clone().expect("dialog")
         })
+    });
+    cx.update(|window, app| {
+        dialog.update(app, |dialog, cx| {
+            dialog.set_dim(InsertTableField::Rows, "3", cx);
+            dialog.set_dim(InsertTableField::Cols, "4", cx);
+            dialog.confirm(window, cx);
+        });
+    });
+    cx.update(|_, app| {
+        let view = editor.read(app);
+        assert!(view.insert_table.is_none());
+        let loc = view
+            .state
+            .doc
+            .table_loc(view.state.cursor.block)
+            .expect("loc");
+        assert_eq!(loc.rows, 3);
+        assert_eq!(loc.cols, 4);
+        assert_eq!(
+            view.state.doc.kind(view.state.cursor.block),
+            Some(BlockKind::TableCell)
+        );
     });
 }
 
@@ -77,14 +85,22 @@ fn insert_table_dialog_create_inserts_sized_table(cx: &mut TestAppContext) {
 fn insert_table_dialog_rejects_invalid_dims(cx: &mut TestAppContext) {
     let (editor, cx) = editor_with_doc("", cx);
     focus_editor(&editor, cx);
-    cx.update(|window, app| {
+    let dialog = cx.update(|window, app| {
         editor.update(app, |view, cx| {
             view.open_insert_table(window, cx);
-            view.insert_table.as_mut().expect("dialog").rows = "0".into();
-            view.confirm_insert_table(window, cx);
-            assert!(view.insert_table.is_some());
-            assert!(!view.caret_in_table());
+            view.insert_table.clone().expect("dialog")
         })
+    });
+    cx.update(|window, app| {
+        dialog.update(app, |dialog, cx| {
+            dialog.set_dim(InsertTableField::Rows, "0", cx);
+            dialog.confirm(window, cx);
+        });
+    });
+    cx.update(|_, app| {
+        let view = editor.read(app);
+        assert!(view.insert_table.is_some());
+        assert!(!view.caret_in_table());
     });
 }
 

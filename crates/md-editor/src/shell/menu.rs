@@ -4,9 +4,9 @@ use crate::ui::theme::{MONO_FONT, RADIUS, ShellTheme, TITLE_BAR_H};
 use crate::view::table_commands::{TABLE_MENU, TableMenuEntry};
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, Bounds, BoxShadow, ClickEvent, Context, Div, Entity, InteractiveElement, IntoElement,
-    MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, Pixels, Point, ScrollWheelEvent,
-    Size, Stateful, StatefulInteractiveElement, Styled, Window, canvas, div, point, px, rgba,
+    App, Bounds, ClickEvent, Context, Div, Entity, InteractiveElement, IntoElement, MouseButton,
+    MouseDownEvent, MouseMoveEvent, ParentElement, Pixels, Point, ScrollWheelEvent, Size, Stateful,
+    StatefulInteractiveElement, Styled, Window, canvas, div, point, px,
 };
 use md_core::document::TableOp;
 use md_i18n::{Key, t as t18};
@@ -569,15 +569,6 @@ impl Shell {
             .border_1()
             .border_color(t.border)
             .rounded(px(RADIUS))
-            .when(id != MenuId::Context, |d| {
-                d.shadow(vec![BoxShadow {
-                    color: rgba(0x00000080).into(),
-                    offset: point(px(0.), px(14.)),
-                    blur_radius: px(40.),
-                    spread_radius: px(0.),
-                    inset: false,
-                }])
-            })
             .on_mouse_down_out({
                 let this = this.clone();
                 move |ev: &MouseDownEvent, window: &mut Window, cx: &mut App| {
@@ -755,13 +746,6 @@ impl Shell {
             .border_1()
             .border_color(t.border)
             .rounded(px(RADIUS))
-            .shadow(vec![BoxShadow {
-                color: rgba(0x00000080).into(),
-                offset: point(px(0.), px(14.)),
-                blur_radius: px(40.),
-                spread_radius: px(0.),
-                inset: false,
-            }])
             .occlude()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .children(items.iter().map(|entry| {
@@ -840,13 +824,6 @@ impl Shell {
             .border_1()
             .border_color(t.border)
             .rounded(px(RADIUS))
-            .shadow(vec![BoxShadow {
-                color: rgba(0x00000080).into(),
-                offset: point(px(0.), px(14.)),
-                blur_radius: px(40.),
-                spread_radius: px(0.),
-                inset: false,
-            }])
             .occlude()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .children(self.recent_files.iter().enumerate().map(|(index, path)| {

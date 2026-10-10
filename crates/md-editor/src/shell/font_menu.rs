@@ -3,9 +3,9 @@ use super::{Shell, ShellTheme, VIEW_MARGIN};
 use crate::ui::theme::RADIUS;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, Bounds, BoxShadow, ClickEvent, Div, Entity, InteractiveElement, IntoElement,
-    MouseDownEvent, ParentElement, Pixels, Point, Size, Stateful, StatefulInteractiveElement,
-    Styled, Window, div, point, px, rgba, uniform_list,
+    App, Bounds, ClickEvent, Div, Entity, InteractiveElement, IntoElement, MouseDownEvent,
+    ParentElement, Pixels, Point, Size, Stateful, StatefulInteractiveElement, Styled, Window, div,
+    point, px, uniform_list,
 };
 use md_i18n::{Key, t as t18};
 use md_theme::{SYSTEM_MONO, SYSTEM_UI};
@@ -141,13 +141,6 @@ impl FontMenu {
             .border_1()
             .border_color(t.border)
             .rounded(px(RADIUS))
-            .shadow(vec![BoxShadow {
-                color: rgba(0x00000080).into(),
-                offset: point(px(0.), px(14.)),
-                blur_radius: px(40.),
-                spread_radius: px(0.),
-                inset: false,
-            }])
             .occlude()
             .on_mouse_down_out(move |_: &MouseDownEvent, _: &mut Window, cx: &mut App| {
                 close.update(cx, |shell, cx| {

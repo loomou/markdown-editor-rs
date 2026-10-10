@@ -5,9 +5,9 @@ use crate::store::settings::LanguageChoice;
 use crate::ui::theme::ShellTheme;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, BoxShadow, ClickEvent, Context, Div, Entity, FontWeight, InteractiveElement,
-    IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels,
-    Stateful, StatefulInteractiveElement, Styled, Window, canvas, div, point, px, rgba,
+    AnyElement, App, ClickEvent, Context, Div, Entity, FontWeight, InteractiveElement, IntoElement,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Stateful,
+    StatefulInteractiveElement, Styled, Window, canvas, div, point, px, rgba,
 };
 use md_i18n::{Key, t as t18};
 use md_theme::{Density, LineBreakMode, ThemeVariant};
@@ -458,19 +458,7 @@ impl Shell {
                     cx.notify();
                 });
             })
-            .child(
-                div()
-                    .size(px(14.))
-                    .rounded_full()
-                    .bg(rgba(0xffffffff))
-                    .shadow(vec![BoxShadow {
-                        color: rgba(0x00000059).into(),
-                        offset: point(px(0.), px(1.)),
-                        blur_radius: px(3.),
-                        spread_radius: px(0.),
-                        inset: false,
-                    }]),
-            )
+            .child(div().size(px(14.)).rounded_full().bg(rgba(0xffffffff)))
     }
 
     fn font_size_slider(&self, t: ShellTheme, this: Entity<Self>) -> Div {

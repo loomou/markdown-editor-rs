@@ -1,5 +1,6 @@
-use super::{BlockComponent, PaintOp};
-use crate::snapshot::{CellPiece, DeviceRect};
+use super::{BlockComponent, Corner, PaintOp, Radii};
+use crate::snapshot::{CellPiece, DeviceRect, TableCorners};
+use gpui::Hsla;
 use md_content::gpui_theme::ThemeColorExt;
 use md_core::Px;
 use md_core::block::BlockId;
@@ -20,6 +21,7 @@ pub struct CellRect {
     pub table: BlockId,
     pub rect: DeviceRect,
     pub is_header: bool,
+    pub corners: TableCorners,
 }
 
 impl CellRect {
@@ -28,8 +30,57 @@ impl CellRect {
             table: cell.table,
             rect: cell.rect_device,
             is_header: cell.header,
+            corners: cell.corners,
         }
     }
+}
+
+fn corner_radii(cell: &CellRect, radius: f32) -> Radii {
+    let (_, _, w, h) = cell.rect;
+    let reach = radius as Px * 2.0;
+    if radius <= 0.0 || w < reach || h < reach {
+        return Radii::default();
+    }
+    Radii {
+        top_left: if cell.corners.top_left { radius } else { 0.0 },
+        top_right: if cell.corners.top_right { radius } else { 0.0 },
+        bottom_right: if cell.corners.bottom_right {
+            radius
+        } else {
+            0.0
+        },
+        bottom_left: if cell.corners.bottom_left {
+            radius
+        } else {
+            0.0
+        },
+    }
+}
+
+fn span(start: Px, len: Px, lead: f32, trail: f32) -> (Px, Px) {
+    let a = start + lead as Px;
+    let b = start + len - trail as Px;
+    if b <= a { (a, 0.0) } else { (a, b - a) }
+}
+
+fn corner_arcs(cell: &CellRect, radii: Radii, width: Px, color: Hsla) -> Vec<PaintOp> {
+    let (x, y, w, h) = cell.rect;
+    [
+        (Corner::TopLeft, radii.top_left, (x, y)),
+        (Corner::TopRight, radii.top_right, (x + w, y)),
+        (Corner::BottomRight, radii.bottom_right, (x + w, y + h)),
+        (Corner::BottomLeft, radii.bottom_left, (x, y + h)),
+    ]
+    .into_iter()
+    .filter(|(_, radius, _)| *radius > 0.0)
+    .map(|(corner, radius, at)| PaintOp::Arc {
+        corner,
+        at,
+        radius,
+        width: width as f32,
+        color,
+    })
+    .collect()
 }
 
 pub fn paint_cell_grid(cells: &[CellRect], theme: &DocumentTheme) -> Vec<PaintOp> {
@@ -37,10 +88,21 @@ pub fn paint_cell_grid(cells: &[CellRect], theme: &DocumentTheme) -> Vec<PaintOp
     let outer = theme.paint.table_border.hsla();
     let head_fill = theme.paint.table_head_fill.hsla();
     let t = theme.decoration.table_line_thickness;
+    let radius = theme.decoration.table_radius;
     let same_edge = |a: Px, b: Px| (a - b).abs() < 0.75;
     let mut ops = Vec::new();
     for cell in cells {
-        if cell.is_header {
+        if !cell.is_header {
+            continue;
+        }
+        let radii = corner_radii(cell, radius);
+        if radii.any() {
+            ops.push(PaintOp::Round {
+                rect: cell.rect,
+                color: head_fill,
+                radii,
+            });
+        } else {
             ops.push(PaintOp::Fill {
                 rect: cell.rect,
                 color: head_fill,
@@ -63,6 +125,7 @@ pub fn paint_cell_grid(cells: &[CellRect], theme: &DocumentTheme) -> Vec<PaintOp
     };
     for (ci, cell) in cells.iter().enumerate() {
         let (x, y, w, h) = cell.rect;
+        let radii = corner_radii(cell, radius);
         let has_right = step_neighbour(&adjacency.rows, adjacency.row_pos[ci], true, &|o| {
             same_edge(o.rect.0, x + w)
         });
@@ -80,26 +143,31 @@ pub fn paint_cell_grid(cells: &[CellRect], theme: &DocumentTheme) -> Vec<PaintOp
         } else {
             (t, outer)
         };
+        let (tx, tw) = span(x, w, radii.top_left, radii.top_right);
         ops.push(PaintOp::Fill {
-            rect: (x, y, w, top_t),
+            rect: (tx, y, tw, top_t),
             color: top_color,
         });
+        let (ly, lh) = span(y, h, radii.top_left, radii.bottom_left);
         ops.push(PaintOp::Fill {
-            rect: (x, y, t, h),
+            rect: (x, ly, t, lh),
             color: if has_left == Some(true) { grid } else { outer },
         });
         if has_right != Some(true) {
+            let (ry, rh) = span(y, h, radii.top_right, radii.bottom_right);
             ops.push(PaintOp::Fill {
-                rect: (x + w - t, y, t, h),
+                rect: (x + w - t, ry, t, rh),
                 color: outer,
             });
         }
         if has_below != Some(true) {
+            let (bx, bw) = span(x, w, radii.bottom_left, radii.bottom_right);
             ops.push(PaintOp::Fill {
-                rect: (x, y + h - t, w, t),
+                rect: (bx, y + h - t, bw, t),
                 color: outer,
             });
         }
+        ops.extend(corner_arcs(cell, radii, t, outer));
     }
     ops
 }
@@ -157,8 +225,8 @@ fn cell_adjacency(cells: &[CellRect]) -> CellAdjacency {
 #[cfg(test)]
 mod tests {
     use super::{CellRect, paint_cell_grid};
-    use crate::blocks::PaintOp;
-    use crate::snapshot::DeviceRect;
+    use crate::blocks::{Corner, PaintOp, Radii};
+    use crate::snapshot::{DeviceRect, TableCorners};
     use md_content::gpui_theme::ThemeColorExt;
     use md_theme::DocumentTheme;
 
@@ -169,6 +237,7 @@ mod tests {
             table: 1,
             rect,
             is_header,
+            corners: TableCorners::default(),
         };
         let ops = paint_cell_grid(
             &[
@@ -220,11 +289,13 @@ mod tests {
                     table: 1,
                     rect: (0.0, 0.0, 40.0, 20.0),
                     is_header: false,
+                    corners: TableCorners::default(),
                 },
                 CellRect {
                     table: 2,
                     rect: (40.0, 0.0, 40.0, 20.0),
                     is_header: false,
+                    corners: TableCorners::default(),
                 },
             ],
             &theme,
@@ -258,6 +329,7 @@ mod tests {
                     24.0,
                 ),
                 is_header: i < cols,
+                corners: TableCorners::default(),
             })
             .collect();
         let ops = paint_cell_grid(&cells, &theme);
@@ -290,6 +362,7 @@ mod tests {
                             table: 1,
                             rect: (x, y, w, h),
                             is_header: r == 0 && c % 3 == 0,
+                            corners: TableCorners::default(),
                         });
                     }
                     x += w;
@@ -313,6 +386,133 @@ mod tests {
                 cells.iter().map(|c| c.rect).collect::<Vec<_>>()
             );
         }
+    }
+
+    #[test]
+    fn table_corners_round_the_header_fill_and_trim_the_edges() {
+        let theme = DocumentTheme::one_dark();
+        let radius = theme.decoration.table_radius;
+        let t = theme.decoration.table_line_thickness;
+        let corners = |top_left, top_right, bottom_right, bottom_left| TableCorners {
+            top_left,
+            top_right,
+            bottom_right,
+            bottom_left,
+        };
+        let cell = |rect: DeviceRect, is_header: bool, corners: TableCorners| CellRect {
+            table: 1,
+            rect,
+            is_header,
+            corners,
+        };
+        let cells = [
+            cell(
+                (0.0, 0.0, 40.0, 20.0),
+                true,
+                corners(true, false, false, false),
+            ),
+            cell(
+                (40.0, 0.0, 40.0, 20.0),
+                true,
+                corners(false, true, false, false),
+            ),
+            cell(
+                (0.0, 20.0, 40.0, 20.0),
+                false,
+                corners(false, false, false, true),
+            ),
+            cell(
+                (40.0, 20.0, 40.0, 20.0),
+                false,
+                corners(false, false, true, false),
+            ),
+        ];
+        let ops = paint_cell_grid(&cells, &theme);
+        let head_fill = theme.paint.table_head_fill.hsla();
+        let outer = theme.paint.table_border.hsla();
+        assert!(
+            ops.iter().any(|op| matches!(
+                op,
+                PaintOp::Round { rect, color, radii }
+                    if *color == head_fill
+                        && *rect == (0.0, 0.0, 40.0, 20.0)
+                        && *radii
+                            == Radii {
+                                top_left: radius,
+                                top_right: 0.0,
+                                bottom_right: 0.0,
+                                bottom_left: 0.0,
+                            }
+            )),
+            "the top left header fill rounds only its own corner: {ops:?}"
+        );
+        assert!(
+            !ops.iter().any(|op| matches!(
+                op,
+                PaintOp::Fill { rect, color }
+                    if *color == head_fill && *rect == (0.0, 0.0, 40.0, 20.0)
+            )),
+            "the square header fill must not cover the rounded corner: {ops:?}"
+        );
+        let arcs: Vec<_> = ops
+            .iter()
+            .filter_map(|op| match op {
+                PaintOp::Arc { corner, at, .. } => Some((*corner, *at)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            arcs,
+            [
+                (Corner::TopLeft, (0.0, 0.0)),
+                (Corner::TopRight, (80.0, 0.0)),
+                (Corner::BottomLeft, (0.0, 40.0)),
+                (Corner::BottomRight, (80.0, 40.0)),
+            ],
+            "{ops:?}"
+        );
+        let edge = |rect: DeviceRect| {
+            ops.iter()
+                .any(|op| matches!(op, PaintOp::Fill { rect: r, color } if *r == rect && *color == outer))
+        };
+        let r = radius as f64;
+        assert!(edge((r, 0.0, 40.0 - r, t)), "{ops:?}");
+        assert!(edge((0.0, r, t, 20.0 - r)), "{ops:?}");
+        assert!(edge((40.0, 40.0 - t, 40.0 - r, t)), "{ops:?}");
+        assert!(edge((79.0, 20.0, t, 20.0 - r)), "{ops:?}");
+    }
+
+    #[test]
+    fn a_corner_that_does_not_fit_the_radius_stays_square() {
+        let mut theme = DocumentTheme::one_dark();
+        theme.decoration.table_radius = 12.0;
+        let t = theme.decoration.table_line_thickness;
+        let ops = paint_cell_grid(
+            &[CellRect {
+                table: 1,
+                rect: (0.0, 0.0, 20.0, 20.0),
+                is_header: true,
+                corners: TableCorners {
+                    top_left: true,
+                    top_right: true,
+                    bottom_right: true,
+                    bottom_left: true,
+                },
+            }],
+            &theme,
+        );
+        assert_eq!(ops.len(), 5, "{ops:?}");
+        assert!(
+            ops.iter().all(|op| matches!(op, PaintOp::Fill { .. })),
+            "{ops:?}"
+        );
+        assert!(
+            ops.iter().any(|op| matches!(
+                op,
+                PaintOp::Fill { rect, .. } if *rect == (0.0, 0.0, 20.0, t)
+            )),
+            "{ops:?}"
+        );
     }
 
     fn paint_cell_grid_naive(cells: &[CellRect], theme: &DocumentTheme) -> Vec<PaintOp> {

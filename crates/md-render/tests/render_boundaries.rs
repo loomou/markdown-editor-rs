@@ -12,7 +12,7 @@ use md_layout::style::BoxLayoutEnvironment;
 use md_render::frame::{FrameContext, FrameRequest, compose, from_assembly};
 use md_render::snap::SnapOperator;
 use md_render::snapshot::{
-    CellPiece, DecorationPiece, Frame, LayoutSnapshot, SnapshotRevs, TextPiece,
+    CellPiece, DecorationPiece, Frame, LayoutSnapshot, SnapshotRevs, TableCorners, TextPiece,
 };
 use md_theme::DocumentTheme;
 use std::collections::BTreeMap;
@@ -417,6 +417,74 @@ fn list_item_starting_with_table_builds_frame(cx: &mut TestAppContext) {
     let (hit_block, label_size) = slot.expect("list slot decoration");
     assert_eq!(hit_block, cell);
     assert!(label_size > 0.0);
+}
+
+#[gpui::test]
+fn table_cells_report_the_corner_of_the_table_they_sit_in(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    let cells = cx.update(|window, app| {
+        let theme = DocumentTheme::one_dark();
+        let doc = Doc::new(load_markdown(
+            "| a | b |\n| --- | --- |\n| 1 | 2 |\n",
+            editor_options(),
+        ));
+        let env = BoxLayoutEnvironment::default();
+        let shaper = test_shaper(window, app, &theme);
+        let snap = SnapOperator::new(1.0);
+        let block = first_block(&doc);
+        let frame = compose(
+            FrameContext {
+                doc: &doc,
+                env,
+                shaper: &shaper,
+                snap: &snap,
+                theme: &theme,
+            },
+            &FrameRequest {
+                viewport: (env.viewport_width, 600.0),
+                scroll: 0.0,
+                cursor: Cursor { block, offset: 0 },
+                selection: None,
+                marked: None,
+                search_query: "",
+                search_skip: None,
+            },
+            &FallbackSolver,
+            None,
+        );
+        let mut cells: Vec<_> = frame
+            .cells
+            .iter()
+            .map(|cell| {
+                let c = cell.corners;
+                (
+                    cell.rect_device,
+                    cell.header,
+                    (c.top_left, c.top_right, c.bottom_right, c.bottom_left),
+                )
+            })
+            .collect();
+        cells.sort_by(|a, b| {
+            a.0.1
+                .total_cmp(&b.0.1)
+                .then_with(|| a.0.0.total_cmp(&b.0.0))
+        });
+        cells
+    });
+    let flags: Vec<_> = cells
+        .iter()
+        .map(|(_, header, corners)| (*header, *corners))
+        .collect();
+    assert_eq!(
+        flags,
+        [
+            (true, (true, false, false, false)),
+            (true, (false, true, false, false)),
+            (false, (false, false, false, true)),
+            (false, (false, false, true, false)),
+        ],
+        "{cells:?}"
+    );
 }
 
 #[gpui::test]
@@ -971,6 +1039,18 @@ fn write_art_sig(out: &mut String, art: &md_content::shaper::ShapeArtifact) {
     }
 }
 
+fn corner_code(corners: TableCorners) -> String {
+    [
+        ('T', corners.top_left),
+        ('t', corners.top_right),
+        ('B', corners.bottom_right),
+        ('b', corners.bottom_left),
+    ]
+    .into_iter()
+    .map(|(mark, on)| if on { mark } else { '-' })
+    .collect()
+}
+
 fn frame_signature(frame: &Frame) -> String {
     let mut out = String::new();
     let mut pieces: Vec<&TextPiece> = frame.texts.iter().collect();
@@ -1022,10 +1102,11 @@ fn frame_signature(frame: &Frame) -> String {
     for cell in cells {
         write!(
             &mut out,
-            "[c{} t{} {} w{} h{:?} at{:?} ",
+            "[c{} t{} {} {} w{} h{:?} at{:?} ",
             cell.block,
             cell.table,
             if cell.header { 'H' } else { 'd' },
+            corner_code(cell.corners),
             cell.content_width,
             cell.rect_device,
             cell.content_origin_device,

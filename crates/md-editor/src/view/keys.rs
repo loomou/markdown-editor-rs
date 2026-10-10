@@ -444,10 +444,6 @@ impl EditorView {
             cx.stop_propagation();
             return true;
         }
-        if self.on_insert_table_key(ev, window, cx) {
-            cx.stop_propagation();
-            return true;
-        }
         if self.media_zoom.is_some() {
             let handled = self.on_media_zoom_key(ev, window, cx);
             if handled {

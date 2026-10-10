@@ -49,6 +49,20 @@ impl TextPiece {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TableCorners {
+    pub top_left: bool,
+    pub top_right: bool,
+    pub bottom_right: bool,
+    pub bottom_left: bool,
+}
+
+impl TableCorners {
+    pub fn any(self) -> bool {
+        self.top_left || self.top_right || self.bottom_right || self.bottom_left
+    }
+}
+
 #[derive(Clone)]
 pub struct CellPiece {
     pub cell_box: LayoutBoxId,
@@ -61,6 +75,7 @@ pub struct CellPiece {
     pub content_width: Px,
     pub align: InlineAlign,
     pub header: bool,
+    pub corners: TableCorners,
 }
 
 #[derive(Clone, Copy, Debug)]
