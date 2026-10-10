@@ -3,6 +3,7 @@ mod support;
 mod appearance;
 mod cache;
 mod caption;
+mod code_lang;
 mod colors;
 mod files;
 mod find;

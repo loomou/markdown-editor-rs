@@ -133,6 +133,11 @@ impl GpuiShaper {
                 fallback: None,
             });
             flow.flush();
+            let mut art = bands_to_artifact(bands, role);
+            if super::tabs::has_tab(text) {
+                art.tab_source = Some(std::rc::Rc::from(text));
+            }
+            return art;
         }
         let atoms = line_atoms(text, runs, self.link_dests.as_ref(), self.link_raw.as_ref());
         let planned = self.line_break.mode != LineBreakMode::Greedy

@@ -8,7 +8,7 @@ use super::popover::{PopoverPaint, paint_math_popover, paint_popover};
 use super::scrollbar::{select_autoscroll_can_move, select_autoscroll_delta};
 use super::{
     ArtifactPaint, EditorElement, EditorView, PaintFault, PrepaintState, ScrollbarGeom, WellBar,
-    WellHeadHit, WellHit, WellScroll, events, overlay_diag_labels,
+    WellHeadHit, WellHit, WellLangHit, WellScroll, events, overlay_diag_labels,
 };
 use crate::ui::theme::ShellTheme;
 use gpui::{
@@ -23,6 +23,24 @@ use md_render::snapshot::{DeviceRect, Frame};
 use md_theme::{ChromeTokens, DocumentTheme};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+
+const WELL_LANG_HIT_PAD: f32 = 8.0;
+const WELL_LANG_HIT_MIN_W: f32 = 80.0;
+
+fn well_lang_is_editable(
+    kind: BlockKind,
+    role: md_layout::box_tree::BoxRole,
+    edit_source: bool,
+) -> bool {
+    if role == md_layout::box_tree::BoxRole::Preview {
+        return false;
+    }
+    match kind {
+        BlockKind::CodeBlock => true,
+        BlockKind::Mermaid => edit_source,
+        _ => false,
+    }
+}
 
 #[derive(Clone, Copy)]
 struct PaintCtx<'a> {
@@ -134,7 +152,7 @@ impl EditorElement {
         let well_hits = Rc::new(collect_well_hits(&f.texts, &f.decorations, &theme));
 
         paint_under_text(f, &well_hits, ctx, window);
-        let well_heads = self.paint_texts(f, ctx, window, cx);
+        let (well_heads, well_langs) = self.paint_texts(f, ctx, window, cx);
         self.paint_table(f, ctx, window, cx);
 
         if let Some(r) = f.caret_device
@@ -209,6 +227,7 @@ impl EditorElement {
             geometry_revision: f.geometry_revision,
             wells: well_hits,
             well_heads: Rc::new(well_heads),
+            well_langs: Rc::new(well_langs),
             cells: Rc::new(f.cells.iter().map(|c| (c.block, c.rect_device)).collect()),
             scale,
             media_hits: Rc::new(super::media_zoom::collect_hits(
@@ -228,7 +247,7 @@ impl EditorElement {
         ctx: &PaintCtx<'_>,
         window: &mut Window,
         cx: &mut App,
-    ) -> Vec<WellHeadHit> {
+    ) -> (Vec<WellHeadHit>, Vec<WellLangHit>) {
         let PaintCtx {
             ox,
             oy,
@@ -242,6 +261,7 @@ impl EditorElement {
             ..
         } = *ctx;
         let mut heads = Vec::new();
+        let mut langs = Vec::new();
         let cards: HashMap<(BlockId, md_layout::box_tree::BoxRole), (f32, f32, f32, f32)> = f
             .decorations
             .iter()
@@ -366,7 +386,7 @@ impl EditorElement {
                     )
                 };
                 let geom = well_head_geom(*card, theme);
-                paint_well_head(
+                let label_w = paint_well_head(
                     label,
                     copied,
                     hovered,
@@ -382,9 +402,22 @@ impl EditorElement {
                     w: geom.hit.2 as Px,
                     h: geom.hit.3 as Px,
                 });
+                if well_lang_is_editable(t.kind, t.box_id.role, t.edit_source)
+                    && code_langs.contains_key(&t.block)
+                {
+                    let d = &theme.decoration;
+                    let line_h = d.well_head_h - d.code_border - 2.0 * d.well_lang_top;
+                    langs.push(WellLangHit {
+                        id: t.block,
+                        x: (geom.head.0 + d.well_lang_left as f32) as Px,
+                        y: geom.text_top as Px,
+                        w: (label_w + WELL_LANG_HIT_PAD).max(WELL_LANG_HIT_MIN_W) as Px,
+                        h: line_h as Px,
+                    });
+                }
             }
         }
-        heads
+        (heads, langs)
     }
 
     fn paint_table(&mut self, f: &Frame, ctx: &PaintCtx<'_>, window: &mut Window, cx: &mut App) {

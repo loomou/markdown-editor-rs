@@ -314,6 +314,65 @@ impl Document {
         })
     }
 
+    pub(crate) fn try_commit_image(&mut self, id: NodeId) -> Option<Caret> {
+        let transition = self.leaf_transition(id)?;
+        if transition.old_kind != BlockKind::Paragraph {
+            return None;
+        }
+        let source = syntax::normalize_source(&transition.old_source);
+        if source.is_empty() {
+            return None;
+        }
+        let frag = load_markdown(&format!("{source}\n"), editor_options());
+        let (frag_leaf, next) = bind::unique_root(&frag)?;
+        if next != BlockKind::Image {
+            return None;
+        }
+        let source_len = source.len() as u32;
+        let frag_extra = frag.extra(frag_leaf);
+        let (dest, span) = match frag_extra {
+            NodeExtra::Image { dest, source } => (
+                self.remap_link(&frag, dest),
+                source.unwrap_or((0, source_len)),
+            ),
+            _ => return None,
+        };
+        let display = frag.display(frag_leaf).to_string();
+        let runs = self.remap_runs(&frag, frag_leaf);
+        let s2d = bind::source_to_display_map(source, &self.reference_definitions);
+        let constructs = frag.recorded_constructs(frag_leaf).map(|c| c.to_vec());
+        self.set_leaf_shape(
+            &transition,
+            BlockKind::Image,
+            NodeExtra::Image {
+                dest,
+                source: Some(span),
+            },
+        );
+        let text_change = self.replace_leaf_projection(
+            &transition,
+            display,
+            source.to_string(),
+            runs,
+            Some(s2d),
+            constructs,
+        );
+        let paragraph = self.alloc_leaf(BlockKind::Paragraph);
+        self.arena
+            .insert_after(transition.parent, Some(id), paragraph);
+        let additional_changes = vec![DocChange::TreeSpliced {
+            parent: transition.parent,
+            before: Some(id),
+            removed: Vec::new(),
+            inserted: vec![paragraph],
+        }];
+        self.finish_leaf_transition(transition, text_change, additional_changes);
+        Some(Caret {
+            block: paragraph.index,
+            offset: 0,
+        })
+    }
+
     pub(crate) fn try_demote_heading(&mut self, id: NodeId) -> Option<Caret> {
         let transition = self.leaf_transition(id)?;
         if !matches!(transition.old_kind, BlockKind::Heading(_)) {

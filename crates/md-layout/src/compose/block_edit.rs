@@ -153,11 +153,11 @@ fn detach_preview(
     block: md_core::block::BlockId,
 ) -> Option<PreviewSplice> {
     let preview = LayoutBoxId::preview(block);
-    let parent = tree.nodes.get(&preview)?.parent?;
+    let frame = LayoutBoxId::frame(block);
+    let parent = preview_parent(tree, doc, block, frame)?;
     let preview_text = tree.nodes.get(&preview).and_then(|n| n.text_id);
     tree.nodes.remove(&preview);
     tree.intern.release(preview_text);
-    let frame = LayoutBoxId::frame(block);
     if tree.nodes.contains_key(&frame) {
         let kind = tree.nodes.get(&frame).expect("live frame").kind;
         let own = theme.style_for(kind);
@@ -179,6 +179,32 @@ fn detach_preview(
         removed: vec![preview],
         inserted: Vec::new(),
     })
+}
+
+fn preview_parent(
+    tree: &BoxTree,
+    doc: &Document,
+    block: md_core::block::BlockId,
+    frame: LayoutBoxId,
+) -> Option<LayoutBoxId> {
+    let preview = LayoutBoxId::preview(block);
+    if let Some(parent) = tree.nodes.get(&preview).and_then(|n| n.parent) {
+        return Some(parent);
+    }
+    if let Some(parent) = tree.nodes.get(&frame).and_then(|n| n.parent) {
+        return Some(parent);
+    }
+    let node = doc.live_id(block)?;
+    let mut cur = doc.arena.get(node)?.parent;
+    while let Some(id) = cur {
+        let kind = doc.arena.get(id)?.kind;
+        let candidate = LayoutBoxId::for_kind(kind, id.index);
+        if tree.nodes.contains_key(&candidate) {
+            return Some(candidate);
+        }
+        cur = doc.arena.get(id)?.parent;
+    }
+    None
 }
 
 fn attach_preview(

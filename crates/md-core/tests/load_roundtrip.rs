@@ -731,13 +731,55 @@ fn an_image_only_paragraph_that_a_math_fence_cuts_keeps_its_kind() {
 }
 
 #[test]
+fn a_lone_image_inside_a_list_item_becomes_an_image_block() {
+    for source in [
+        "- ![a](u)\n",
+        "1. ![a](u)\n",
+        "- x\n  - ![a](u)\n",
+        "> - ![a](u)\n",
+        "- ![a](u)\n\n- z\n",
+        "- ![a](u)\n- b\n",
+        "- ![a](u)\n  $$\n  x\n  $$\n",
+    ] {
+        let before = load_markdown(source, editor_options());
+        assert!(
+            has_kind(&before, BlockKind::Image),
+            "{source:?} must promote its lone image: {:?}",
+            shape(&before)
+        );
+        let saved = before.to_markdown();
+        let after = load_markdown(&saved, editor_options());
+        assert_eq!(
+            shape(&before),
+            shape(&after),
+            "{source:?} saved as {saved:?} must reload as the same tree"
+        );
+    }
+}
+
+#[test]
+fn a_list_item_paragraph_with_more_than_an_image_stays_a_paragraph() {
+    for source in [
+        "- ![a](u) ![b](v)\n",
+        "- z ![a](u)\n",
+        "- ![a](u) z\n",
+        "- ![a](u\n",
+    ] {
+        let doc = load_markdown(source, editor_options());
+        assert!(
+            !has_kind(&doc, BlockKind::Image),
+            "{source:?} must keep a paragraph: {:?}",
+            shape(&doc)
+        );
+    }
+}
+
+#[test]
 fn a_paragraph_that_a_math_fence_cuts_keeps_being_a_paragraph_when_it_is_not_image_only() {
     for source in [
         "p ![a](u)\n$$\nx\n$$\n",
         "![a](u)![b](v)\n$$\nx\n$$\n",
         "![a](u)\n![b](v)\n$$\nx\n$$\n",
-        "- ![a](u)\n  $$\n  x\n  $$\n",
-        "- ![a](u)\n- b\n",
     ] {
         let before = load_markdown(source, editor_options());
         assert!(

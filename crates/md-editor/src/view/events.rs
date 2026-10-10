@@ -1,5 +1,8 @@
 use super::media_zoom::{self, MediaHit};
-use super::{CursorMotion, EditorView, PendingClick, ScrollbarGeom, WellBar, WellHeadHit, WellHit};
+use super::{
+    CursorMotion, EditorView, PendingClick, ScrollbarGeom, WellBar, WellHeadHit, WellHit,
+    WellLangHit,
+};
 use gpui::{MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ScrollWheelEvent, Window};
 use md_core::Px;
 use md_core::block::BlockKind;
@@ -23,6 +26,7 @@ pub(super) struct InputFrame {
     pub(super) geometry_revision: u64,
     pub(super) wells: Rc<Vec<WellHit>>,
     pub(super) well_heads: Rc<Vec<WellHeadHit>>,
+    pub(super) well_langs: Rc<Vec<WellLangHit>>,
     pub(super) cells: Rc<Vec<super::table_cols::CellHit>>,
     pub(super) scale: f64,
     pub(super) media_hits: Rc<Vec<MediaHit>>,
@@ -42,6 +46,7 @@ pub(super) fn on_mouse_down(f: &InputFrame, window: &mut Window) {
     let slot_rev = f.geometry_revision;
     let wells = Rc::clone(&f.wells);
     let well_heads_down = Rc::clone(&f.well_heads);
+    let well_langs_down = Rc::clone(&f.well_langs);
     let cell_hits_down = Rc::clone(&f.cells);
     let scale = f.scale;
     window.on_mouse_event(move |ev: &MouseDownEvent, phase, win, cx| {
@@ -153,6 +158,17 @@ pub(super) fn on_mouse_down(f: &InputFrame, window: &mut Window) {
                 .find(|h| h.contains(local.0, local.1))
             {
                 v.copy_well_source(hit.id, cx);
+                v.dragging = false;
+                v.pending_click = None;
+                cx.stop_propagation();
+                return;
+            }
+            if let Some(hit) = well_langs_down
+                .iter()
+                .copied()
+                .find(|h| h.contains(local.0, local.1))
+            {
+                v.begin_code_lang_edit(win, hit.id, hit.window_rect((ox, oy)), cx);
                 v.dragging = false;
                 v.pending_click = None;
                 cx.stop_propagation();
@@ -455,6 +471,9 @@ pub(super) fn on_scroll_wheel(f: &InputFrame, window: &mut Window) {
             if v.media_zoom.is_some() {
                 v.media_zoom_wheel(local, dy, (vw, vh), scale_w, cx);
                 return;
+            }
+            if v.code_lang.is_some() {
+                v.close_code_lang(true, win, cx);
             }
             let mut used = false;
             if let Some(hit) = wells_w.iter().copied().find(|hit| {

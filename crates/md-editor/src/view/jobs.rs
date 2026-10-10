@@ -1,7 +1,7 @@
 use super::{DisplayJob, ImagePopover, ImageSchedule, MathPopover};
 use md_content::shaper::ShapePart;
 use md_content::{images, math};
-use md_core::block::{BlockId, BlockKind, FrontMatterMarker};
+use md_core::block::{BlockId, BlockKind, FrontMatterMarker, NodeExtra};
 use md_theme::DocumentTheme;
 use std::collections::HashMap;
 
@@ -36,10 +36,9 @@ pub(crate) fn extra_snapshots(
         if let Some(dest_id) = extra.image_dest() {
             let dest = doc.document.link_dest(dest_id).unwrap_or("");
             block_image_dest.insert(index, images::cache_key(dest, path));
-        } else if let Some(lang_id) = extra.code_fence_lang() {
-            let lang = doc
-                .document
-                .lang(lang_id)
+        } else if let NodeExtra::CodeFence { lang, .. } = extra {
+            let lang = lang
+                .and_then(|lang_id| doc.document.lang(lang_id))
                 .unwrap_or("")
                 .split_whitespace()
                 .next()

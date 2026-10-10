@@ -632,7 +632,7 @@ pub(super) fn paint_well_head(
     theme: &DocumentTheme,
     window: &mut Window,
     cx: &mut App,
-) {
+) -> f32 {
     let d = &theme.decoration;
     let line_h_px = d.code_border as f32;
     let line_y = geom.head.1 + geom.head.3 - line_h_px;
@@ -654,8 +654,9 @@ pub(super) fn paint_well_head(
     let font = theme.type_scale.body.font();
 
     let Some(lang_line) = shape_head_line(label, &font, size, color, window) else {
-        return;
+        return 0.0;
     };
+    let label_w = f32::from(lang_line.width());
     let _ = lang_line.paint(
         point(px(geom.head.0 + d.well_lang_left as f32), px(geom.text_top)),
         px(line_h),
@@ -671,7 +672,7 @@ pub(super) fn paint_well_head(
         md_i18n::t(md_i18n::Key::MenuCopy)
     };
     let Some(action_line) = shape_head_line(action, &font, size, color, window) else {
-        return;
+        return label_w;
     };
     let text_w = f32::from(action_line.width());
     let icon_s = 15.0;
@@ -691,6 +692,7 @@ pub(super) fn paint_well_head(
     } else {
         paint_well_copy_icon(window, icon_x, icon_y, color);
     }
+    label_w
 }
 
 fn shape_head_line(

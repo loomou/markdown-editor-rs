@@ -169,11 +169,13 @@ pub(crate) fn constructs_from_parsed(source: &str, parsed: &Parsed<'_>) -> Vec<R
             continue;
         }
         match node.kind() {
-            NodeKind::Text { .. }
-            | NodeKind::TextOwned
-            | NodeKind::SynthesizedChar(_)
-            | NodeKind::SoftBreak
-            | NodeKind::HardBreak { .. } => {
+            NodeKind::Text { .. } | NodeKind::TextOwned => {
+                recorder.cover(lo, hi);
+                if let Some(raw) = literal_construct(source, &node.kind(), lo, hi) {
+                    out.push(raw);
+                }
+            }
+            NodeKind::SynthesizedChar(_) | NodeKind::SoftBreak | NodeKind::HardBreak { .. } => {
                 recorder.cover(lo, hi);
             }
             NodeKind::Code(content) => {
@@ -189,6 +191,44 @@ pub(crate) fn constructs_from_parsed(source: &str, parsed: &Parsed<'_>) -> Vec<R
         }
     }
     out
+}
+
+pub(crate) fn literal_construct(
+    source: &str,
+    kind: &NodeKind<'_, '_>,
+    lo: usize,
+    hi: usize,
+) -> Option<RawConstruct> {
+    match kind {
+        NodeKind::Text { backslash_escaped } => {
+            if *backslash_escaped
+                && lo > 0
+                && lo < hi
+                && source.as_bytes().get(lo - 1) == Some(&b'\\')
+            {
+                Some(RawConstruct {
+                    source: lo - 1..lo + 1,
+                    inner: lo..lo + 1,
+                })
+            } else {
+                None
+            }
+        }
+        NodeKind::TextOwned => {
+            if lo < hi
+                && source.as_bytes().get(lo) == Some(&b'&')
+                && source.as_bytes().get(hi - 1) == Some(&b';')
+            {
+                Some(RawConstruct {
+                    source: lo..hi,
+                    inner: lo..lo + 1,
+                })
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
 }
 
 pub(crate) fn finish_constructs(raws: &[RawConstruct], s2d: &[usize]) -> Vec<InlineConstruct> {
