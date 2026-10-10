@@ -2,7 +2,7 @@ use super::builder::{Builder, HostIndent, InlineCtx};
 use super::leaf::LeafLog;
 use crate::block::{BlockKind, NodeExtra};
 use crate::document::Document;
-use crate::document::focus::RawConstruct;
+use crate::document::focus::{RawConstruct, literal_construct};
 use crate::inline::InlineMarks;
 use pulldown_cmark::{NodeKind, NodeRef, Options, Parsed};
 use std::ops::Range;
@@ -531,6 +531,9 @@ fn visit<'a, 'i>(
             let text = node.text().unwrap_or("");
             let (lo, hi) = clamp(source, &span);
             builder.recorder.cover(lo, hi);
+            if let Some(raw) = literal_construct(source, &node.kind(), lo, hi) {
+                record_construct(builder, raw);
+            }
             let before = builder.leaf_disp();
             builder.push_text(source, text, span.clone(), ctx);
             builder.log_shown(span.clone(), before);

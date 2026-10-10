@@ -661,6 +661,12 @@ fn recorded_constructs_match_standalone_parsing() {
         "> quote *x*",
         "| *a* | b |\n| --- | --- |\n| c | *d* |\n",
         "text [ref][d]\n\n[d]: /u\n",
+        "\\*",
+        "a\\*b",
+        "\\\\",
+        "a&amp;b",
+        "&#65;",
+        "x&lt;y",
     ] {
         let doc = load_markdown(source, editor_options());
         for block in doc.text_leaves() {
@@ -883,4 +889,86 @@ fn collapsed_reverse_lookups_split_on_the_construct_boundaries() {
             "a collapsed map has no delimiter-only region, so the two must agree at {at}"
         );
     }
+}
+
+#[test]
+fn backslash_escapes_are_constructs() {
+    for (source, want_source, want_inner, want_display) in [
+        ("\\*", 0..2, 1..2, 0..1),
+        ("\\\\", 0..2, 1..2, 0..1),
+        ("a\\*b", 1..3, 2..3, 1..2),
+    ] {
+        let (_, _, s2d) = map(source);
+        let cs = inline_constructs(source, &s2d, &[]);
+        let hit = cs
+            .iter()
+            .find(|c| c.source == want_source)
+            .unwrap_or_else(|| panic!("{source:?} should yield a construct at {want_source:?}"));
+        assert_eq!(hit.inner, want_inner, "{source:?} inner");
+        assert_eq!(hit.display, want_display, "{source:?} display");
+    }
+}
+
+#[test]
+fn character_references_are_constructs() {
+    for (source, want_display) in [("&amp;", 0..1), ("&#65;", 0..1), ("&lt;", 0..1)] {
+        let (_, _, s2d) = map(source);
+        let cs = inline_constructs(source, &s2d, &[]);
+        assert_eq!(cs.len(), 1, "{source:?} should yield exactly one construct");
+        assert_eq!(cs[0].source, 0..source.len(), "{source:?} source");
+        assert_eq!(cs[0].inner, 0..1, "{source:?} inner");
+        assert_eq!(cs[0].display, want_display, "{source:?} display");
+    }
+}
+
+#[test]
+fn plain_backslashes_and_unknown_entities_stay_flat() {
+    for source in ["\\a", "\\1", "&notreal;", "&amp"] {
+        let (_, _, s2d) = map(source);
+        let cs = inline_constructs(source, &s2d, &[]);
+        assert!(cs.is_empty(), "{source:?} must not become a construct");
+    }
+}
+
+#[test]
+fn inline_html_does_not_become_a_character_reference_construct() {
+    let source = "x<a>y";
+    let (_, _, s2d) = map(source);
+    let cs = inline_constructs(source, &s2d, &[]);
+    assert!(
+        cs.iter()
+            .all(|c| source.as_bytes().get(c.source.start) != Some(&b'&')),
+        "inline HTML must not be picked up as a character reference"
+    );
+}
+
+#[test]
+fn a_backslash_escape_expands_under_the_caret() {
+    let source = "a\\*b";
+    let (display, runs, s2d) = map(source);
+    assert_eq!(display, "a*b");
+    let focused = focus_at(source, &display, &runs, &s2d, 1).expect("focus");
+    assert_eq!(focused.display, source);
+}
+
+#[test]
+fn a_character_reference_expands_under_the_caret() {
+    let source = "a&amp;b";
+    let (display, runs, s2d) = map(source);
+    assert_eq!(display, "a&b");
+    let focused = focus_at(source, &display, &runs, &s2d, 1).expect("focus");
+    assert_eq!(focused.display, source);
+}
+
+#[test]
+fn an_escape_inside_emphasis_still_reveals_the_outer_construct() {
+    let source = "**\\***";
+    let (display, runs, s2d) = map(source);
+    let cs = inline_constructs(source, &s2d, &[]);
+    assert!(
+        cs.iter().any(|c| c.source == (2..4)),
+        "the escape itself is a construct"
+    );
+    let focused = focus_at(source, &display, &runs, &s2d, 0).expect("focus");
+    assert_eq!(focused.display, source);
 }
