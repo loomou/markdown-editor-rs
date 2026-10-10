@@ -1,5 +1,7 @@
 # Markdown Editor RS
 
+English | [简体中文](README.zh-CN.md)
+
 A native desktop Markdown editor built with Rust and GPUI: you edit the rendered document directly, and the Markdown source appears when you enter an editing state.
 
 > [!NOTE]
