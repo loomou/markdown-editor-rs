@@ -23,6 +23,8 @@ const SETTINGS_NAV: [Key; 5] = [
 
 pub(super) const SETTINGS_WIDE_VIEWPORT: f32 = 640.0;
 
+const ROW_TEXT_MIN_W: f32 = 160.0;
+
 impl Shell {
     pub(super) fn settings_page(&self, t: ShellTheme, this: Entity<Self>, viewport_w: f32) -> Div {
         let wide = viewport_w >= SETTINGS_WIDE_VIEWPORT;
@@ -335,7 +337,7 @@ impl Shell {
             .child(
                 div()
                     .flex_1()
-                    .min_w(px(0.))
+                    .min_w(px(ROW_TEXT_MIN_W))
                     .flex()
                     .flex_col()
                     .child(
