@@ -3,6 +3,7 @@ use md_bench::gpui_support::{
     FrameCase, Step, VIEWPORT_H, build_engine, count_hot_path, editor_window_bounds, empty_media,
     large_cases, mount_shell, open_engine, run_keystroke, run_scroll,
 };
+use md_bench::mem;
 use md_content::shaper::{GpuiShaper, ShapeCache};
 use md_layout::island::FallbackSolver;
 use md_render::incremental::ScrollAnchor;
@@ -10,19 +11,14 @@ use md_render::incremental::ScrollAnchor;
 #[gpui::bench(inputs = large_cases(), input_name = "case", group = "large/cold-open", sample_size = 10)]
 fn cold_open(case: &FrameCase, cx: &mut BenchAppContext<'_, '_>) {
     let mut window = cx.add_empty_window();
+    let cache = ShapeCache::new();
     let shaper = window.update(|window, app| {
-        GpuiShaper::new(
-            window,
-            app,
-            &case.theme,
-            1.0,
-            ShapeCache::new(),
-            empty_media(),
-        )
+        GpuiShaper::new(window, app, &case.theme, 1.0, cache.clone(), empty_media())
     });
     let doc = &case.doc;
     let (top, bottom) = editor_window_bounds(0.0, VIEWPORT_H);
     let mut published = 0u32;
+    let memory_before = mem::sample_text();
     count_hot_path(&format!("large cold-open {}", case.label), || {
         let mut engine = build_engine(case, top, bottom);
         published = engine
@@ -36,11 +32,14 @@ fn cold_open(case: &FrameCase, cx: &mut BenchAppContext<'_, '_>) {
             .1
             .iterations;
     });
+    let memory_after = mem::sample_text();
     eprintln!(
-        "[large cold-open {}] leaves={} iterations={}",
+        "[large cold-open {}] leaves={} iterations={} shape-entries={} shape-bytes={} mem-before={memory_before} mem-after={memory_after}",
         case.label,
         doc.text_leaves().len(),
-        published
+        published,
+        cache.entry_count(),
+        cache.byte_count()
     );
     cx.bench_iter(move |_cx| {
         let mut engine = build_engine(case, top, bottom);

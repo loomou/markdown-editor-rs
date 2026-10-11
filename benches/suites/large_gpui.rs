@@ -38,9 +38,11 @@ fn content_artifact(case: &FrameCase, cx: &mut BenchAppContext<'_, '_>) {
         }
     });
     eprintln!(
-        "[large artifact {}] text-nodes={} stats={:?}",
+        "[large artifact {}] text-nodes={} shape-entries={} shape-bytes={} stats={:?}",
         case.label,
         node_count,
+        cache.entry_count(),
+        cache.byte_count(),
         cache.stats()
     );
 }
@@ -48,16 +50,10 @@ fn content_artifact(case: &FrameCase, cx: &mut BenchAppContext<'_, '_>) {
 #[gpui::bench(inputs = render_frame_cases(), input_name = "case", group = "large/render-frame", sample_size = 10)]
 fn render_frame(case: &FrameCase, cx: &mut BenchAppContext<'_, '_>) {
     let mut window = cx.add_empty_window();
+    let cache = ShapeCache::new();
     let (shaper, snap) = window.update(|window, app| {
         (
-            GpuiShaper::new(
-                window,
-                app,
-                &case.theme,
-                1.0,
-                ShapeCache::new(),
-                empty_media(),
-            ),
+            GpuiShaper::new(window, app, &case.theme, 1.0, cache.clone(), empty_media()),
             SnapOperator::new(1.0),
         )
     });
@@ -91,12 +87,14 @@ fn render_frame(case: &FrameCase, cx: &mut BenchAppContext<'_, '_>) {
         });
         let frame = probed.expect("the frame probe must compose a frame");
         eprintln!(
-            "[large frame {}] texts={} cells={} atoms={} islands={}",
+            "[large frame {}] texts={} cells={} atoms={} islands={} shape-entries={} shape-bytes={}",
             case.label,
             frame.snapshot.texts.len(),
             frame.snapshot.cells.len(),
             frame.snapshot.content_atoms_painted,
-            frame.assembly.island_stats.islands_built
+            frame.assembly.island_stats.islands_built,
+            cache.entry_count(),
+            cache.byte_count()
         );
     }
     cx.bench_iter(move |_cx| {
