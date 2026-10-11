@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 default-members = ["crates/md-editor"]
-exclude = ["third_party"]
+exclude = ["third_party", "benches"]
 members = [
     "crates/md-i18n",
     "crates/md-core",
