@@ -32,6 +32,24 @@ pub fn add_geometry_mismatch() {
     inner::GEOMETRY_MISMATCH.fetch_add(1, Ordering::Relaxed);
 }
 
+#[inline(always)]
+pub fn add_project() {
+    #[cfg(feature = "hot_path")]
+    inner::PROJECT.fetch_add(1, Ordering::Relaxed);
+}
+
+#[inline(always)]
+pub fn add_adapter_to_block() {
+    #[cfg(feature = "hot_path")]
+    inner::ADAPTER_TO_BLOCK.fetch_add(1, Ordering::Relaxed);
+}
+
+#[inline(always)]
+pub fn add_anchor_linear_scan() {
+    #[cfg(feature = "hot_path")]
+    inner::ANCHOR_LINEAR_SCAN.fetch_add(1, Ordering::Relaxed);
+}
+
 #[cfg(feature = "hot_path")]
 mod inner {
     use super::{HEIGHT_INDEX_BUILD, HotPathSnapshot};
@@ -40,21 +58,27 @@ mod inner {
     pub static FLOW_LOWER: AtomicU64 = AtomicU64::new(0);
     pub static STORE_CLEAR: AtomicU64 = AtomicU64::new(0);
     pub static GEOMETRY_MISMATCH: AtomicU64 = AtomicU64::new(0);
+    pub static PROJECT: AtomicU64 = AtomicU64::new(0);
+    pub static ADAPTER_TO_BLOCK: AtomicU64 = AtomicU64::new(0);
+    pub static ANCHOR_LINEAR_SCAN: AtomicU64 = AtomicU64::new(0);
 
     pub fn reset() {
         FLOW_LOWER.store(0, Ordering::Relaxed);
         HEIGHT_INDEX_BUILD.with(|n| n.set(0));
         STORE_CLEAR.store(0, Ordering::Relaxed);
         GEOMETRY_MISMATCH.store(0, Ordering::Relaxed);
+        PROJECT.store(0, Ordering::Relaxed);
+        ADAPTER_TO_BLOCK.store(0, Ordering::Relaxed);
+        ANCHOR_LINEAR_SCAN.store(0, Ordering::Relaxed);
     }
 
     pub fn snapshot() -> HotPathSnapshot {
         HotPathSnapshot {
-            project: 0,
+            project: PROJECT.load(Ordering::Relaxed),
             flow_lower: FLOW_LOWER.load(Ordering::Relaxed),
             height_index_build: super::height_index_builds(),
-            adapter_to_block: 0,
-            anchor_linear_scan: 0,
+            adapter_to_block: ADAPTER_TO_BLOCK.load(Ordering::Relaxed),
+            anchor_linear_scan: ANCHOR_LINEAR_SCAN.load(Ordering::Relaxed),
             store_clear: STORE_CLEAR.load(Ordering::Relaxed),
             geometry_mismatch: GEOMETRY_MISMATCH.load(Ordering::Relaxed),
         }

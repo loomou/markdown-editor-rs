@@ -73,6 +73,7 @@ impl LayoutBoxId {
     }
 
     pub fn for_kind(kind: BlockKind, block: BlockId) -> Self {
+        crate::hot_path::add_project();
         match kind {
             BlockKind::DocStart => Self::doc_start(),
             BlockKind::TableCell => LayoutBoxId {
