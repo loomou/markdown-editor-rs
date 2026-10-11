@@ -18,6 +18,12 @@ gpui = { git = "https://github.com/zed-industries/zed.git", rev = "8eebe1ce1cd01
     "bench-support",
 ] }
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+] }
+
 [dev-dependencies]
 criterion = "0.5"
 gpui_platform = { git = "https://github.com/zed-industries/zed.git", rev = "8eebe1ce1cd0190d44d9fac25f1bd71a4fc89a65", features = [
