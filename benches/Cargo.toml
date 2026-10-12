@@ -11,7 +11,7 @@ publish = false
 md-core = { path = "../crates/md-core" }
 md-layout = { path = "../crates/md-layout", features = ["hot_path"] }
 md-theme = { path = "../crates/md-theme" }
-md-content = { path = "../crates/md-content" }
+md-content = { path = "../crates/md-content", features = ["bench-support"] }
 md-render = { path = "../crates/md-render" }
 md-editor = { path = "../crates/md-editor", features = ["bench-support", "hot_path"] }
 gpui = { git = "https://github.com/zed-industries/zed.git", rev = "8eebe1ce1cd0190d44d9fac25f1bd71a4fc89a65", features = [

@@ -6,6 +6,7 @@ use md_content::math::{key_for as math_key_for, raster as math_raster, spec_from
 use md_content::mermaid::{
     MermaidKey, raster as mermaid_raster, spec_from_theme, theme_fingerprint,
 };
+use md_content::mermaid;
 use md_core::block::BlockKind;
 use md_core::doc::Doc;
 use md_core::inline::InlineMarks;
@@ -189,9 +190,95 @@ fn mermaid_render_bench(c: &mut Criterion) {
     group.finish();
 }
 
+fn mermaid_stage_bench(c: &mut Criterion) {
+    let theme = md_bench::harness::document_theme();
+    let fingerprint = theme_fingerprint(&theme);
+    let key = MermaidKey {
+        block: 0,
+        generation: 0,
+        revision: 0,
+        theme_fp: fingerprint,
+        width_q: 320,
+        max_h: 10_000,
+        dpr_q: md_content::images::dpr_q(1.0),
+    };
+    let spec = spec_from_theme(&theme, key);
+    let mut group = c.benchmark_group("content/mermaid-stage");
+    group.sample_size(10);
+    for size in SIZES {
+        let all = diagrams(Shape::Mermaid, size, &theme);
+        assert!(
+            !all.is_empty(),
+            "the mermaid corpus must yield at least one diagram"
+        );
+        let sampled: Vec<String> = all.iter().take(MERMAID_SAMPLE).cloned().collect();
+        let sealed: Vec<_> = sampled
+            .iter()
+            .filter_map(|source| mermaid::render_sealed(source, &spec).ok())
+            .collect();
+        assert!(
+            !sealed.is_empty(),
+            "the mermaid corpus must seal at least one sampled diagram"
+        );
+        eprintln!(
+            "[mermaid-stage {}] distinct={} sampled={} sealed={}",
+            human(size),
+            all.len(),
+            sampled.len(),
+            sealed.len()
+        );
+        group.throughput(Throughput::Elements(sampled.len() as u64));
+        group.bench_with_input(
+            BenchmarkId::new("layout", human(size)),
+            &sampled,
+            |b, sampled| {
+                b.iter(|| {
+                    let mut ok = 0usize;
+                    for source in sampled {
+                        if mermaid::render_sealed(source, &spec).is_ok() {
+                            ok += 1;
+                        }
+                    }
+                    ok
+                })
+            },
+        );
+        group.throughput(Throughput::Elements(sealed.len() as u64));
+        group.bench_with_input(BenchmarkId::new("parse", human(size)), &sealed, |b, sealed| {
+            b.iter(|| {
+                let mut ok = 0usize;
+                for sealed in sealed {
+                    if mermaid::prepare_sealed(sealed, &spec).is_ok() {
+                        ok += 1;
+                    }
+                }
+                ok
+            })
+        });
+        group.bench_with_input(
+            BenchmarkId::new("parse-and-encode", human(size)),
+            &sealed,
+            |b, sealed| {
+                b.iter(|| {
+                    let mut ok = 0usize;
+                    for sealed in sealed {
+                        if mermaid::prepare_sealed(sealed, &spec)
+                            .is_ok_and(|prepared| prepared.encode_png().is_ok())
+                        {
+                            ok += 1;
+                        }
+                    }
+                    ok
+                })
+            },
+        );
+    }
+    group.finish();
+}
+
 criterion_group! {
     name = benches;
     config = config();
-    targets = math_raster_bench, mermaid_render_bench
+    targets = math_raster_bench, mermaid_render_bench, mermaid_stage_bench
 }
 criterion_main!(benches);
