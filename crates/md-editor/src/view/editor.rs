@@ -89,7 +89,6 @@ impl EditorView {
                 anchor_cache: Default::default(),
                 diag: Rc::new(RefCell::new(Diagnostics::default())),
                 incremental: None,
-                incremental_enabled: true,
                 incremental_anchor_override: None,
                 incremental_last_anchor: None,
                 frame_times: std::collections::VecDeque::new(),

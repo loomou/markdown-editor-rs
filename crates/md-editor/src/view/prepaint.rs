@@ -16,9 +16,7 @@ use md_core::doc::{Cursor, Doc};
 use md_core::document::TableStep;
 use md_layout::island::{FallbackSolver, IslandSolver};
 use md_layout::style::BoxLayoutEnvironment;
-use md_render::frame::{
-    FrameContext, FrameRequest, compose, from_assembly, selection_vertical_span,
-};
+use md_render::frame::{FrameContext, FrameRequest, from_assembly, selection_vertical_span};
 use md_render::query::hit_test;
 use md_render::search::SearchMatch;
 use md_render::snap::SnapOperator;
@@ -322,28 +320,6 @@ impl EditorElement {
         let mut t = BuildTimings::default();
         let frame = self.state.update(cx, |v, _cx| {
             v.prune_table_col_widths();
-            if !v.state.incremental_enabled {
-                return compose(
-                    FrameContext {
-                        doc: &v.state.doc,
-                        env,
-                        shaper,
-                        snap,
-                        theme,
-                    },
-                    &FrameRequest {
-                        viewport,
-                        scroll,
-                        cursor,
-                        selection,
-                        marked,
-                        search_query: &search_query,
-                        search_skip,
-                    },
-                    solver,
-                    Some(&v.table_ui.col_widths),
-                );
-            }
 
             let t0 = std::time::Instant::now();
             if v.state.incremental.is_none() {

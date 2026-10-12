@@ -189,7 +189,6 @@ pub struct EditorState {
     pub(crate) diag: Rc<RefCell<Diagnostics>>,
 
     pub incremental: Option<md_render::incremental::IncrementalEngine>,
-    pub incremental_enabled: bool,
 
     pub incremental_anchor_override: Option<md_render::incremental::ScrollAnchor>,
 
