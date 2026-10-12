@@ -4,7 +4,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-const MAX_ENTRIES: usize = 4096;
+const MAX_ENTRIES: usize = 32_768;
 
 const LOW_WATER: usize = MAX_ENTRIES - MAX_ENTRIES / 4;
 
@@ -37,6 +37,7 @@ pub struct Stats {
 struct Entry {
     art: Rc<ShapeArtifact>,
     frame: u64,
+    seq: u64,
     bytes: usize,
 }
 
@@ -44,6 +45,7 @@ pub struct ShapeCache {
     memo: RefCell<HashMap<Key, Entry>>,
     env_fp: Cell<u64>,
     frame: Cell<u64>,
+    seq: Cell<u64>,
     bytes: Cell<usize>,
     stats: RefCell<CacheStats>,
 }
@@ -69,6 +71,7 @@ impl ShapeCache {
             memo: RefCell::new(HashMap::new()),
             env_fp: Cell::new(0),
             frame: Cell::new(0),
+            seq: Cell::new(0),
             bytes: Cell::new(0),
             stats: RefCell::new(CacheStats::default()),
         })
@@ -141,11 +144,14 @@ impl ShapeCache {
     fn insert_weighted(&self, key: Key, art: Rc<ShapeArtifact>, weight: usize) {
         let mut memo = self.memo.borrow_mut();
         let mut bytes = self.bytes.get();
+        let seq = self.seq.get() + 1;
+        self.seq.set(seq);
         if let Some(old) = memo.insert(
             key,
             Entry {
                 art,
                 frame: self.frame.get(),
+                seq,
                 bytes: weight,
             },
         ) {
@@ -177,17 +183,27 @@ fn evict_to_watermark(memo: &mut HashMap<Key, Entry>, bytes: &mut usize) -> usiz
     if evict == 0 {
         return 0;
     }
-    let mut by_frame: Vec<(u64, Key)> = memo
-        .iter()
-        .map(|(key, entry)| (entry.frame, key.clone()))
+    let mut order: Vec<(u64, u64)> = memo
+        .values()
+        .map(|entry| (entry.frame, entry.seq))
         .collect();
-    by_frame.select_nth_unstable_by_key(evict - 1, |v| v.0);
-    for (_, key) in by_frame.into_iter().take(evict) {
-        if let Some(entry) = memo.remove(&key) {
+    order.select_nth_unstable(evict);
+    let cutoff = order[evict];
+    let mut n = 0usize;
+    memo.retain(|_, entry| {
+        if (entry.frame, entry.seq) < cutoff {
             *bytes = bytes.saturating_sub(entry.bytes);
+            n += 1;
+            false
+        } else {
+            true
         }
-    }
-    evict
+    });
+    debug_assert_eq!(
+        n, evict,
+        "the batch evicted a different count than requested"
+    );
+    n
 }
 
 fn evict_stale(memo: &mut HashMap<Key, Entry>, bytes: &mut usize, current: u64) -> usize {
@@ -208,14 +224,14 @@ fn evict_over_bytes(memo: &mut HashMap<Key, Entry>, bytes: &mut usize, current: 
     if *bytes <= MAX_SHAPE_BYTES {
         return 0;
     }
-    let mut by_frame: Vec<(u64, Key)> = memo
+    let mut by_frame: Vec<(u64, u64, Key)> = memo
         .iter()
         .filter(|(_, entry)| entry.frame < current)
-        .map(|(key, entry)| (entry.frame, key.clone()))
+        .map(|(key, entry)| (entry.frame, entry.seq, key.clone()))
         .collect();
-    by_frame.sort_unstable_by_key(|v| v.0);
+    by_frame.sort_unstable_by_key(|v| (v.0, v.1));
     let mut n = 0usize;
-    for (_, key) in by_frame {
+    for (_, _, key) in by_frame {
         if *bytes <= BYTE_LOW_WATER {
             break;
         }
