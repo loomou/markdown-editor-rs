@@ -21,7 +21,15 @@ pub fn compose(
 ) -> Frame {
     let layout = cx.theme.layout_theme();
     let tree = md_layout::compose::compose(&cx.doc.document, &layout);
-    let assembly = assemble_shared_with(Rc::new(tree), cx.env, cx.shaper, solver, col_tracks);
+    let view = (req.scroll, req.scroll + req.viewport.1);
+    let assembly = assemble_shared_with(
+        Rc::new(tree),
+        cx.env,
+        cx.shaper,
+        solver,
+        col_tracks,
+        Some(view),
+    );
     from_assembly(
         cx,
         req,

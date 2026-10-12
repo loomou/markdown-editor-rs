@@ -312,7 +312,8 @@ fn frame_split_assemble(case: &FrameCase, cx: &mut BenchAppContext<'_, '_>) {
     ));
     let env = case.env;
     cx.bench_iter(move |_cx| {
-        let assembly = assemble_shared_with(Rc::clone(&tree), env, &shaper, &FallbackSolver, None);
+        let assembly =
+            assemble_shared_with(Rc::clone(&tree), env, &shaper, &FallbackSolver, None, None);
         assert!(
             !assembly.heights.is_empty(),
             "the split assembly must resolve heights"
