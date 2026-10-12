@@ -258,16 +258,30 @@ impl FlowSpine {
     }
 
     pub(super) fn remap_from(&mut self, from: usize) {
-        for i in from..self.items.len() {
-            let item = self.items[i];
-            Self::grow_id_tables(&mut self.loc, &mut self.gens, item.id.index);
-            let idx = item.id.index as usize;
-            if self.loc[idx] == 0 {
-                self.map_at(i);
-            } else {
-                self.loc[idx] = (i as u32) + 1;
-                self.gens[idx] = item.id.generation;
+        if from >= self.items.len() {
+            return;
+        }
+        let mut fresh: Vec<u32> = Vec::new();
+        {
+            let Self {
+                items, loc, gens, ..
+            } = self;
+            for (i, item) in items.iter().enumerate().skip(from) {
+                let idx = item.id.index as usize;
+                if loc.len() <= idx {
+                    loc.resize(idx + 1, 0);
+                    gens.resize(idx + 1, 0);
+                }
+                if loc[idx] == 0 {
+                    fresh.push(i as u32);
+                } else {
+                    debug_assert_eq!(gens[idx], item.id.generation);
+                    loc[idx] = (i as u32) + 1;
+                }
             }
+        }
+        for i in fresh {
+            self.map_at(i as usize);
         }
     }
 
