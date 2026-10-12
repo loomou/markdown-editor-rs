@@ -6,7 +6,7 @@ use std::rc::Rc;
 use tree_sitter_highlight::{HighlightConfiguration, HighlightEvent, Highlighter};
 
 const MAX_BYTES: usize = 256 * 1024;
-const MAX_CACHE: usize = 256;
+const MAX_CACHE: usize = 32_768;
 const MAX_CACHE_BYTES: usize = 16 * 1024 * 1024;
 
 const CAPTURES: &[&str] = &[
@@ -64,7 +64,7 @@ thread_local! {
 
 struct SpanCache {
     map: HashMap<(u64, u64), Rc<[Span]>>,
-    lru: VecDeque<(u64, u64)>,
+    order: VecDeque<(u64, u64)>,
     bytes: usize,
 }
 
@@ -72,19 +72,13 @@ impl SpanCache {
     fn new() -> Self {
         SpanCache {
             map: HashMap::new(),
-            lru: VecDeque::new(),
+            order: VecDeque::new(),
             bytes: 0,
         }
     }
 
     fn get(&mut self, key: (u64, u64)) -> Option<Rc<[Span]>> {
-        if let Some(spans) = self.map.get(&key) {
-            self.lru.retain(|k| *k != key);
-            self.lru.push_back(key);
-            Some(Rc::clone(spans))
-        } else {
-            None
-        }
+        self.map.get(&key).map(Rc::clone)
     }
 
     fn insert(&mut self, key: (u64, u64), spans: Rc<[Span]>) {
@@ -98,12 +92,10 @@ impl SpanCache {
                 .bytes
                 .saturating_sub(previous.len().saturating_mul(std::mem::size_of::<Span>()));
             self.bytes = self.bytes.saturating_add(incoming);
-            self.lru.retain(|k| *k != key);
-            self.lru.push_back(key);
             return;
         }
         while self.map.len() >= MAX_CACHE || self.bytes.saturating_add(incoming) > MAX_CACHE_BYTES {
-            if let Some(old) = self.lru.pop_front() {
+            if let Some(old) = self.order.pop_front() {
                 if let Some(previous) = self.map.remove(&old) {
                     self.bytes = self
                         .bytes
@@ -115,7 +107,7 @@ impl SpanCache {
         }
         self.map.insert(key, spans);
         self.bytes = self.bytes.saturating_add(incoming);
-        self.lru.push_back(key);
+        self.order.push_back(key);
     }
 }
 
@@ -534,6 +526,27 @@ mod tests {
                 role_for(index),
                 SyntaxRole::Default,
                 "capture {capture:?} has no explicit syntax role"
+            );
+        }
+    }
+
+    #[test]
+    fn a_working_set_past_the_entry_cap_stays_cached() {
+        use std::rc::Rc;
+
+        let bodies: Vec<String> = (0..300)
+            .map(|i| format!("fn f{i}() -> i32 {{ let x = {i}; x }}\n"))
+            .collect();
+        let first: Vec<Rc<[Span]>> = bodies.iter().map(|body| spans("rust", body)).collect();
+        assert!(
+            first.iter().all(|s| !s.is_empty()),
+            "the fixture must highlight to a non-empty span list"
+        );
+        let second: Vec<Rc<[Span]>> = bodies.iter().map(|body| spans("rust", body)).collect();
+        for (i, (a, b)) in first.iter().zip(second.iter()).enumerate() {
+            assert!(
+                Rc::ptr_eq(a, b),
+                "code block {i} was highlighted again instead of served from the cache"
             );
         }
     }
