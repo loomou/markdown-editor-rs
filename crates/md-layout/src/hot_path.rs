@@ -50,6 +50,12 @@ pub fn add_anchor_linear_scan() {
     inner::ANCHOR_LINEAR_SCAN.fetch_add(1, Ordering::Relaxed);
 }
 
+#[inline(always)]
+pub fn add_kp_max_items() {
+    #[cfg(feature = "hot_path")]
+    inner::KP_MAX_ITEMS.fetch_add(1, Ordering::Relaxed);
+}
+
 #[cfg(feature = "hot_path")]
 mod inner {
     use super::{HEIGHT_INDEX_BUILD, HotPathSnapshot};
@@ -61,6 +67,7 @@ mod inner {
     pub static PROJECT: AtomicU64 = AtomicU64::new(0);
     pub static ADAPTER_TO_BLOCK: AtomicU64 = AtomicU64::new(0);
     pub static ANCHOR_LINEAR_SCAN: AtomicU64 = AtomicU64::new(0);
+    pub static KP_MAX_ITEMS: AtomicU64 = AtomicU64::new(0);
 
     pub fn reset() {
         FLOW_LOWER.store(0, Ordering::Relaxed);
@@ -70,6 +77,7 @@ mod inner {
         PROJECT.store(0, Ordering::Relaxed);
         ADAPTER_TO_BLOCK.store(0, Ordering::Relaxed);
         ANCHOR_LINEAR_SCAN.store(0, Ordering::Relaxed);
+        KP_MAX_ITEMS.store(0, Ordering::Relaxed);
     }
 
     pub fn snapshot() -> HotPathSnapshot {
@@ -81,6 +89,7 @@ mod inner {
             anchor_linear_scan: ANCHOR_LINEAR_SCAN.load(Ordering::Relaxed),
             store_clear: STORE_CLEAR.load(Ordering::Relaxed),
             geometry_mismatch: GEOMETRY_MISMATCH.load(Ordering::Relaxed),
+            kp_max_items: KP_MAX_ITEMS.load(Ordering::Relaxed),
         }
     }
 }
@@ -95,6 +104,7 @@ pub struct HotPathSnapshot {
     pub anchor_linear_scan: u64,
     pub store_clear: u64,
     pub geometry_mismatch: u64,
+    pub kp_max_items: u64,
 }
 
 #[cfg(feature = "hot_path")]
@@ -102,7 +112,7 @@ impl std::fmt::Display for HotPathSnapshot {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "project={} flow_lower={} height_index_build={} adapter_to_block={} anchor_linear_scan={} store_clear={} geometry_mismatch={}",
+            "project={} flow_lower={} height_index_build={} adapter_to_block={} anchor_linear_scan={} store_clear={} geometry_mismatch={} kp_max_items={}",
             self.project,
             self.flow_lower,
             self.height_index_build,
@@ -110,6 +120,7 @@ impl std::fmt::Display for HotPathSnapshot {
             self.anchor_linear_scan,
             self.store_clear,
             self.geometry_mismatch,
+            self.kp_max_items,
         )
     }
 }
