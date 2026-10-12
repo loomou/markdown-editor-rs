@@ -66,6 +66,16 @@ path = "suites/linebreak_modes.rs"
 harness = false
 
 [[bench]]
+name = "kp_fallback"
+path = "suites/kp_fallback.rs"
+harness = false
+
+[[bench]]
+name = "cache_occupancy"
+path = "suites/cache_occupancy.rs"
+harness = false
+
+[[bench]]
 name = "toggles"
 path = "suites/toggles.rs"
 harness = false

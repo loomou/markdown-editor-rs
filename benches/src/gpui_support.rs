@@ -212,10 +212,12 @@ pub fn run_scroll(doc: &Doc, engine: &mut IncrementalEngine, shaper: &GpuiShaper
     }
 }
 
-pub fn count_hot_path(label: &str, run: impl FnOnce()) {
+pub fn count_hot_path(label: &str, run: impl FnOnce()) -> md_layout::hot_path::HotPathSnapshot {
     md_layout::hot_path::reset();
     run();
-    eprintln!("[counters {label}] {}", md_layout::hot_path::snapshot());
+    let snapshot = md_layout::hot_path::snapshot();
+    eprintln!("[counters {label}] {snapshot}");
+    snapshot
 }
 
 pub fn theme_with_mode(mode: LineBreakMode) -> DocumentTheme {
