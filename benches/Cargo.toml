@@ -81,6 +81,11 @@ path = "suites/media_caches.rs"
 harness = false
 
 [[bench]]
+name = "media_work"
+path = "suites/media_work.rs"
+harness = false
+
+[[bench]]
 name = "reuse"
 path = "suites/reuse.rs"
 harness = false
