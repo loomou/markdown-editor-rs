@@ -224,22 +224,35 @@ fn evict_over_bytes(memo: &mut HashMap<Key, Entry>, bytes: &mut usize, current: 
     if *bytes <= MAX_SHAPE_BYTES {
         return 0;
     }
-    let mut by_frame: Vec<(u64, u64, Key)> = memo
+    let mut order: Vec<(u64, u64, usize)> = memo
         .iter()
         .filter(|(_, entry)| entry.frame < current)
-        .map(|(key, entry)| (entry.frame, entry.seq, key.clone()))
+        .map(|(_, entry)| (entry.frame, entry.seq, entry.bytes))
         .collect();
-    by_frame.sort_unstable_by_key(|v| (v.0, v.1));
-    let mut n = 0usize;
-    for (_, _, key) in by_frame {
-        if *bytes <= BYTE_LOW_WATER {
+    order.sort_unstable_by_key(|v| (v.0, v.1));
+    let mut remaining = *bytes;
+    let mut cutoff = None;
+    for (frame, seq, entry_bytes) in order {
+        if remaining <= BYTE_LOW_WATER {
+            cutoff = Some((frame, seq));
             break;
         }
-        if let Some(entry) = memo.remove(&key) {
-            *bytes = bytes.saturating_sub(entry.bytes);
-            n += 1;
-        }
+        remaining = remaining.saturating_sub(entry_bytes);
     }
+    let mut n = 0usize;
+    memo.retain(|_, entry| {
+        if entry.frame >= current {
+            return true;
+        }
+        if let Some(cutoff) = cutoff
+            && (entry.frame, entry.seq) >= cutoff
+        {
+            return true;
+        }
+        *bytes = bytes.saturating_sub(entry.bytes);
+        n += 1;
+        false
+    });
     n
 }
 
