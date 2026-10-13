@@ -745,7 +745,7 @@ fn shell_caches_follow_the_replaced_document_when_the_revision_collides(cx: &mut
 #[test]
 fn outline_label_ignores_the_revealed_form_under_the_caret() {
     let mut doc = Doc::new(load_markdown(
-        "## 用 `cargo fmt` 格式化\n\nbody\n",
+        "## Use `cargo fmt` here\n\nbody\n",
         editor_options(),
     ));
     let block = doc.text_leaves()[0];
@@ -762,5 +762,5 @@ fn outline_label_ignores_the_revealed_form_under_the_caret() {
         "the caret should reveal the code span: {:?}",
         doc.document.display(id)
     );
-    assert_eq!(outline_rows(&doc)[0].label, "用 cargo fmt 格式化");
+    assert_eq!(outline_rows(&doc)[0].label, "Use cargo fmt here");
 }

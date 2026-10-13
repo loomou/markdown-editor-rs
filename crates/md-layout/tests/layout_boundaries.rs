@@ -2,12 +2,13 @@ use md_core::Px;
 use md_core::block::BlockKind;
 use md_core::document::{LeafSnapshot, editor_options, load_markdown};
 use md_core::inline::InlineRun;
-use md_layout::assembly::assemble_tree;
+use md_layout::assembly::{assemble_shared_with, assemble_tree};
 use md_layout::box_tree::{BoxIntern, BoxOwner, BoxRole, LayoutBoxId};
 use md_layout::compose::{LayoutTheme, compose};
 use md_layout::island::{FallbackSolver, IslandStats, TableColumnConstraintSet};
 use md_layout::shaper::{MeasureKind, MeasureResult, ShapeIdentity, TextMeasure};
 use md_layout::style::{BoxDisplay, BoxLayoutStyle, Edges};
+use std::rc::Rc;
 
 fn theme() -> LayoutTheme {
     LayoutTheme::from_resolver(|_| BoxLayoutStyle {
@@ -197,6 +198,68 @@ fn assembly_measures_islands_and_builds_window() {
             .window
             .as_ref()
             .is_some_and(|window| { window.total_height > 0.0 && !window.entries.is_empty() })
+    );
+}
+
+struct WindowEntries {
+    whole: usize,
+    viewport: usize,
+}
+
+fn window_entries(paragraphs: usize) -> WindowEntries {
+    let text: String = (0..paragraphs).map(|i| format!("para {i}\n\n")).collect();
+    let doc = load_markdown(&text, editor_options());
+    let tree = Rc::new(compose(&doc, &theme()));
+    let env = Default::default();
+    let whole = assemble_shared_with(
+        Rc::clone(&tree),
+        env,
+        &StubMeasure,
+        &FallbackSolver,
+        None,
+        None,
+    )
+    .window
+    .expect("a shared assembly always carries a window")
+    .entries
+    .len();
+    let viewport = assemble_shared_with(
+        tree,
+        env,
+        &StubMeasure,
+        &FallbackSolver,
+        None,
+        Some((0.0, VIEWPORT_H)),
+    )
+    .window
+    .expect("a shared assembly always carries a window")
+    .entries
+    .len();
+    WindowEntries { whole, viewport }
+}
+
+const VIEWPORT_H: Px = 600.0;
+
+#[test]
+fn a_viewport_ranged_window_does_not_grow_with_the_document() {
+    let short = window_entries(50);
+    let long = window_entries(1_000);
+    assert!(
+        long.whole > short.whole * 8,
+        "the whole-document window has to follow the document: {} vs {}",
+        long.whole,
+        short.whole
+    );
+    assert_eq!(
+        long.viewport, short.viewport,
+        "a viewport-ranged window must not follow the document: {} vs {}",
+        long.viewport, short.viewport
+    );
+    assert!(
+        long.viewport * 4 < long.whole,
+        "the viewport window has to be a small slice of a long document: {} of {}",
+        long.viewport,
+        long.whole
     );
 }
 

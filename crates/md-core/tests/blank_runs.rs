@@ -32,11 +32,11 @@ fn owners(source: &str) -> Vec<&'static str> {
 #[test]
 fn a_run_before_the_content_folds_every_pair_of_newlines() {
     for (source, want) in [
-        ("\n乙", vec![(BlankPosition::Head, 1, 0)]),
-        ("\n\n乙", vec![(BlankPosition::Head, 2, 1)]),
-        ("\n\n\n乙", vec![(BlankPosition::Head, 3, 1)]),
-        ("\n\n\n\n乙", vec![(BlankPosition::Head, 4, 2)]),
-        ("\n\n\n\n\n乙", vec![(BlankPosition::Head, 5, 2)]),
+        ("\nb", vec![(BlankPosition::Head, 1, 0)]),
+        ("\n\nb", vec![(BlankPosition::Head, 2, 1)]),
+        ("\n\n\nb", vec![(BlankPosition::Head, 3, 1)]),
+        ("\n\n\n\nb", vec![(BlankPosition::Head, 4, 2)]),
+        ("\n\n\n\n\nb", vec![(BlankPosition::Head, 5, 2)]),
     ] {
         assert_eq!(runs(source), want, "{source:?}");
     }
@@ -45,11 +45,11 @@ fn a_run_before_the_content_folds_every_pair_of_newlines() {
 #[test]
 fn a_run_after_the_content_folds_every_pair_of_newlines() {
     for (source, want) in [
-        ("甲\n", Vec::new()),
-        ("甲\n\n", vec![(BlankPosition::Tail, 2, 1)]),
-        ("甲\n\n\n", vec![(BlankPosition::Tail, 3, 1)]),
-        ("甲\n\n\n\n", vec![(BlankPosition::Tail, 4, 2)]),
-        ("甲\n\n\n\n\n", vec![(BlankPosition::Tail, 5, 2)]),
+        ("a\n", Vec::new()),
+        ("a\n\n", vec![(BlankPosition::Tail, 2, 1)]),
+        ("a\n\n\n", vec![(BlankPosition::Tail, 3, 1)]),
+        ("a\n\n\n\n", vec![(BlankPosition::Tail, 4, 2)]),
+        ("a\n\n\n\n\n", vec![(BlankPosition::Tail, 5, 2)]),
     ] {
         assert_eq!(runs(source), want, "{source:?}");
     }
@@ -72,11 +72,11 @@ fn a_document_with_no_content_at_all_folds_like_an_edge_run() {
 #[test]
 fn a_run_between_two_blocks_spends_one_pair_on_the_separator() {
     for (source, want) in [
-        ("甲\n\n乙", vec![(BlankPosition::Between, 2, 0)]),
-        ("甲\n\n\n乙", vec![(BlankPosition::Between, 3, 0)]),
-        ("甲\n\n\n\n乙", vec![(BlankPosition::Between, 4, 1)]),
-        ("甲\n\n\n\n\n乙", vec![(BlankPosition::Between, 5, 1)]),
-        ("甲\n\n\n\n\n\n乙", vec![(BlankPosition::Between, 6, 2)]),
+        ("a\n\nb", vec![(BlankPosition::Between, 2, 0)]),
+        ("a\n\n\nb", vec![(BlankPosition::Between, 3, 0)]),
+        ("a\n\n\n\nb", vec![(BlankPosition::Between, 4, 1)]),
+        ("a\n\n\n\n\nb", vec![(BlankPosition::Between, 5, 1)]),
+        ("a\n\n\n\n\n\nb", vec![(BlankPosition::Between, 6, 2)]),
     ] {
         assert_eq!(runs(source), want, "{source:?}");
     }
@@ -85,7 +85,7 @@ fn a_run_between_two_blocks_spends_one_pair_on_the_separator() {
 #[test]
 fn a_run_names_the_container_it_belongs_to() {
     for (source, want) in [
-        ("甲\n\n乙", vec!["root"]),
+        ("a\n\nb", vec!["root"]),
         ("> hi\n> \n", vec!["quote"]),
         ("> \n> \n> a\n", vec!["quote"]),
         ("- a\n\n- b\n", vec!["item"]),
@@ -100,10 +100,10 @@ fn a_run_names_the_container_it_belongs_to() {
 fn a_run_keeps_the_spans_of_the_blank_lines_it_groups() {
     let cases: [(&str, &[(usize, usize)]); 6] = [
         ("\n\n\n", &[(0, 3)]),
-        ("甲\n\n\n", &[(4, 6)]),
-        ("甲\n\n\n乙", &[(4, 6)]),
-        ("甲\n\n\n\n\n乙", &[(4, 8)]),
-        ("甲\n\n\n乙\n\n\n丙", &[(4, 6), (10, 12)]),
+        ("a\n\n\n", &[(2, 4)]),
+        ("a\n\n\nb", &[(2, 4)]),
+        ("a\n\n\n\n\nb", &[(2, 6)]),
+        ("a\n\n\nb\n\n\nc", &[(2, 4), (6, 8)]),
         ("> \n> \n> a\n", &[(0, 6)]),
     ];
     for (source, want) in cases {
@@ -117,7 +117,7 @@ fn a_run_keeps_the_spans_of_the_blank_lines_it_groups() {
 
 #[test]
 fn a_soft_break_is_not_a_blank_run() {
-    for source in ["甲\n乙", "甲\n", "甲", "> 甲\n> 乙\n"] {
+    for source in ["a\nb", "a\n", "a", "> a\n> b\n"] {
         assert_eq!(spans(source), Vec::new(), "{source:?}");
     }
 }
@@ -126,9 +126,9 @@ fn a_soft_break_is_not_a_blank_run() {
 fn every_run_is_one_of_the_four_positions_and_the_runs_do_not_overlap() {
     for source in [
         "\n\n\n",
-        "甲\n\n\n乙\n\n\n丙\n\n\n",
+        "a\n\n\nb\n\n\nc\n\n\n",
         "> \n> \n> a\n> \n> \n",
-        "\n\n甲\n\n\n",
+        "\n\na\n\n\n",
         "    code\n\n\npara\n\n\n",
     ] {
         let mut previous_end = 0;

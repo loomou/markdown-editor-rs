@@ -228,7 +228,7 @@ fn typed_then_broken(source: &str) -> Document {
 fn enter_promotes_a_lone_image_line_to_an_image_block() {
     for (source, alt) in [
         ("![a](u)", "a"),
-        ("![正则](C:\\Users\\me\\Desktop\\正则.png)", "正则"),
+        ("![alt](C:\\Users\\me\\Desktop\\alt.png)", "alt"),
     ] {
         let mut doc = load_markdown("", editor_options());
         let leaf = doc.text_leaves()[0];
