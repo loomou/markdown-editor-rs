@@ -1,8 +1,7 @@
-use gpui::{AppContext, BenchAppContext, Entity};
+use gpui::{AppContext, BenchAppContext};
 use md_bench::gpui_support::{FrameCase, large_cases, mount_shell};
 use md_bench::mem;
-use md_core::Px;
-use md_editor::Shell;
+use md_bench::scroll_probe::{Sample, median, sample};
 
 const WARMUP_FRAMES: usize = 8;
 const STEPS: usize = 300;
@@ -10,61 +9,42 @@ const STEPS_PER_PASS: f64 = 200.0;
 const SAMPLE_EVERY: usize = 20;
 const TAIL: usize = 5;
 
-#[derive(Clone, Copy)]
-struct Sample {
-    mem: bool,
-    ws: usize,
-    pagefile: usize,
-    os_peak_ws: usize,
-    os_peak_pagefile: usize,
-    scroll: Px,
-    total: Px,
-    materialized: usize,
-    shapes: usize,
-    shape_bytes: usize,
+fn scroll_mem_cases() -> Vec<FrameCase> {
+    trace_floor("before-corpora");
+    large_cases()
 }
 
-impl Sample {
-    fn mem_text(self) -> String {
-        if self.mem {
-            format!(
-                "ws={} pagefile={} os-peak-ws={} os-peak-pagefile={}",
-                mem::human_bytes(self.ws),
-                mem::human_bytes(self.pagefile),
-                mem::human_bytes(self.os_peak_ws),
-                mem::human_bytes(self.os_peak_pagefile)
-            )
-        } else {
-            "ws=n/a pagefile=n/a".to_owned()
-        }
-    }
-}
-
-fn sample(shell: &Entity<Shell>, cx: &BenchAppContext<'_, '_>) -> Sample {
-    let (scroll, total, materialized, shapes, shape_bytes) =
-        cx.read_entity(shell, |shell, app| shell.bench_frame_metrics(app));
+fn trace_floor(stage: &str) {
     let counters = mem::sample();
-    Sample {
-        mem: counters.is_some(),
-        ws: counters.map_or(0, |m| m.working_set),
-        pagefile: counters.map_or(0, |m| m.pagefile),
-        os_peak_ws: counters.map_or(0, |m| m.peak_working_set),
-        os_peak_pagefile: counters.map_or(0, |m| m.peak_pagefile),
-        scroll,
-        total,
-        materialized,
-        shapes,
-        shape_bytes,
+    eprintln!(
+        "[scroll-mem floor {stage}] ws={} pagefile={} private-ws={}",
+        counters.map_or_else(|| "n/a".to_owned(), |m| mem::format_bytes(m.working_set)),
+        counters.map_or_else(|| "n/a".to_owned(), |m| mem::format_bytes(m.pagefile)),
+        mem::private_working_set().map_or_else(|| "n/a".to_owned(), mem::format_bytes),
+    );
+}
+
+fn bytes(value: usize, known: bool) -> String {
+    if known {
+        mem::format_bytes(value)
+    } else {
+        "n/a".to_owned()
     }
 }
 
-fn median(values: &[usize]) -> usize {
-    if values.is_empty() {
-        return 0;
+fn mem_text(s: &Sample) -> String {
+    if s.mem {
+        format!(
+            "ws={} private-ws={} pagefile={} os-peak-ws={} os-peak-pagefile={}",
+            mem::format_bytes(s.ws),
+            bytes(s.private, s.has_private),
+            mem::format_bytes(s.pagefile),
+            mem::format_bytes(s.os_peak_ws),
+            mem::format_bytes(s.os_peak_pagefile)
+        )
+    } else {
+        "ws=n/a pagefile=n/a".to_owned()
     }
-    let mut sorted = values.to_vec();
-    sorted.sort_unstable();
-    sorted[sorted.len() / 2]
 }
 
 fn trace(label: &str, step: usize, s: &Sample) {
@@ -75,22 +55,23 @@ fn trace(label: &str, step: usize, s: &Sample) {
         s.materialized,
         s.shapes,
         s.shape_bytes,
-        s.mem_text()
+        mem_text(s)
     );
 }
 
-#[gpui::bench(inputs = large_cases(), input_name = "case", group = "large/scroll-mem", sample_size = 10)]
+#[gpui::bench(inputs = scroll_mem_cases(), input_name = "case", group = "large/scroll-mem", sample_size = 10)]
 fn scroll_mem(case: &FrameCase, cx: &mut BenchAppContext<'_, '_>) {
     let shell = mount_shell(case, cx);
     for _ in 0..WARMUP_FRAMES {
         cx.run_until_idle();
     }
-    let base = sample(&shell, cx);
+    let base = sample(&shell, cx, true);
     eprintln!("[scroll-mem {}] base", case.label);
     trace(&case.label, 0, &base);
 
     let step = (base.total / STEPS_PER_PASS).max(600.0);
     let mut peak_ws = base.ws;
+    let mut peak_private = base.private;
     let mut peak_pagefile = base.pagefile;
     let mut peak_materialized = base.materialized;
     let mut peak_shapes = base.shapes;
@@ -103,10 +84,14 @@ fn scroll_mem(case: &FrameCase, cx: &mut BenchAppContext<'_, '_>) {
         let before = cx.read_entity(&shell, |shell, app| shell.bench_frame_metrics(app).0);
         cx.update_entity(&shell, |shell, cx| shell.bench_scroll_to(before + step, cx));
         cx.run_until_idle();
-        let s = sample(&shell, cx);
+        let deep = index % SAMPLE_EVERY == 0 || index + TAIL >= STEPS;
+        let s = sample(&shell, cx, deep);
         if s.ws > peak_ws {
             peak_ws = s.ws;
             peak_step = index;
+        }
+        if s.has_private {
+            peak_private = peak_private.max(s.private);
         }
         peak_pagefile = peak_pagefile.max(s.pagefile);
         peak_materialized = peak_materialized.max(s.materialized);
@@ -125,36 +110,36 @@ fn scroll_mem(case: &FrameCase, cx: &mut BenchAppContext<'_, '_>) {
 
     let tail = &samples[samples.len().saturating_sub(TAIL)..];
     let steady_ws = median(&tail.iter().map(|s| s.ws).collect::<Vec<_>>());
+    let steady_private = median(&tail.iter().map(|s| s.private).collect::<Vec<_>>());
     let steady_pagefile = median(&tail.iter().map(|s| s.pagefile).collect::<Vec<_>>());
     let steady_materialized = median(&tail.iter().map(|s| s.materialized).collect::<Vec<_>>());
     let steady_shapes = median(&tail.iter().map(|s| s.shapes).collect::<Vec<_>>());
 
+    let peak_mem = if base.mem {
+        format!(
+            "ws={} private-ws={} pagefile={}",
+            mem::format_bytes(peak_ws),
+            bytes(peak_private, base.has_private),
+            mem::format_bytes(peak_pagefile)
+        )
+    } else {
+        "ws=n/a".to_owned()
+    };
+    let steady_mem = if base.mem {
+        format!(
+            "ws={} private-ws={} pagefile={}",
+            mem::format_bytes(steady_ws),
+            bytes(steady_private, base.has_private),
+            mem::format_bytes(steady_pagefile)
+        )
+    } else {
+        "ws=n/a".to_owned()
+    };
+
     eprintln!(
-        "[scroll-mem {}] summary step_px={step:.0} wraps={wraps} base={} | peak@step{peak_step}: {} materialized={} shapes={} shape-bytes={} | steady(tail{TAIL}): ws={} pagefile={} materialized={steady_materialized} shapes={steady_shapes}",
+        "[scroll-mem {}] summary step_px={step:.0} wraps={wraps} base={} | peak@step{peak_step}: {peak_mem} materialized={peak_materialized} shapes={peak_shapes} shape-bytes={peak_shape_bytes} | steady(tail{TAIL}): {steady_mem} materialized={steady_materialized} shapes={steady_shapes}",
         case.label,
-        base.mem_text(),
-        if base.mem {
-            format!(
-                "ws={} pagefile={}",
-                mem::human_bytes(peak_ws),
-                mem::human_bytes(peak_pagefile)
-            )
-        } else {
-            "ws=n/a".to_owned()
-        },
-        peak_materialized,
-        peak_shapes,
-        peak_shape_bytes,
-        if base.mem {
-            mem::human_bytes(steady_ws)
-        } else {
-            "n/a".to_owned()
-        },
-        if base.mem {
-            mem::human_bytes(steady_pagefile)
-        } else {
-            "n/a".to_owned()
-        },
+        mem_text(&base),
     );
 
     cx.bench_renderer(shell, move |shell, _window, cx| {

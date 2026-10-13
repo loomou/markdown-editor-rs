@@ -103,7 +103,7 @@ pub fn render_frame_cases() -> Vec<FrameCase> {
     cases_for_blocks(&RENDER_FRAME_BLOCK_COUNTS)
 }
 
-fn cases_for_blocks(counts: &[usize]) -> Vec<FrameCase> {
+pub fn cases_for_blocks(counts: &[usize]) -> Vec<FrameCase> {
     let mut out = Vec::with_capacity(counts.len());
     for &blocks in counts {
         let text = generate_blocks(blocks, BLOCK_SEED);
@@ -243,10 +243,14 @@ pub fn text_nodes(
 pub const EDITOR_VIEWPORT: (f32, f32) = (900.0, 600.0);
 
 pub fn mount_shell(case: &FrameCase, cx: &mut BenchAppContext<'_, '_>) -> Entity<Shell> {
+    mount_shell_text(&case.text, cx)
+}
+
+pub fn mount_shell_text(text: &str, cx: &mut BenchAppContext<'_, '_>) -> Entity<Shell> {
     let mut window = cx.add_empty_window();
     let shell = window.update(|window, cx| {
         window.resize(size(px(EDITOR_VIEWPORT.0), px(EDITOR_VIEWPORT.1)));
-        window.replace_root(cx, |_window, cx| Shell::new(case.fresh_doc(), cx))
+        window.replace_root(cx, |_window, cx| Shell::new(doc(text), cx))
     });
     window.update(|window, cx| {
         let focus = shell.read(cx).editor_focus().clone();

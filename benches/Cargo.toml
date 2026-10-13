@@ -20,7 +20,9 @@ gpui = { git = "https://github.com/zed-industries/zed.git", rev = "8eebe1ce1cd01
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
+    "Win32_System_Memory",
     "Win32_System_ProcessStatus",
+    "Win32_System_SystemInformation",
     "Win32_System_Threading",
 ] }
 
@@ -148,6 +150,11 @@ harness = false
 [[bench]]
 name = "scroll_mem"
 path = "suites/scroll_mem.rs"
+harness = false
+
+[[bench]]
+name = "app_mem"
+path = "suites/app_mem.rs"
 harness = false
 
 [lints.rust]
