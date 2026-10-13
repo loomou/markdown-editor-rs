@@ -145,6 +145,11 @@ name = "large_probe"
 path = "suites/large_probe.rs"
 harness = false
 
+[[bench]]
+name = "scroll_mem"
+path = "suites/scroll_mem.rs"
+harness = false
+
 [lints.rust]
 rust_2018_idioms = { level = "warn" }
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }
