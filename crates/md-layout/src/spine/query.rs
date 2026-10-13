@@ -46,19 +46,7 @@ impl FlowSpine {
     }
 
     pub fn location(&self, id: FlowItemId) -> Option<usize> {
-        if id.is_none() {
-            return None;
-        }
-        let i = id.index as usize;
-        let g = *self.gens.get(i)?;
-        if g != id.generation {
-            return None;
-        }
-        let p = *self.loc.get(i)?;
-        if p == 0 {
-            return None;
-        }
-        Some((p - 1) as usize)
+        self.items.location(id)
     }
 
     pub fn get(&self, id: FlowItemId) -> Option<&FlowItem> {
@@ -241,9 +229,12 @@ impl FlowSpine {
         let first = self.location(first_id).unwrap_or(0);
         let mut last = first;
         let mut cursor = self.fenwick.prefix(first + 1);
-        while last + 1 < self.items.len() && cursor < bottom {
+        for item in self.items.range(first + 1..self.items.len()) {
+            if cursor >= bottom {
+                break;
+            }
+            cursor += item.height.px();
             last += 1;
-            cursor += self.items[last].height.px();
         }
         first..(last + 1)
     }

@@ -40,17 +40,20 @@ impl FlowSpine {
         let inserted = insert.len();
         self.tally(at..at + delete, false);
         self.splice_no_index(at, delete, insert);
+        let fresh: Vec<FlowItem> = self.items.range(at..at + inserted).copied().collect();
+        for item in &fresh {
+            self.map_box(item);
+        }
         self.tally(at..at + inserted, true);
         self.splice_height_index(at, delete, inserted);
     }
 
     fn splice_no_index(&mut self, at: usize, delete: usize, insert: Vec<FlowItem>) {
         assert!(at + delete <= self.items.len());
-        let removed: Vec<FlowItem> = self.items[at..at + delete].to_vec();
+        let removed: Vec<FlowItem> = self.items.range(at..at + delete).copied().collect();
         for item in &removed {
             self.unmap(item);
         }
-        self.items.splice(at..at + delete, insert);
-        self.remap_from(at);
+        self.items.splice(at, delete, insert);
     }
 }

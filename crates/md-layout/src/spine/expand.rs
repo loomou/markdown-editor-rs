@@ -18,27 +18,28 @@ impl FlowSpine {
     ) -> u32 {
         let mut rounds = 0u32;
         loop {
-            let mut range = self.visible(top, bottom);
+            let range = self.visible(top, bottom);
             let end = range.end;
-            let first = range.find(|&pos| {
-                matches!(self.items[pos].kind, FlowItemKind::Collapsed { box_id }
+            let offset = self.items.range(range.clone()).position(|item| {
+                matches!(item.kind, FlowItemKind::Collapsed { box_id }
                     if tree.nodes.get(&box_id).is_some())
             });
-            let Some(first) = first else {
+            let Some(offset) = offset else {
                 return rounds;
             };
+            let first = range.start + offset;
             rounds += 1;
             if rounds > 64 {
                 return rounds;
             }
             let y0 = self.fenwick.prefix(first);
             self.tally(first..end, false);
-            let mut items = std::mem::take(&mut self.items);
-            let mut out: Vec<FlowItem> = Vec::with_capacity(end - first + 32);
+            let visible: Vec<FlowItem> = self.items.range(first..end).copied().collect();
+            let mut out: Vec<FlowItem> = Vec::with_capacity(visible.len() + 32);
             let mut y = y0;
             let mut subtree_heights = HashMap::new();
             let mut twins: Vec<LayoutBoxId> = Vec::new();
-            for item in items.drain(first..end) {
+            for item in visible {
                 if let FlowItemKind::Collapsed { box_id } = item.kind {
                     if tree.nodes.get(&box_id).is_none() {
                         y += item.height.px();
@@ -69,9 +70,11 @@ impl FlowSpine {
                 }
             }
             let inserted = out.len();
-            items.splice(first..first, out);
-            self.items = items;
-            self.remap_from(first);
+            self.items.splice(first, end - first, out);
+            let fresh: Vec<FlowItem> = self.items.range(first..first + inserted).copied().collect();
+            for item in &fresh {
+                self.map_box(item);
+            }
             self.tally(first..first + inserted, true);
             self.splice_height_index(first, end - first, inserted);
             for preview in twins {
@@ -335,14 +338,17 @@ impl FlowSpine {
         assert!(at + delete <= self.items.len());
         let inserted = insert.len();
         self.tally(at..at + delete, false);
-        let removed: Vec<FlowItem> = self.items[at..at + delete].to_vec();
+        let removed: Vec<FlowItem> = self.items.range(at..at + delete).copied().collect();
         for item in &removed {
             if !matches!(item.kind, FlowItemKind::Collapsed { .. }) {
                 self.unmap(item);
             }
         }
-        self.items.splice(at..at + delete, insert);
-        self.remap_from(at);
+        self.items.splice(at, delete, insert);
+        let fresh: Vec<FlowItem> = self.items.range(at..at + inserted).copied().collect();
+        for item in &fresh {
+            self.map_box(item);
+        }
         self.tally(at..at + inserted, true);
         self.splice_height_index(at, delete, inserted);
     }

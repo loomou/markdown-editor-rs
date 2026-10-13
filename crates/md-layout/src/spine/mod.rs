@@ -2,6 +2,7 @@ use crate::box_tree::LayoutBoxId;
 use md_core::Px;
 use std::collections::BTreeMap;
 
+mod chunks;
 mod collapse;
 mod expand;
 mod fenwick;
@@ -17,16 +18,15 @@ mod window;
 #[cfg(test)]
 mod tests;
 
+use chunks::Chunked;
 pub use collapse::COLLAPSE_QUOTA;
 use fenwick::Fenwick;
 pub use item::{FlowItem, FlowItemId, FlowItemKind};
 pub use window::{ContainerSpan, FlowWindow, FlowWindowEntry};
 
 pub struct FlowSpine {
-    items: Vec<FlowItem>,
+    items: Chunked,
     fenwick: Fenwick,
-    loc: Vec<u32>,
-    gens: Vec<u32>,
     content_of: BTreeMap<LayoutBoxId, FlowItemId>,
     open_of: BTreeMap<LayoutBoxId, FlowItemId>,
     close_of: BTreeMap<LayoutBoxId, FlowItemId>,

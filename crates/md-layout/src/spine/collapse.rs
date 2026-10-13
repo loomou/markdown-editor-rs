@@ -252,8 +252,8 @@ impl FlowSpine {
             height,
             self.layout_epoch,
         );
-        self.items.splice(start..end, std::iter::once(item));
-        self.remap_from(start);
+        self.items.splice(start, end - start, vec![item]);
+        self.map_box(&item);
         self.tally(start..start + 1, true);
         self.splice_height_index(start, end - start, 1);
     }
