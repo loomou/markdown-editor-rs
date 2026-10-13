@@ -109,9 +109,29 @@ fn locality(c: &mut Criterion) {
     group.finish();
 }
 
+fn inline_projection(c: &mut Criterion) {
+    let bare = "the quick brown fox jumps over the lazy dog and keeps on running".to_string();
+    let mixed =
+        "the `quick` **brown** fox *jumps* over [the](https://example.com) lazy dog".to_string();
+    let probes: [(&str, fn(&str) -> usize); 2] = [
+        ("full", md_core::document::bench_probe::probe_project),
+        ("fast", md_core::document::bench_probe::probe_fast),
+    ];
+    for (label, probe) in probes {
+        let mut group = c.benchmark_group(format!("edit_locality/inline-projection-{label}"));
+        group.sample_size(10);
+        for (name, text) in [("bare", &bare), ("mixed", &mixed)] {
+            group.bench_with_input(BenchmarkId::from_parameter(name), text, |b, text| {
+                b.iter(|| probe(text))
+            });
+        }
+        group.finish();
+    }
+}
+
 criterion_group! {
     name = benches;
     config = config();
-    targets = locality
+    targets = locality, inline_projection
 }
 criterion_main!(benches);

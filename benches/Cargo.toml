@@ -8,7 +8,7 @@ rust-version = "1.96"
 publish = false
 
 [dependencies]
-md-core = { path = "../crates/md-core" }
+md-core = { path = "../crates/md-core", features = ["bench-support"] }
 md-layout = { path = "../crates/md-layout", features = ["hot_path"] }
 md-theme = { path = "../crates/md-theme" }
 md-content = { path = "../crates/md-content", features = ["bench-support"] }

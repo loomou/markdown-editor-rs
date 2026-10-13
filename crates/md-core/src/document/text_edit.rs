@@ -87,6 +87,33 @@ impl Document {
                 let (display, s2d, runs) =
                     bind::restore_visible_ws(current, &source, stripped.to_string(), s2d, runs);
                 (display, runs, s2d, Some(Vec::new()))
+            } else if let Some(projection) = super::load::project_paragraph(&parsed, stripped) {
+                let super::load::Projection {
+                    display,
+                    mut runs,
+                    links,
+                } = projection;
+                for run in &mut runs {
+                    run.link = run.link.map(|index| {
+                        let link = &links[index as usize];
+                        self.intern_link(&link.dest, &link.title)
+                    });
+                }
+                let pad = source.len() - stripped.len();
+                let mut s2d = bind::map_from_parsed(stripped, false, &parsed);
+                s2d.splice(0..0, std::iter::repeat_n(0, pad));
+                let constructs = Some(
+                    super::focus::constructs_from_parsed(stripped, &parsed)
+                        .into_iter()
+                        .map(|c| super::focus::RawConstruct {
+                            source: c.source.start + pad..c.source.end + pad,
+                            inner: c.inner.start + pad..c.inner.end + pad,
+                        })
+                        .collect(),
+                );
+                let (display, s2d, runs) =
+                    bind::restore_visible_ws(current, &source, display, s2d, runs);
+                (display, runs, s2d, constructs)
             } else {
                 let frag = super::load::load_parsed(&parsed, parse_source.to_string());
                 let parsed_kind = match current {
@@ -1400,6 +1427,30 @@ fn escape_cell_source(source: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(feature = "bench-support")]
+pub mod bench_probe {
+    use super::super::{bind, load, sanitized_editor_options};
+    use crate::block::BlockKind;
+
+    fn inline_parsed(source: &str) -> pulldown_cmark::Parsed<'_> {
+        pulldown_cmark::Parsed::inline_only(source, sanitized_editor_options())
+    }
+
+    pub fn probe_project(source: &str) -> usize {
+        let parsed = inline_parsed(source);
+        let frag = load::load_parsed(&parsed, source.to_string());
+        match bind::matching_leaf(&frag, BlockKind::Paragraph) {
+            Some(leaf) => frag.display(leaf).len(),
+            None => 0,
+        }
+    }
+
+    pub fn probe_fast(source: &str) -> usize {
+        let parsed = inline_parsed(source);
+        load::project_paragraph(&parsed, source).map_or(0, |p| p.display.len())
+    }
 }
 
 fn plain_inline_span(

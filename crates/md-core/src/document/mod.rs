@@ -28,13 +28,12 @@ mod reclaim;
 mod reference;
 mod replay;
 mod syntax;
+#[cfg(test)]
+mod tests;
 mod text;
 mod text_edit;
 mod word;
 mod write;
-
-#[cfg(test)]
-mod tests;
 
 pub use anchor::{HeadingAnchor, decode_anchor, find_anchor, heading_anchors, slug};
 pub use arena::{DocumentArena, NodeId};
@@ -52,6 +51,8 @@ pub use load::Link;
 #[cfg(feature = "load-metrics")]
 pub use metrics::{reset as metrics_reset, snapshot as metrics_snapshot};
 pub use text::LeafSnapshot;
+#[cfg(feature = "bench-support")]
+pub use text_edit::bench_probe;
 pub use word::{
     next_grapheme_boundary, next_word_boundary, prev_grapheme_boundary, prev_word_boundary,
     snap_to_grapheme_boundary, word_span,
