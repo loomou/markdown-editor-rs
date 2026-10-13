@@ -6,7 +6,7 @@ use md_core::document::Document;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
-const MAX_IN_FLIGHT: usize = 2;
+const MAX_IN_FLIGHT: usize = 4;
 const MAX_ENTRIES: usize = 48;
 const MAX_BYTES: usize = 96 * 1024 * 1024;
 
