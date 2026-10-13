@@ -105,10 +105,9 @@ impl IncrementalEngine {
                         }
                     }
                     FlowItemKind::Collapsed { box_id } => {
-                        if self.tree.deferred_height(box_id).is_some()
-                            || self.tree.nodes().contains_key(&box_id)
-                            || self.realize_target(box_id).is_some()
-                        {
+                        let expandable = self.tree.nodes().contains_key(&box_id);
+                        let composable = doc.is_some() && self.realize_target(box_id).is_some();
+                        if expandable || composable {
                             collapsed_in_window = true;
                         }
                     }

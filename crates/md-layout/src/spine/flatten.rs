@@ -1,4 +1,5 @@
 use super::FlowSpine;
+use super::chunks::Chunked;
 use super::fenwick::Fenwick;
 use super::item::{FlowItem, FlowItemKind};
 use crate::box_tree::{BoxTree, LayoutBoxId};
@@ -55,10 +56,8 @@ impl FlowSpine {
 
     fn blank() -> Self {
         FlowSpine {
-            items: Vec::new(),
+            items: Chunked::new(),
             fenwick: Fenwick::empty(),
-            loc: vec![0],
-            gens: vec![0],
             content_of: BTreeMap::new(),
             open_of: BTreeMap::new(),
             close_of: BTreeMap::new(),
@@ -75,8 +74,6 @@ impl FlowSpine {
     }
 
     pub(crate) fn from_items(items: Vec<FlowItem>) -> Self {
-        let mut loc = vec![0u32; 1];
-        let mut gens = vec![0u32; 1];
         let mut content_of = BTreeMap::new();
         let mut open_of = BTreeMap::new();
         let mut close_of = BTreeMap::new();
@@ -89,11 +86,8 @@ impl FlowSpine {
         let mut next_index = 1u32;
         let layout_epoch = 1u64;
         let mut items = items;
-        for (pos, item) in items.iter_mut().enumerate() {
+        for item in items.iter_mut() {
             item.height_epoch = layout_epoch;
-            Self::grow_id_tables(&mut loc, &mut gens, item.id.index);
-            loc[item.id.index as usize] = (pos as u32) + 1;
-            gens[item.id.index as usize] = item.id.generation;
             match item.kind {
                 FlowItemKind::Content { box_id } => {
                     content_of.insert(box_id, item.id);
@@ -138,9 +132,7 @@ impl FlowSpine {
         );
         FlowSpine {
             fenwick: Fenwick::from_heights(&heights),
-            items,
-            loc,
-            gens,
+            items: Chunked::from_items(items),
             content_of,
             open_of,
             close_of,
@@ -153,14 +145,6 @@ impl FlowSpine {
             next_index,
             free_ids: Vec::new(),
             viewport_width: 0.0,
-        }
-    }
-
-    pub(super) fn grow_id_tables(loc: &mut Vec<u32>, gens: &mut Vec<u32>, index: u32) {
-        let need = index as usize + 1;
-        if loc.len() < need {
-            loc.resize(need, 0);
-            gens.resize(need, 0);
         }
     }
 }

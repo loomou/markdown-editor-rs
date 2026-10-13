@@ -95,7 +95,7 @@ fn media_completion_invalidates_frame_and_preview() {
 
         enter(&mut doc, block);
         engine.sync_block_edit(&doc);
-        engine.assemble_incremental(ScrollAnchor::top(), 600.0, &measure, &FallbackSolver);
+        engine.assemble_with_doc(&doc, ScrollAnchor::top(), 600.0, &measure, &FallbackSolver);
 
         let frame = LayoutBoxId::frame(block);
         let preview = LayoutBoxId::preview(block);
@@ -245,7 +245,7 @@ fn toggling_edit_state_settles_without_full_clear() {
             calls: Cell::new(0),
         };
         let solver = FallbackSolver;
-        engine.assemble_incremental(ScrollAnchor::top(), 600.0, &measure, &solver);
+        engine.assemble_with_doc(&doc, ScrollAnchor::top(), 600.0, &measure, &solver);
         let rebuilds = engine.doc_rebuilds();
 
         for _ in 0..3 {
@@ -253,7 +253,7 @@ fn toggling_edit_state_settles_without_full_clear() {
                 enter(&mut doc, target);
                 engine.sync_block_edit(&doc);
                 let (_, p) =
-                    engine.assemble_incremental(ScrollAnchor::top(), 600.0, &measure, &solver);
+                    engine.assemble_with_doc(&doc, ScrollAnchor::top(), 600.0, &measure, &solver);
                 assert!(
                     p.iterations < MAX_ITERATIONS,
                     "{kind:?} iterations={}",
@@ -355,11 +355,11 @@ fn leaving_edit_forgets_source_height() {
     let mut engine = engine_for(&doc);
     let measure = RenderedMeasure;
     let solver = FallbackSolver;
-    engine.assemble_incremental(ScrollAnchor::top(), 600.0, &measure, &solver);
+    engine.assemble_with_doc(&doc, ScrollAnchor::top(), 600.0, &measure, &solver);
 
     enter(&mut doc, mermaid);
     engine.sync_block_edit(&doc);
-    engine.assemble_incremental(ScrollAnchor::top(), 600.0, &measure, &solver);
+    engine.assemble_with_doc(&doc, ScrollAnchor::top(), 600.0, &measure, &solver);
 
     let mermaid_top = engine.content_top(mermaid).expect("mermaid");
     let after_top = engine.content_top(after).expect("after");
@@ -389,11 +389,11 @@ fn leaving_tall_mermaid_keeps_following_paragraph_in_place() {
     let mut engine = engine_for(&doc);
     let measure = RenderedMeasure;
     let solver = FallbackSolver;
-    engine.assemble_incremental(ScrollAnchor::top(), 600.0, &measure, &solver);
+    engine.assemble_with_doc(&doc, ScrollAnchor::top(), 600.0, &measure, &solver);
 
     enter(&mut doc, mermaid);
     engine.sync_block_edit(&doc);
-    engine.assemble_incremental(ScrollAnchor::top(), 600.0, &measure, &solver);
+    engine.assemble_with_doc(&doc, ScrollAnchor::top(), 600.0, &measure, &solver);
 
     let after_top = engine.content_top(after).expect("after");
     let hold = 150.0;

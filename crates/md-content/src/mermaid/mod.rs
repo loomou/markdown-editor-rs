@@ -6,7 +6,7 @@ use md_core::document::Document;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
-const MAX_IN_FLIGHT: usize = 2;
+const MAX_IN_FLIGHT: usize = 4;
 const MAX_ENTRIES: usize = 48;
 const MAX_BYTES: usize = 96 * 1024 * 1024;
 
@@ -24,6 +24,8 @@ mod theme;
 mod tests;
 
 pub use crate::pixels::ReadyImage;
+#[cfg(feature = "bench-support")]
+pub use raster::prepare_sealed;
 pub use raster::{raster, raster_svg, raster_with_svg, render_sealed, render_svg};
 pub use svg::MAX_RASTER_PIXELS;
 pub use theme::{spec_from_theme, theme_fingerprint};

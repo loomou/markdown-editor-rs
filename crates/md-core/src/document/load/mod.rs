@@ -7,6 +7,7 @@ use std::ops::Range;
 
 mod builder;
 mod leaf;
+mod project;
 mod walk;
 
 #[derive(Clone, Debug, Default)]
@@ -22,6 +23,8 @@ pub fn load(md: &str, opts: Options) -> Document {
 pub(crate) fn load_parsed(parsed: &pulldown_cmark::Parsed<'_>, source: String) -> Document {
     walk::document_of(parsed, source)
 }
+
+pub(crate) use project::{Projection, project_paragraph};
 
 pub(crate) fn fold_cr(md: &str) -> String {
     if !md.as_bytes().contains(&b'\r') {

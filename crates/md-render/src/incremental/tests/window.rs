@@ -1,6 +1,6 @@
-use super::support::{CountingMeasure, dummy_layout, estimator};
+use super::support::{CountingMeasure, NarrowCjkMeasure, dummy_layout, estimator};
 use crate::incremental::anchor::ScrollAnchor;
-use crate::incremental::engine::IncrementalEngine;
+use crate::incremental::engine::{IncrementalEngine, MAX_ITERATIONS};
 use crate::incremental::store::EvictionPolicy;
 use md_core::block::BlockKind;
 use md_core::document::{editor_options, load_markdown};
@@ -492,5 +492,33 @@ fn ensure_composed_block_lowers_the_cold_editing_preview() {
     assert!(
         engine.spine.content_id(preview).is_some(),
         "the preview must ride the spine with its frame"
+    );
+}
+
+fn cjk_paragraphs(n: usize, chars: usize) -> md_core::document::Document {
+    let unit =
+        "排版布局段落换行断行测量宽度高度缓存增量字形字体基线边距缩进引用列表表格单元格表头行列";
+    let mut md = String::new();
+    for _ in 0..n {
+        let line: String = unit.chars().cycle().take(chars).collect();
+        let _ = writeln!(md, "{line}\n");
+    }
+    load_markdown(&md, editor_options())
+}
+
+#[test]
+fn settle_without_a_doc_does_not_spin_on_deferred_boxes_in_the_window() {
+    let doc = cjk_paragraphs(60, 51);
+    let env = BoxLayoutEnvironment::default();
+    let mut engine =
+        IncrementalEngine::with_window(&doc, env, estimator(), dummy_layout(), 0.0, 600.0);
+    let measure = NarrowCjkMeasure;
+    let solver = FallbackSolver;
+    let published = engine.settle(ScrollAnchor::top(), 600.0, &measure, &solver);
+    assert!(
+        published.iterations < MAX_ITERATIONS,
+        "a doc-less settle can never compose a deferred box, so one that materializing \
+         pulls into the window must not keep the loop alive: {} iterations",
+        published.iterations
     );
 }

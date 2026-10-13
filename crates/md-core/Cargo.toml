@@ -14,3 +14,4 @@ workspace = true
 
 [features]
 load-metrics = []
+bench-support = []

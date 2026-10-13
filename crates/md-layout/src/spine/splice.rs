@@ -257,25 +257,8 @@ impl FlowSpine {
         true
     }
 
-    pub(super) fn remap_from(&mut self, from: usize) {
-        for i in from..self.items.len() {
-            let item = self.items[i];
-            Self::grow_id_tables(&mut self.loc, &mut self.gens, item.id.index);
-            let idx = item.id.index as usize;
-            if self.loc[idx] == 0 {
-                self.map_at(i);
-            } else {
-                self.loc[idx] = (i as u32) + 1;
-                self.gens[idx] = item.id.generation;
-            }
-        }
-    }
-
     pub(super) fn release_id(&mut self, id: FlowItemId) {
-        let i = id.index as usize;
-        if i < self.loc.len() {
-            self.loc[i] = 0;
-        }
+        self.items.clear_id(id);
         self.free_ids.push(id);
     }
 
@@ -298,19 +281,15 @@ impl FlowSpine {
         }
     }
 
-    pub(super) fn map_at(&mut self, pos: usize) {
-        let item = self.items[pos];
-        Self::grow_id_tables(&mut self.loc, &mut self.gens, item.id.index);
-        self.loc[item.id.index as usize] = (pos as u32) + 1;
-        self.gens[item.id.index as usize] = item.id.generation;
+    pub(super) fn map_box(&mut self, item: &FlowItem) {
         match item.kind {
             FlowItemKind::Content { box_id } => {
                 self.content_of.insert(box_id, item.id);
             }
-            FlowItemKind::ContainerOpen { box_id, .. } => {
+            FlowItemKind::ContainerOpen { box_id } => {
                 self.open_of.insert(box_id, item.id);
             }
-            FlowItemKind::ContainerClose { box_id, .. } => {
+            FlowItemKind::ContainerClose { box_id } => {
                 self.close_of.insert(box_id, item.id);
             }
             FlowItemKind::Collapsed { box_id } => {
@@ -325,7 +304,7 @@ impl FlowSpine {
         let mut content = 0u32;
         let mut exact = 0u32;
         let mut noncontent = 0u32;
-        for item in &self.items[range] {
+        for item in self.items.range(range) {
             if item.is_content() {
                 content += 1;
                 if item.height.is_exact() && item.height_epoch == epoch {
@@ -360,7 +339,7 @@ impl FlowSpine {
         let mut content_count = 0u32;
         let mut exact_content_in_epoch = 0u32;
         let mut noncontent_estimated = 0u32;
-        for item in &self.items {
+        for item in self.items.iter() {
             if item.is_content() {
                 content_count += 1;
                 if item.height.is_exact() && item.height_epoch == self.layout_epoch {

@@ -47,6 +47,9 @@ ratex-layout = { workspace = true }
 ratex-render = { workspace = true }
 ratex-types = { workspace = true }
 
+[features]
+bench-support = []
+
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
 

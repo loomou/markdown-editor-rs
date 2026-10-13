@@ -299,6 +299,7 @@ pub fn break_lines(
         };
     };
     if items.len() > params.max_items as usize {
+        crate::hot_path::add_kp_max_items();
         return greedy(&calc, &breaks, last_break);
     }
 

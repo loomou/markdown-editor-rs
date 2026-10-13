@@ -50,7 +50,7 @@ pub fn assemble_shared(
     measure: &dyn crate::shaper::TextMeasure,
     solver: &dyn IslandSolver,
 ) -> Assembly {
-    assemble_shared_with(tree, env, measure, solver, None)
+    assemble_shared_with(tree, env, measure, solver, None, None)
 }
 
 pub fn assemble_shared_with(
@@ -59,6 +59,7 @@ pub fn assemble_shared_with(
     measure: &dyn crate::shaper::TextMeasure,
     solver: &dyn IslandSolver,
     col_tracks: Option<&HashMap<BlockId, Vec<Px>>>,
+    window_range: Option<(Px, Px)>,
 ) -> Assembly {
     let mut table_cons = BTreeMap::new();
     for (id, node) in tree.nodes() {
@@ -94,7 +95,15 @@ pub fn assemble_shared_with(
         *heights.get(&id).unwrap_or(&HeightState::Estimated(0.0))
     });
     let total = spine.total_height();
-    let window = spine.window(&tree, 0.0, total.max(0.0), &[]);
+    let (top, bottom) = match window_range {
+        Some((top, bottom)) => {
+            let height = (bottom - top).max(0.0);
+            let top = top.clamp(0.0, (total - height).max(0.0));
+            (top, top + height)
+        }
+        None => (0.0, total.max(0.0)),
+    };
+    let window = spine.window(&tree, top, bottom, &[]);
 
     Assembly {
         tree,

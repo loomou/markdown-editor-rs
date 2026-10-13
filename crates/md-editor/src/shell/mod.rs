@@ -11,6 +11,9 @@ mod shortcuts;
 mod status;
 mod titlebar;
 
+#[cfg(any(test, feature = "bench-support"))]
+mod bench_api;
+
 use self::color_picker::ColorPicker;
 use self::font_menu::FontMenu;
 use self::menu::{MenuId, clamp_menu_pos};

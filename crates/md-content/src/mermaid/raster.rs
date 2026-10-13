@@ -81,6 +81,16 @@ pub(super) fn render_png(source: &str, spec: &RasterSpec) -> Result<Vec<u8>, cra
     encode_png(&sealed, spec)
 }
 
+#[cfg(feature = "bench-support")]
+pub fn prepare_sealed(
+    sealed: &ResvgCompatibleSvg,
+    spec: &RasterSpec,
+) -> Result<merman::svg::export::PreparedRaster, crate::Error> {
+    let opts = RasterOptions::default().with_scale(raster_scale(sealed.as_str(), spec));
+    merman::svg::export::prepare_raster(sealed, &opts)
+        .map_err(|e| crate::Error::Mermaid(e.to_string().into()))
+}
+
 fn encode_png(sealed: &ResvgCompatibleSvg, spec: &RasterSpec) -> Result<Vec<u8>, crate::Error> {
     let opts = RasterOptions::default().with_scale(raster_scale(sealed.as_str(), spec));
     match svg_to_png(sealed, &opts) {

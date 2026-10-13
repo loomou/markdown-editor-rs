@@ -1,0 +1,176 @@
+[workspace]
+
+[package]
+name = "md-bench"
+version = "0.1.3"
+edition = "2024"
+rust-version = "1.96"
+publish = false
+
+[dependencies]
+md-core = { path = "../crates/md-core", features = ["bench-support"] }
+md-layout = { path = "../crates/md-layout", features = ["hot_path"] }
+md-theme = { path = "../crates/md-theme" }
+md-content = { path = "../crates/md-content", features = ["bench-support"] }
+md-render = { path = "../crates/md-render" }
+md-editor = { path = "../crates/md-editor", features = ["bench-support", "hot_path"] }
+gpui = { git = "https://github.com/zed-industries/zed.git", rev = "8eebe1ce1cd0190d44d9fac25f1bd71a4fc89a65", features = [
+    "bench-support",
+] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_System_Memory",
+    "Win32_System_ProcessStatus",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+criterion = "0.5"
+gpui_platform = { git = "https://github.com/zed-industries/zed.git", rev = "8eebe1ce1cd0190d44d9fac25f1bd71a4fc89a65", features = [
+    "bench-support",
+] }
+
+[[bench]]
+name = "gpui_probe"
+path = "suites/gpui_probe.rs"
+harness = false
+
+[[bench]]
+name = "stages"
+path = "suites/stages.rs"
+harness = false
+
+[[bench]]
+name = "pipeline"
+path = "suites/pipeline.rs"
+harness = false
+
+[[bench]]
+name = "paths"
+path = "suites/paths.rs"
+harness = false
+
+[[bench]]
+name = "editor_frame"
+path = "suites/editor_frame.rs"
+harness = false
+
+[[bench]]
+name = "render_ops"
+path = "suites/render_ops.rs"
+harness = false
+
+[[bench]]
+name = "linebreak_modes"
+path = "suites/linebreak_modes.rs"
+harness = false
+
+[[bench]]
+name = "kp_fallback"
+path = "suites/kp_fallback.rs"
+harness = false
+
+[[bench]]
+name = "cache_occupancy"
+path = "suites/cache_occupancy.rs"
+harness = false
+
+[[bench]]
+name = "toggles"
+path = "suites/toggles.rs"
+harness = false
+
+[[bench]]
+name = "highlight"
+path = "suites/highlight.rs"
+harness = false
+
+[[bench]]
+name = "media_caches"
+path = "suites/media_caches.rs"
+harness = false
+
+[[bench]]
+name = "media_work"
+path = "suites/media_work.rs"
+harness = false
+
+[[bench]]
+name = "reuse"
+path = "suites/reuse.rs"
+harness = false
+
+[[bench]]
+name = "edit_commands"
+path = "suites/edit_commands.rs"
+harness = false
+
+[[bench]]
+name = "edit_locality"
+path = "suites/edit_locality.rs"
+harness = false
+
+[[bench]]
+name = "edit_tables"
+path = "suites/edit_tables.rs"
+harness = false
+
+[[bench]]
+name = "edit_history"
+path = "suites/edit_history.rs"
+harness = false
+
+[[bench]]
+name = "edit_ime"
+path = "suites/edit_ime.rs"
+harness = false
+
+[[bench]]
+name = "large_docs"
+path = "suites/large_docs.rs"
+harness = false
+
+[[bench]]
+name = "large_headless"
+path = "suites/large_headless.rs"
+harness = false
+
+[[bench]]
+name = "large_gpui"
+path = "suites/large_gpui.rs"
+harness = false
+
+[[bench]]
+name = "large_probe"
+path = "suites/large_probe.rs"
+harness = false
+
+[[bench]]
+name = "scroll_mem"
+path = "suites/scroll_mem.rs"
+harness = false
+
+[[bench]]
+name = "app_mem"
+path = "suites/app_mem.rs"
+harness = false
+
+[lints.rust]
+rust_2018_idioms = { level = "warn" }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }
+
+[lints.clippy]
+all = { level = "warn" }
+uninlined_format_args = { level = "warn" }
+redundant_clone = { level = "warn" }
+inefficient_to_string = { level = "warn" }
+manual_let_else = { level = "warn" }
+undocumented_unsafe_blocks = { level = "warn" }
+
+[profile.bench]
+opt-level = 3
+lto = false
+codegen-units = 16
+debug = "line-tables-only"

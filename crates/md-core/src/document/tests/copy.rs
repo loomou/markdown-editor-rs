@@ -211,7 +211,7 @@ fn a_whole_quote_copies_with_every_marker_it_needs() {
     for (source, copied) in [
         ("> hi\n", "> hi"),
         ("> a\n> b\n", "> a\n> b"),
-        ("> 甲\n>\n> \n>\n> 乙\n", "> 甲\n>\n> \n>\n> 乙"),
+        ("> a\n>\n> \n>\n> b\n", "> a\n>\n> \n>\n> b"),
         ("> > hi\n", "> > hi"),
         ("> - a\n> - b\n", "> - a\n> - b"),
         ("> # h\n> \n> p\n", "> # h\n>\n> p"),
@@ -641,10 +641,10 @@ fn copy_document(doc: &Document) -> String {
 #[test]
 fn blank_paragraphs_keep_their_count_in_the_copy() {
     for (source, copied) in [
-        ("甲\n\n乙\n", "甲\n\n乙"),
-        ("甲\n\n\n\n乙\n", "甲\n\n\n\n乙"),
-        ("甲\n\n\n\n\n\n乙\n", "甲\n\n\n\n\n\n乙"),
-        ("# t\n\n甲\n\n\n\n乙\n\n- a\n", "# t\n\n甲\n\n\n\n乙\n\n- a"),
+        ("a\n\nb\n", "a\n\nb"),
+        ("a\n\n\n\nb\n", "a\n\n\n\nb"),
+        ("a\n\n\n\n\n\nb\n", "a\n\n\n\n\n\nb"),
+        ("# t\n\na\n\n\n\nb\n\n- a\n", "# t\n\na\n\n\n\nb\n\n- a"),
     ] {
         let doc = load_markdown(source, editor_options());
         let all = copy_document(&doc);
@@ -659,10 +659,10 @@ fn blank_paragraphs_keep_their_count_in_the_copy() {
 
 #[test]
 fn an_empty_paragraph_between_two_lists_survives_the_copy() {
-    let source = "- 甲\n\n\n\n- 乙\n";
+    let source = "- a\n\n\n\n- b\n";
     let doc = load_markdown(source, editor_options());
     let all = copy_document(&doc);
-    assert_eq!(all, "- 甲\n\n\n\n- 乙");
+    assert_eq!(all, "- a\n\n\n\n- b");
     let again = load_markdown(&all, editor_options());
     let lists: Vec<_> = again
         .preorder()

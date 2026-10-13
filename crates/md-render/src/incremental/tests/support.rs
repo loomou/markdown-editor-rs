@@ -164,3 +164,31 @@ impl TextMeasure for HalfMeasure {
         }
     }
 }
+
+pub(super) struct NarrowCjkMeasure;
+
+impl TextMeasure for NarrowCjkMeasure {
+    fn begin_island(&self) {}
+
+    fn measure(
+        &self,
+        text: &str,
+        _runs: &[md_core::inline::InlineRun],
+        avail_width: Px,
+        _kind: MeasureKind,
+        _block_kind: BlockKind,
+        _ident: ShapeIdentity,
+    ) -> MeasureResult {
+        let ems: f64 = text
+            .chars()
+            .map(|ch| if ch.is_ascii() { 0.5 } else { 0.95 })
+            .sum();
+        let rows = ((ems * 16.0 / avail_width.max(1.0)).ceil() as u32).max(1);
+        MeasureResult {
+            width: avail_width,
+            height: f64::from(rows) * 20.0,
+            rows,
+            first_baseline: 16.0,
+        }
+    }
+}

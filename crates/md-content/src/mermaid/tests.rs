@@ -3,8 +3,8 @@ use super::svg::{
     MAX_RASTER_PIXELS, first_viewbox, pad_svg_viewbox, raster_dpr, raster_scale, strip_init,
 };
 use super::{
-    FAIL_LABEL_CAP, MAX_ENTRIES, MAX_FITTED_ENTRIES, MermaidCache, MermaidKey, RasterSpec,
-    WARM_EXTRA_ENTRIES, fail_label, fit_rect,
+    FAIL_LABEL_CAP, MAX_ENTRIES, MAX_FITTED_ENTRIES, MAX_IN_FLIGHT, MermaidCache, MermaidKey,
+    RasterSpec, WARM_EXTRA_ENTRIES, fail_label, fit_rect,
 };
 use crate::mermaid::raster::raster;
 use crate::mermaid::theme::{spec_from_theme, theme_fingerprint};
@@ -672,5 +672,16 @@ fn prefetch_leaves_room_for_the_visible_diagram() {
         cache.begin(hot),
         "the on-screen diagram can still start work without waiting for prefetch"
     );
-    assert!(!cache.begin(mermaid_key(3)));
+    let mut started = 2u32;
+    while started < MAX_IN_FLIGHT as u32 {
+        assert!(
+            cache.begin(mermaid_key(100 + started)),
+            "the on-screen quota still has room at {started}"
+        );
+        started += 1;
+    }
+    assert!(
+        !cache.begin(mermaid_key(999)),
+        "once the on-screen quota is full, a further diagram waits"
+    );
 }

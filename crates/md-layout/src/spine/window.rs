@@ -53,8 +53,9 @@ impl FlowSpine {
         let mut container_spans: Vec<ContainerSpan> = Vec::new();
         let mut seen: BTreeMap<LayoutBoxId, ()> = BTreeMap::new();
         let mut anchors = Vec::new();
-        for pos in range.clone() {
-            let item = self.items[pos];
+        for (offset, item) in self.items.range(range.clone()).enumerate() {
+            let pos = range.start + offset;
+            let item = *item;
             let t = self.fenwick.prefix(pos);
             entries.push(FlowWindowEntry {
                 top: t,

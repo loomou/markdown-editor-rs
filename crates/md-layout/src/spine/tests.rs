@@ -117,7 +117,7 @@ fn gap_item_roundtrip() {
 fn expected(spine: &FlowSpine) -> (Vec<Px>, Px, u32, u32, u32, u32) {
     let mut tops = Vec::with_capacity(spine.items.len() + 1);
     let mut y = 0.0;
-    for item in &spine.items {
+    for item in spine.items.iter() {
         tops.push(y);
         y += item.height.px();
     }
@@ -125,7 +125,7 @@ fn expected(spine: &FlowSpine) -> (Vec<Px>, Px, u32, u32, u32, u32) {
     let mut content = 0u32;
     let mut exact = 0u32;
     let mut noncontent = 0u32;
-    for item in &spine.items {
+    for item in spine.items.iter() {
         if item.is_content() {
             content += 1;
             if item.height.is_exact() && item.height_epoch == spine.layout_epoch {
@@ -166,7 +166,7 @@ fn assert_box_maps_match_items(spine: &FlowSpine) {
     let mut open_of = BTreeMap::new();
     let mut close_of = BTreeMap::new();
     let mut collapsed_of = BTreeMap::new();
-    for item in &spine.items {
+    for item in spine.items.iter() {
         match item.kind {
             FlowItemKind::Content { box_id } => {
                 content_of.insert(box_id, item.id);
@@ -190,7 +190,7 @@ fn assert_box_maps_match_items(spine: &FlowSpine) {
 }
 
 fn assert_records_on_tree(spine: &FlowSpine, tree: &crate::box_tree::BoxTree) {
-    for item in &spine.items {
+    for item in spine.items.iter() {
         let (box_id, allow_deferred) = match item.kind {
             FlowItemKind::Content { box_id }
             | FlowItemKind::ContainerOpen { box_id }

@@ -77,54 +77,93 @@ impl Document {
                 parse_source.as_ref(),
                 super::sanitized_editor_options(),
             );
-            let frag = super::load::load_parsed(&parsed, parse_source.to_string());
-            let parsed_kind = match current {
-                BlockKind::TableCell => BlockKind::Paragraph,
-                kind => kind,
-            };
-            if let Some(leaf) = bind::matching_leaf(&frag, parsed_kind) {
-                let display = frag.display(leaf).to_string();
-                let runs = self.remap_runs(&frag, leaf);
-                let s2d = if current == BlockKind::TableCell {
-                    bind::source_to_display_map_for_kind(&source, current, &defs)
-                } else {
-                    let mut s2d = bind::map_from_parsed(stripped, false, &parsed);
-                    let pad = source.len() - stripped.len();
-                    s2d.splice(0..0, std::iter::repeat_n(0, pad));
-                    s2d
-                };
+            if let Some(n) = plain_inline_span(current, &parsed, stripped.len()) {
+                let mut s2d = bind::identity_map(n);
+                s2d.splice(0..0, std::iter::repeat_n(0, source.len() - stripped.len()));
+                let mut runs = bind::identity_runs(n);
+                if let Some(run) = runs.first_mut() {
+                    run.source_range = Some(0..n as u32);
+                }
+                let (display, s2d, runs) =
+                    bind::restore_visible_ws(current, &source, stripped.to_string(), s2d, runs);
+                (display, runs, s2d, Some(Vec::new()))
+            } else if let Some(projection) = super::load::project_paragraph(&parsed, stripped) {
+                let super::load::Projection {
+                    display,
+                    mut runs,
+                    links,
+                } = projection;
+                for run in &mut runs {
+                    run.link = run.link.map(|index| {
+                        let link = &links[index as usize];
+                        self.intern_link(&link.dest, &link.title)
+                    });
+                }
                 let pad = source.len() - stripped.len();
-                let constructs = if frag.leaf_source(leaf) == stripped {
-                    frag.recorded_constructs(leaf).map(|cs| {
-                        cs.iter()
-                            .map(|c| super::focus::RawConstruct {
-                                source: c.source.start + pad..c.source.end + pad,
-                                inner: c.inner.start + pad..c.inner.end + pad,
-                            })
-                            .collect()
-                    })
-                } else {
-                    Some(
-                        super::focus::constructs_from_parsed(stripped, &parsed)
-                            .into_iter()
-                            .map(|c| super::focus::RawConstruct {
-                                source: c.source.start + pad..c.source.end + pad,
-                                inner: c.inner.start + pad..c.inner.end + pad,
-                            })
-                            .collect(),
-                    )
-                };
+                let mut s2d = bind::map_from_parsed(stripped, false, &parsed);
+                s2d.splice(0..0, std::iter::repeat_n(0, pad));
+                let constructs = Some(
+                    super::focus::constructs_from_parsed(stripped, &parsed)
+                        .into_iter()
+                        .map(|c| super::focus::RawConstruct {
+                            source: c.source.start + pad..c.source.end + pad,
+                            inner: c.inner.start + pad..c.inner.end + pad,
+                        })
+                        .collect(),
+                );
                 let (display, s2d, runs) =
                     bind::restore_visible_ws(current, &source, display, s2d, runs);
                 (display, runs, s2d, constructs)
             } else {
-                let n = source.len();
-                (
-                    source.clone(),
-                    bind::identity_runs(n),
-                    bind::identity_map(n),
-                    Some(Vec::new()),
-                )
+                let frag = super::load::load_parsed(&parsed, parse_source.to_string());
+                let parsed_kind = match current {
+                    BlockKind::TableCell => BlockKind::Paragraph,
+                    kind => kind,
+                };
+                if let Some(leaf) = bind::matching_leaf(&frag, parsed_kind) {
+                    let display = frag.display(leaf).to_string();
+                    let runs = self.remap_runs(&frag, leaf);
+                    let s2d = if current == BlockKind::TableCell {
+                        bind::source_to_display_map_for_kind(&source, current, &defs)
+                    } else {
+                        let mut s2d = bind::map_from_parsed(stripped, false, &parsed);
+                        let pad = source.len() - stripped.len();
+                        s2d.splice(0..0, std::iter::repeat_n(0, pad));
+                        s2d
+                    };
+                    let pad = source.len() - stripped.len();
+                    let constructs = if frag.leaf_source(leaf) == stripped {
+                        frag.recorded_constructs(leaf).map(|cs| {
+                            cs.iter()
+                                .map(|c| super::focus::RawConstruct {
+                                    source: c.source.start + pad..c.source.end + pad,
+                                    inner: c.inner.start + pad..c.inner.end + pad,
+                                })
+                                .collect()
+                        })
+                    } else {
+                        Some(
+                            super::focus::constructs_from_parsed(stripped, &parsed)
+                                .into_iter()
+                                .map(|c| super::focus::RawConstruct {
+                                    source: c.source.start + pad..c.source.end + pad,
+                                    inner: c.inner.start + pad..c.inner.end + pad,
+                                })
+                                .collect(),
+                        )
+                    };
+                    let (display, s2d, runs) =
+                        bind::restore_visible_ws(current, &source, display, s2d, runs);
+                    (display, runs, s2d, constructs)
+                } else {
+                    let n = source.len();
+                    (
+                        source.clone(),
+                        bind::identity_runs(n),
+                        bind::identity_map(n),
+                        Some(Vec::new()),
+                    )
+                }
             }
         };
         let caret_src = caret_src.min(source.len());
@@ -1388,4 +1427,150 @@ fn escape_cell_source(source: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(feature = "bench-support")]
+pub mod bench_probe {
+    use super::super::{bind, load, sanitized_editor_options};
+    use crate::block::BlockKind;
+
+    fn inline_parsed(source: &str) -> pulldown_cmark::Parsed<'_> {
+        pulldown_cmark::Parsed::inline_only(source, sanitized_editor_options())
+    }
+
+    pub fn probe_project(source: &str) -> usize {
+        let parsed = inline_parsed(source);
+        let frag = load::load_parsed(&parsed, source.to_string());
+        match bind::matching_leaf(&frag, BlockKind::Paragraph) {
+            Some(leaf) => frag.display(leaf).len(),
+            None => 0,
+        }
+    }
+
+    pub fn probe_fast(source: &str) -> usize {
+        let parsed = inline_parsed(source);
+        load::project_paragraph(&parsed, source).map_or(0, |p| p.display.len())
+    }
+}
+
+fn plain_inline_span(
+    kind: BlockKind,
+    parsed: &pulldown_cmark::Parsed<'_>,
+    len: usize,
+) -> Option<usize> {
+    if kind != BlockKind::Paragraph || len == 0 {
+        return None;
+    }
+    let para = parsed.root().first_child()?;
+    if para.next_sibling().is_some() || !matches!(para.kind(), pulldown_cmark::NodeKind::Paragraph)
+    {
+        return None;
+    }
+    let text = para.first_child()?;
+    if text.next_sibling().is_some()
+        || !matches!(
+            text.kind(),
+            pulldown_cmark::NodeKind::Text {
+                backslash_escaped: false
+            }
+        )
+    {
+        return None;
+    }
+    (text.span() == (0..len)).then_some(len)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{editor_options, load_markdown};
+    use super::plain_inline_span;
+    use crate::block::BlockKind;
+    use crate::document::Document;
+
+    fn projection(doc: &Document) -> String {
+        crate::document::dump::dump_document(doc)
+            .lines()
+            .filter(|line| {
+                let trimmed = line.trim_start();
+                !trimmed.starts_with("source=") && !trimmed.starts_with("pieces=")
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn inline_span(kind: BlockKind, text: &str) -> Option<usize> {
+        let parsed =
+            pulldown_cmark::Parsed::inline_only(text, crate::document::sanitized_editor_options());
+        plain_inline_span(kind, &parsed, text.len())
+    }
+
+    #[test]
+    fn only_a_bare_text_paragraph_uses_the_inline_fast_path() {
+        assert_eq!(inline_span(BlockKind::Paragraph, "hello world"), Some(11));
+        assert_eq!(inline_span(BlockKind::Paragraph, "x"), Some(1));
+        for text in [
+            "",
+            "text  ",
+            "*em*",
+            "`code`",
+            "[link](https://example.com)",
+            "&amp;",
+            "\\*",
+            "a\\*b",
+            "line one\nline two",
+        ] {
+            assert_eq!(
+                inline_span(BlockKind::Paragraph, text),
+                None,
+                "{text:?} must fall back to the full projection"
+            );
+        }
+        assert_eq!(
+            inline_span(BlockKind::Heading(1), "hello world"),
+            None,
+            "only paragraphs take the fast path"
+        );
+    }
+
+    #[test]
+    fn a_plain_paragraph_edit_matches_a_reload() {
+        let cases: &[&str] = &[
+            "hello world",
+            "The quick brown fox jumps over the lazy dog and keeps on running.",
+            "trailing spaces here   ",
+            "   leading spaces",
+            "line one\nline two",
+            "*em* and **strong** text",
+            "a `code` span here",
+            "[link](https://example.com) tail",
+            "escaped \\*not em\\* here",
+            "entities &amp; and &#65; and &quot;q&quot;",
+            "unicode ok tail",
+            "x",
+        ];
+        let mut compared = 0usize;
+        for case in cases {
+            let Some(block) = load_markdown(case, editor_options()).first_text_leaf() else {
+                continue;
+            };
+            let len = case.len();
+            for at in [0usize, 1, len / 2, len] {
+                let mut doc = load_markdown(case, editor_options());
+                let leaf = doc
+                    .live_id(block)
+                    .expect("the fixture must have a live leaf");
+                let start = at.min(len);
+                doc.rewrite_text(leaf, start..start, "x");
+                let edited = projection(&doc);
+                let reloaded = load_markdown(&doc.to_markdown(), editor_options());
+                assert_eq!(
+                    edited,
+                    projection(&reloaded),
+                    "editing {case:?} at {at} left the leaf unlike a reload"
+                );
+                compared += 1;
+            }
+        }
+        assert!(compared >= 44, "only {compared} comparisons ran");
+    }
 }

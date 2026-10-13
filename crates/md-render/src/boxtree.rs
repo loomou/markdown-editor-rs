@@ -16,6 +16,7 @@ pub fn inline_offset(tree: &BoxTree, id: LayoutBoxId, content_inset: Px) -> Px {
 }
 
 pub fn block_id_of(id: LayoutBoxId) -> Option<BlockId> {
+    md_layout::hot_path::add_adapter_to_block();
     match id.owner {
         BoxOwner::Block(b) => Some(b),
         BoxOwner::DocStart => None,

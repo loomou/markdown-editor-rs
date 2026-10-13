@@ -458,6 +458,10 @@ impl Document {
             .get(idx as usize)
             .map(|l| l.title.clone())
             .unwrap_or_default();
+        self.intern_link(&dest, &title)
+    }
+
+    pub(super) fn intern_link(&mut self, dest: &str, title: &str) -> u32 {
         let links = std::sync::Arc::make_mut(&mut self.links);
         if let Some(i) = links
             .iter()
@@ -466,7 +470,10 @@ impl Document {
             return i as u32;
         }
         let id = links.len() as u32;
-        links.push(load::Link { dest, title });
+        links.push(load::Link {
+            dest: dest.to_string(),
+            title: title.to_string(),
+        });
         id
     }
 
