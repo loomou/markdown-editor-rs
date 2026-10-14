@@ -805,3 +805,395 @@ fn binding_an_alert_restyles_the_quote_lead() {
         layout.quote_alert_lead
     );
 }
+
+fn child_list(
+    tree: &crate::box_tree::BoxTree,
+    id: crate::box_tree::LayoutBoxId,
+) -> (u8, Vec<crate::box_tree::LayoutBoxId>) {
+    use crate::box_tree::BoxChildren;
+    match tree.nodes.get(&id).map(|n| &n.children) {
+        Some(BoxChildren::Vertical(c)) => (0, c.clone()),
+        Some(BoxChildren::Island(c)) => (1, c.clone()),
+        Some(BoxChildren::None) | None => (2, Vec::new()),
+    }
+}
+
+fn assert_sync_matches_cold(
+    hot: &crate::box_tree::BoxTree,
+    cold: &crate::box_tree::BoxTree,
+    what: &str,
+) {
+    assert_eq!(
+        hot.nodes.len(),
+        cold.nodes.len(),
+        "{what}: hot has {} boxes, cold has {}",
+        hot.nodes.len(),
+        cold.nodes.len()
+    );
+    for (id, node) in &cold.nodes {
+        let Some(hot_node) = hot.nodes.get(id) else {
+            panic!("{what}: the hot tree is missing {id:?} ({:?})", node.kind);
+        };
+        assert_eq!(hot_node.kind, node.kind, "{what}: kind drift at {id:?}");
+        assert_eq!(
+            hot_node.parent, node.parent,
+            "{what}: parent drift at {id:?}"
+        );
+        assert_eq!(
+            child_list(hot, *id),
+            child_list(cold, *id),
+            "{what}: child list drift at {id:?}"
+        );
+        assert_eq!(
+            hot_node.type_slot, node.type_slot,
+            "{what}: type slot drift at {id:?}"
+        );
+        assert_eq!(
+            hot.style_of(hot_node),
+            cold.style_of(node),
+            "{what}: style drift at {id:?}"
+        );
+        assert_eq!(
+            hot.intern.text(hot_node.text_id),
+            cold.intern.text(node.text_id),
+            "{what}: text drift at {id:?}"
+        );
+    }
+}
+
+#[test]
+fn splitting_a_root_paragraph_leaves_the_other_root_children_in_place() {
+    let mut doc = load_markdown("alpha\n\nbeta\n\ngamma\n", editor_options());
+    let layout = layout();
+    let mut tree = compose(&doc, &layout);
+    let root = tree.root();
+    let before = child_list(&tree, root).1;
+    assert_eq!(before.len(), 3, "the fixture needs three root blocks");
+
+    let leaf = doc.text_leaves()[1];
+    let changes = doc.split_leaf(leaf, 2).0;
+    let _ = sync_layout(&mut tree, &doc, &changes, &layout);
+
+    let after = child_list(&tree, root).1;
+    assert_eq!(after.len(), 4, "a split adds exactly one root child");
+    assert_eq!(
+        after[0], before[0],
+        "the block before the split must not move"
+    );
+    assert_eq!(
+        after[1], before[1],
+        "the split block keeps its own slot in the parent"
+    );
+    assert_eq!(
+        after[3], before[2],
+        "the block after the split must not move"
+    );
+    assert_ne!(
+        after[2], before[1],
+        "the new block takes the slot after the split"
+    );
+    assert_sync_matches_cold(&tree, &compose(&doc, &layout), "root split");
+}
+
+#[test]
+fn deleting_a_root_paragraph_keeps_the_survivors_in_their_slots() {
+    use md_core::document::{Caret, Command, Sel, apply};
+
+    let mut doc = load_markdown("alpha\n\nbeta\n\ngamma\n", editor_options());
+    let layout = layout();
+    let mut tree = compose(&doc, &layout);
+    let root = tree.root();
+    let before = child_list(&tree, root).1;
+    let _ = doc.take_changes();
+
+    let leaf = doc.text_leaves()[1];
+    let next = doc.text_leaves()[2];
+    let _ = apply(
+        &mut doc,
+        Sel {
+            anchor: Caret {
+                block: leaf,
+                offset: 5,
+            },
+            head: Caret {
+                block: next,
+                offset: 2,
+            },
+        },
+        Command::DeleteBackward,
+    );
+    let changes = doc.take_changes();
+    assert!(changes.is_structural(), "a merge must restructure the root");
+    let _ = sync_layout(&mut tree, &doc, &changes, &layout);
+
+    assert_eq!(
+        child_list(&tree, root).1,
+        vec![before[0], before[1]],
+        "only the merged-away block's slots may leave the parent"
+    );
+    assert_sync_matches_cold(&tree, &compose(&doc, &layout), "root merge");
+}
+
+#[test]
+fn wrapping_a_root_paragraph_replaces_its_slot_without_duplicating_it() {
+    use md_core::document::{Caret, Command, Sel, apply};
+
+    let mut doc = load_markdown("alpha\n\nbeta\n\ngamma\n", editor_options());
+    let layout = layout();
+    let mut tree = compose(&doc, &layout);
+    let root = tree.root();
+    let before = child_list(&tree, root).1;
+    let _ = doc.take_changes();
+
+    let leaf = doc.text_leaves()[1];
+    let _ = apply(
+        &mut doc,
+        Sel::collapsed(Caret {
+            block: leaf,
+            offset: 0,
+        }),
+        Command::WrapList {
+            ordered: false,
+            task: None,
+        },
+    );
+    let changes = doc.take_changes();
+    assert!(changes.is_structural(), "wrapping a paragraph restructures");
+    let _ = sync_layout(&mut tree, &doc, &changes, &layout);
+
+    let after = child_list(&tree, root).1;
+    assert_eq!(
+        after.len(),
+        before.len(),
+        "the wrapper replaces the paragraph instead of adding a sibling"
+    );
+    assert_eq!(
+        after[0], before[0],
+        "the block before the wrap must not move"
+    );
+    assert_eq!(
+        after[2], before[2],
+        "the block after the wrap must not move"
+    );
+    assert_sync_matches_cold(&tree, &compose(&doc, &layout), "wrap list");
+}
+
+#[test]
+fn splitting_a_heading_moves_the_following_paragraph_off_the_lead_spacing() {
+    use crate::box_tree::LayoutBoxId;
+    use md_core::block::BlockKind;
+    use md_core::document::{Caret, Command, Sel, apply};
+
+    let layout = heading_spacing_theme();
+    let mut doc = load_markdown("# h\n\npara\n", editor_options());
+    let mut tree = compose(&doc, &layout);
+    let _ = doc.take_changes();
+
+    let head = doc
+        .preorder()
+        .into_iter()
+        .find(|&id| doc.arena.get(id).map(|n| n.kind) == Some(BlockKind::Heading(1)))
+        .expect("a heading");
+    let head_box = LayoutBoxId::for_kind(BlockKind::Heading(1), head.index);
+    let para = doc.text_leaves()[1];
+    let para_box = LayoutBoxId::frame(para);
+    assert_eq!(
+        tree.style_of(tree.get(head_box)).margin.top,
+        0.0,
+        "the doc lead is flushed to the top"
+    );
+    assert_eq!(
+        tree.style_of(tree.get(para_box)).margin.top,
+        24.0,
+        "a paragraph behind an H1 takes the lead spacing"
+    );
+
+    let _ = apply(
+        &mut doc,
+        Sel::collapsed(Caret {
+            block: head.index,
+            offset: 1,
+        }),
+        Command::Break,
+    );
+    let changes = doc.take_changes();
+    assert!(changes.is_structural(), "splitting restructures the tree");
+    let _ = sync_layout(&mut tree, &doc, &changes, &layout);
+
+    let cold = compose(&doc, &layout);
+    assert_eq!(
+        tree.style_of(tree.get(head_box)).margin.top,
+        cold.style_of(cold.get(head_box)).margin.top,
+        "the heading in front of the splice must not move"
+    );
+    assert_eq!(
+        tree.style_of(tree.get(para_box)).margin.top,
+        20.0,
+        "a paragraph behind the fresh split must take its own top margin"
+    );
+    assert_eq!(
+        tree.style_of(tree.get(para_box)).margin.top,
+        cold.style_of(cold.get(para_box)).margin.top,
+        "hot and cold must agree on the paragraph behind the split"
+    );
+    assert_sync_matches_cold(&tree, &cold, "heading split");
+}
+
+#[test]
+fn deleting_the_doc_lead_flushes_the_new_lead_to_the_top() {
+    use crate::box_tree::LayoutBoxId;
+    use md_core::block::BlockKind;
+    use md_core::document::{Caret, Command, Sel, apply};
+
+    let layout = heading_spacing_theme();
+    let mut doc = load_markdown("***\n\npara\n", editor_options());
+    let mut tree = compose(&doc, &layout);
+    let _ = doc.take_changes();
+
+    let rule = doc
+        .preorder()
+        .into_iter()
+        .find(|&id| doc.arena.get(id).map(|n| n.kind) == Some(BlockKind::ThematicBreak))
+        .expect("a leading rule");
+    let rule_box = LayoutBoxId::for_kind(BlockKind::ThematicBreak, rule.index);
+    assert_eq!(
+        tree.style_of(tree.get(rule_box)).margin.top,
+        0.0,
+        "the doc lead is flushed to the top"
+    );
+
+    let para = doc.text_leaves()[0];
+    let para_box = LayoutBoxId::frame(para);
+    assert_eq!(
+        tree.style_of(tree.get(para_box)).margin.top,
+        20.0,
+        "a paragraph behind the doc lead keeps its own top margin"
+    );
+
+    let _ = apply(
+        &mut doc,
+        Sel::collapsed(Caret {
+            block: para,
+            offset: 0,
+        }),
+        Command::DeleteBackward,
+    );
+    let changes = doc.take_changes();
+    assert!(
+        changes.is_structural(),
+        "removing the leading rule restructures the tree"
+    );
+    let _ = sync_layout(&mut tree, &doc, &changes, &layout);
+
+    let cold = compose(&doc, &layout);
+    assert!(
+        !tree.nodes.contains_key(&rule_box),
+        "the removed rule must leave the tree"
+    );
+    assert_eq!(
+        tree.style_of(tree.get(para_box)).margin.top,
+        0.0,
+        "the paragraph that becomes the doc lead must be flushed to the top"
+    );
+    assert_eq!(
+        tree.style_of(tree.get(para_box)).margin.top,
+        cold.style_of(cold.get(para_box)).margin.top,
+        "hot and cold must agree on the new lead"
+    );
+    assert_sync_matches_cold(&tree, &cold, "doc lead delete");
+}
+
+#[test]
+fn a_scripted_edit_sequence_keeps_every_child_list_in_document_order() {
+    use md_core::doc::Doc;
+    use md_core::document::{Caret, Command, PasteIntent, Sel, TableOp};
+
+    let source = "# head\n\nintro\n\n- a\n- b\n  - c\n\n> quoted\n>\n> more\n\n```rust\nlet a = 1;\n```\n\n| h | i |\n| --- | --- |\n| x | y |\n\ntail\n";
+    let layout = layout();
+    let mut doc = Doc::new(load_markdown(source, editor_options()));
+    let mut tree = compose(&doc.document, &layout);
+    let _ = doc.take_changes();
+
+    let leaf = |doc: &Doc, text: &str| {
+        doc.document
+            .text_leaves()
+            .into_iter()
+            .find(|&id| doc.document.text_of(id) == Some(text))
+            .unwrap_or_else(|| panic!("no text leaf reading {text:?}"))
+    };
+
+    let steps: Vec<(&str, &str, (usize, usize), Command)> = vec![
+        ("split the intro paragraph", "intro", (5, 5), Command::Break),
+        ("indent a list item", "b", (0, 0), Command::Indent),
+        ("outdent it again", "b", (0, 0), Command::Outdent),
+        ("split inside a quote", "quoted", (3, 3), Command::Break),
+        ("check a task box", "a", (0, 0), Command::ToggleTask),
+        ("delete a cell's text", "y", (0, 1), Command::DeleteBackward),
+        (
+            "delete a table row",
+            "x",
+            (0, 0),
+            Command::Table(TableOp::DeleteRow),
+        ),
+        (
+            "insert a table row above",
+            "h",
+            (0, 0),
+            Command::Table(TableOp::InsertRowAbove),
+        ),
+        (
+            "wrap the tail in a list",
+            "tail",
+            (0, 0),
+            Command::WrapList {
+                ordered: true,
+                task: None,
+            },
+        ),
+        ("split the tail paragraph", "tail", (2, 2), Command::Break),
+        ("outdent a nested item", "c", (0, 0), Command::Outdent),
+        (
+            "quote the heading",
+            "head",
+            (0, 0),
+            Command::Insert { text: "> ".into() },
+        ),
+        (
+            "paste an independent fragment",
+            "more",
+            (0, 0),
+            Command::Paste {
+                text: "p1\n\np2\n".into(),
+                intent: PasteIntent::IndependentFragment,
+            },
+        ),
+    ];
+
+    for (what, needle, (from, to), command) in steps {
+        let block = leaf(&doc, needle);
+        let sel = Sel {
+            anchor: Caret {
+                block,
+                offset: from,
+            },
+            head: Caret { block, offset: to },
+        };
+        let _ = doc.apply(sel, command);
+        let changes = doc.take_changes();
+        let _ = sync_layout(&mut tree, &doc.document, &changes, &layout);
+        assert_sync_matches_cold(&tree, &compose(&doc.document, &layout), what);
+    }
+
+    for _ in 0..6 {
+        let _ = doc.undo().expect("the sequence is undoable");
+        let changes = doc.take_changes();
+        let _ = sync_layout(&mut tree, &doc.document, &changes, &layout);
+        assert_sync_matches_cold(&tree, &compose(&doc.document, &layout), "undo");
+    }
+    for _ in 0..6 {
+        let _ = doc.redo().expect("the sequence is redoable");
+        let changes = doc.take_changes();
+        let _ = sync_layout(&mut tree, &doc.document, &changes, &layout);
+        assert_sync_matches_cold(&tree, &compose(&doc.document, &layout), "redo");
+    }
+}
