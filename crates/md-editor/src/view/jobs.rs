@@ -29,27 +29,177 @@ pub(crate) fn extend_link_dests(
 pub(crate) fn extra_snapshots(
     doc: &md_core::doc::Doc,
 ) -> (HashMap<u32, String>, HashMap<u32, String>) {
-    let path = doc.source_path.as_deref();
     let mut block_image_dest = HashMap::new();
     let mut block_code_lang = HashMap::new();
     doc.document.for_each_extra(|index, extra| {
-        if let Some(dest_id) = extra.image_dest() {
-            let dest = doc.document.link_dest(dest_id).unwrap_or("");
-            block_image_dest.insert(index, images::cache_key(dest, path));
-        } else if let NodeExtra::CodeFence { lang, .. } = extra {
-            let lang = lang
-                .and_then(|lang_id| doc.document.lang(lang_id))
+        insert_extra(
+            doc,
+            index,
+            extra,
+            &mut block_image_dest,
+            &mut block_code_lang,
+        );
+    });
+    (block_image_dest, block_code_lang)
+}
+
+fn image_value(doc: &md_core::doc::Doc, dest_id: u32) -> String {
+    let dest = doc.document.link_dest(dest_id).unwrap_or("");
+    images::cache_key(dest, doc.source_path.as_deref())
+}
+
+fn lang_value(doc: &md_core::doc::Doc, extra: NodeExtra) -> Option<String> {
+    if let NodeExtra::CodeFence { lang, .. } = extra {
+        return Some(
+            lang.and_then(|lang_id| doc.document.lang(lang_id))
                 .unwrap_or("")
                 .split_whitespace()
                 .next()
                 .unwrap_or("")
-                .to_ascii_lowercase();
-            block_code_lang.insert(index, lang);
-        } else if let Some(marker) = extra.front_matter_marker() {
-            block_code_lang.insert(index, front_matter_lang(marker).to_string());
+                .to_ascii_lowercase(),
+        );
+    }
+    extra
+        .front_matter_marker()
+        .map(|marker| front_matter_lang(marker).to_string())
+}
+
+fn has_lang(extra: NodeExtra) -> bool {
+    matches!(extra, NodeExtra::CodeFence { .. }) || extra.front_matter_marker().is_some()
+}
+
+fn insert_extra(
+    doc: &md_core::doc::Doc,
+    index: u32,
+    extra: NodeExtra,
+    block_image_dest: &mut HashMap<u32, String>,
+    block_code_lang: &mut HashMap<u32, String>,
+) {
+    if let Some(dest_id) = extra.image_dest() {
+        block_image_dest.insert(index, image_value(doc, dest_id));
+    } else if let Some(lang) = lang_value(doc, extra) {
+        block_code_lang.insert(index, lang);
+    }
+}
+
+fn write_extra(
+    doc: &md_core::doc::Doc,
+    index: u32,
+    extra: NodeExtra,
+    block_image_dest: &mut HashMap<u32, String>,
+    block_code_lang: &mut HashMap<u32, String>,
+) {
+    block_image_dest.remove(&index);
+    block_code_lang.remove(&index);
+    insert_extra(doc, index, extra, block_image_dest, block_code_lang);
+}
+
+fn visit_extra_subtree(
+    doc: &md_core::doc::Doc,
+    root: md_core::document::NodeId,
+    mut visit: impl FnMut(u32, NodeExtra),
+) {
+    let arena = &doc.document.arena;
+    let mut stack = vec![root];
+    while let Some(id) = stack.pop() {
+        let Some(node) = arena.get(id) else {
+            continue;
+        };
+        visit(id.index, node.extra);
+        let mut child = node.last_child;
+        while let Some(c) = child {
+            stack.push(c);
+            child = arena.get(c).and_then(|n| n.prev_sibling);
         }
+    }
+}
+
+fn prune_dead(
+    doc: &md_core::doc::Doc,
+    block_image_dest: &mut HashMap<u32, String>,
+    block_code_lang: &mut HashMap<u32, String>,
+) {
+    block_image_dest.retain(|index, _| {
+        doc.document
+            .live_id(*index)
+            .is_some_and(|id| doc.document.extra(id).image_dest().is_some())
     });
-    (block_image_dest, block_code_lang)
+    block_code_lang.retain(|index, _| {
+        doc.document
+            .live_id(*index)
+            .is_some_and(|id| has_lang(doc.document.extra(id)))
+    });
+}
+
+fn refresh_image_values(doc: &md_core::doc::Doc, block_image_dest: &mut HashMap<u32, String>) {
+    for (index, value) in block_image_dest.iter_mut() {
+        let fresh = doc
+            .document
+            .live_id(*index)
+            .map(|id| doc.document.extra(id))
+            .and_then(|extra| extra.image_dest())
+            .map(|dest_id| image_value(doc, dest_id));
+        if let Some(fresh) = fresh {
+            *value = fresh;
+        }
+    }
+}
+
+pub(crate) fn fold_extras(
+    doc: &md_core::doc::Doc,
+    pending: &md_core::document::ChangeSet,
+    block_image_dest: &mut std::rc::Rc<HashMap<u32, String>>,
+    block_code_lang: &mut std::rc::Rc<HashMap<u32, String>>,
+) -> bool {
+    use md_core::document::DocChange;
+
+    let mut removed = false;
+    let mut dests_changed = false;
+    for change in &pending.changes {
+        match change {
+            DocChange::DocumentReplaced => return false,
+            DocChange::ReferenceDefsChanged { .. } => dests_changed = true,
+            DocChange::TreeSpliced { removed: gone, .. } => removed |= !gone.is_empty(),
+            _ => {}
+        }
+    }
+
+    let block_image_dest = std::rc::Rc::make_mut(block_image_dest);
+    let block_code_lang = std::rc::Rc::make_mut(block_code_lang);
+
+    for change in &pending.changes {
+        match change {
+            DocChange::AttrsChanged {
+                node, new_extra, ..
+            } => {
+                if doc.document.live_id(node.index).is_some() {
+                    write_extra(
+                        doc,
+                        node.index,
+                        *new_extra,
+                        block_image_dest,
+                        block_code_lang,
+                    );
+                }
+            }
+            DocChange::TreeSpliced { inserted, .. } => {
+                for node in inserted {
+                    visit_extra_subtree(doc, *node, |index, extra| {
+                        write_extra(doc, index, extra, block_image_dest, block_code_lang);
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if removed {
+        prune_dead(doc, block_image_dest, block_code_lang);
+    }
+    if dests_changed {
+        refresh_image_values(doc, block_image_dest);
+    }
+    true
 }
 
 fn front_matter_lang(marker: FrontMatterMarker) -> &'static str {

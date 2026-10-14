@@ -1,4 +1,4 @@
-use super::jobs::{extend_link_dests, extra_snapshots};
+use super::jobs::{extend_link_dests, extra_snapshots, fold_extras};
 use super::{
     CursorMotion, Diagnostics, DocShapeMaps, EditorElement, EditorState, EditorView, PaintFault,
 };
@@ -35,12 +35,20 @@ impl DocShapeMaps {
     }
 
     pub(super) fn sync(&mut self, doc: &Doc) {
+        let revision = doc.document.revision();
         let path_changed = self.path != doc.source_path;
-        if self.revision == doc.document.revision() && !path_changed {
+        if self.revision == revision && !path_changed {
             return;
         }
-        let text_only = !path_changed && doc.document.pending_changes().is_text_only();
-        self.revision = doc.document.revision();
+        let previous = self.revision;
+        let pending = doc.document.pending_changes();
+        let foldable = previous != u64::MAX
+            && !path_changed
+            && !pending.is_replace()
+            && pending.before_revision <= previous
+            && pending.after_revision == revision;
+        let text_only = !path_changed && pending.is_text_only();
+        self.revision = revision;
         if path_changed {
             self.path = doc.source_path.clone();
             self.links_len = 0;
@@ -57,6 +65,16 @@ impl DocShapeMaps {
         }
 
         if text_only {
+            return;
+        }
+        if foldable
+            && fold_extras(
+                doc,
+                pending,
+                &mut self.block_image_dest,
+                &mut self.block_code_lang,
+            )
+        {
             return;
         }
         let (block_image_dest, block_code_lang) = extra_snapshots(doc);
