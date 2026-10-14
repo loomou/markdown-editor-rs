@@ -1,0 +1,671 @@
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
+
+use gpui::{
+    App, AsyncWindowContext, Keystroke, Modifiers, MouseMoveEvent, Pixels, PlatformInput, Point,
+    ScrollDelta, ScrollWheelEvent, TouchPhase, WeakEntity, Window, px,
+};
+
+use crate::Shell;
+
+const ENV: &str = "MARKDOWN_EDITOR_RS_INTERACT_ONCE";
+const REPS_ENV: &str = "MARKDOWN_EDITOR_RS_INTERACT_REPS";
+const DEFAULT_REPS: usize = 25;
+const WARMUP_REPS: usize = 3;
+const SETTLE: Duration = Duration::from_millis(60);
+const START_DELAY: Duration = Duration::from_millis(1200);
+const FLUSH: Duration = Duration::from_millis(400);
+const WAIT_CAP: Duration = Duration::from_secs(2);
+const POLL: Duration = Duration::from_micros(500);
+const COST_CAP: usize = 8192;
+
+static EPOCH: AtomicU64 = AtomicU64::new(0);
+static FRAME_ORIGIN: Mutex<Option<(u64, Instant)>> = Mutex::new(None);
+static RENDER_END: Mutex<Vec<Cost>> = Mutex::new(Vec::new());
+static PREPAINT_START: Mutex<Vec<Cost>> = Mutex::new(Vec::new());
+static PREPAINT_END: Mutex<Vec<Cost>> = Mutex::new(Vec::new());
+static PAINT_START: Mutex<Vec<Cost>> = Mutex::new(Vec::new());
+static PAINT_END: Mutex<Vec<Cost>> = Mutex::new(Vec::new());
+static PAINT_DUR: Mutex<Vec<Cost>> = Mutex::new(Vec::new());
+static STATUS_DUR: Mutex<Vec<Cost>> = Mutex::new(Vec::new());
+static PRE_BUILD: Mutex<Vec<Cost>> = Mutex::new(Vec::new());
+static ENGINE_DUR: Mutex<Vec<Cost>> = Mutex::new(Vec::new());
+static ASSEMBLE_DUR: Mutex<Vec<Cost>> = Mutex::new(Vec::new());
+static GEOMETRY_DUR: Mutex<Vec<Cost>> = Mutex::new(Vec::new());
+static CHANGES_DUR: Mutex<Vec<Cost>> = Mutex::new(Vec::new());
+static BLOCK_EDIT_DUR: Mutex<Vec<Cost>> = Mutex::new(Vec::new());
+static STABILISE_DUR: Mutex<Vec<Cost>> = Mutex::new(Vec::new());
+static CARET_DUR: Mutex<Vec<Cost>> = Mutex::new(Vec::new());
+
+#[derive(Clone, Copy)]
+struct Cost {
+    epoch: u64,
+    ms: f64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Stamp {
+    bytes: usize,
+    revision: u64,
+    scroll: i64,
+    rebuilds: u64,
+}
+
+struct Sample {
+    op: usize,
+    pickup_ms: f64,
+    period_ms: f64,
+    pre_draw_ms: f64,
+    post_draw_ms: f64,
+    epoch: u64,
+    moved: bool,
+    rebuilds: u64,
+}
+
+struct Marks {
+    render: f64,
+    to_prepaint: f64,
+    prepaint: f64,
+    gap: f64,
+    paint: f64,
+    draw: f64,
+}
+
+#[derive(Clone, Copy)]
+enum Op {
+    Idle,
+    InsertChar,
+    Newline,
+    Backspace,
+    Undo,
+    Redo,
+    ScrollNotch,
+    ScrollBurst,
+}
+
+const OPS: [Op; 8] = [
+    Op::Idle,
+    Op::InsertChar,
+    Op::Newline,
+    Op::Backspace,
+    Op::Undo,
+    Op::Redo,
+    Op::ScrollNotch,
+    Op::ScrollBurst,
+];
+
+impl Op {
+    fn name(self) -> &'static str {
+        match self {
+            Op::Idle => "idle",
+            Op::InsertChar => "insert_char",
+            Op::Newline => "newline",
+            Op::Backspace => "backspace",
+            Op::Undo => "undo",
+            Op::Redo => "redo",
+            Op::ScrollNotch => "scroll_notch",
+            Op::ScrollBurst => "scroll_burst",
+        }
+    }
+
+    fn keystroke(self) -> Option<Keystroke> {
+        let source = match self {
+            Op::InsertChar => "x",
+            Op::Newline => "enter",
+            Op::Backspace => "backspace",
+            Op::Undo => "ctrl-z",
+            Op::Redo => "ctrl-y",
+            _ => return None,
+        };
+        Keystroke::parse(source).ok()
+    }
+
+    fn notches(self) -> usize {
+        match self {
+            Op::ScrollBurst => 8,
+            Op::ScrollNotch => 1,
+            _ => 0,
+        }
+    }
+}
+
+fn push(slot: &Mutex<Vec<Cost>>, ms: f64) {
+    let Ok(mut costs) = slot.lock() else {
+        return;
+    };
+    if costs.len() >= COST_CAP {
+        return;
+    }
+    costs.push(Cost {
+        epoch: EPOCH.load(Ordering::Relaxed),
+        ms,
+    });
+}
+
+fn delta_from_origin(at: Instant) -> Option<f64> {
+    let epoch = EPOCH.load(Ordering::Relaxed);
+    if epoch == 0 {
+        return None;
+    }
+    let guard = FRAME_ORIGIN.lock().ok()?;
+    let (seen, origin) = (*guard)?;
+    if seen != epoch {
+        return None;
+    }
+    Some(at.saturating_duration_since(origin).as_secs_f64() * 1000.0)
+}
+
+fn mark_now(slot: &Mutex<Vec<Cost>>) {
+    if let Some(ms) = delta_from_origin(Instant::now()) {
+        push(slot, ms);
+    }
+}
+
+pub fn mark_frame_start() {
+    let epoch = EPOCH.load(Ordering::Relaxed);
+    if epoch == 0 {
+        return;
+    }
+    if let Ok(mut slot) = FRAME_ORIGIN.lock() {
+        *slot = Some((epoch, Instant::now()));
+    }
+}
+
+pub fn origin_instant() -> Option<Instant> {
+    let epoch = EPOCH.load(Ordering::Relaxed);
+    let guard = FRAME_ORIGIN.lock().ok()?;
+    match *guard {
+        Some((seen, at)) if seen == epoch => Some(at),
+        _ => None,
+    }
+}
+
+pub fn mark_render_end() {
+    mark_now(&RENDER_END);
+}
+
+pub fn mark_prepaint_start(start: Instant) {
+    if let Some(ms) = delta_from_origin(start) {
+        push(&PREPAINT_START, ms);
+    }
+}
+
+pub fn mark_prepaint_end() {
+    mark_now(&PREPAINT_END);
+}
+
+pub fn mark_paint_start() {
+    mark_now(&PAINT_START);
+}
+
+pub fn record_paint(paint_ms: f64) {
+    mark_now(&PAINT_END);
+    push(&PAINT_DUR, paint_ms);
+}
+
+pub fn record_status(status_ms: f64) {
+    push(&STATUS_DUR, status_ms);
+}
+
+pub fn record_build(
+    frame_start: Instant,
+    build_start: Instant,
+    engine: Duration,
+    assemble: Duration,
+    geometry: Duration,
+) {
+    if let (Some(from), Some(to)) = (
+        delta_from_origin(frame_start),
+        delta_from_origin(build_start),
+    ) {
+        push(&PRE_BUILD, (to - from).max(0.0));
+    }
+    let to_ms = |d: Duration| d.as_secs_f64() * 1000.0;
+    push(&ENGINE_DUR, to_ms(engine));
+    push(&ASSEMBLE_DUR, to_ms(assemble));
+    push(&GEOMETRY_DUR, to_ms(geometry));
+}
+
+pub fn record_phases(
+    changes: Duration,
+    block_edit: Duration,
+    stabilise: Duration,
+    caret: Duration,
+) {
+    let to_ms = |d: Duration| d.as_secs_f64() * 1000.0;
+    push(&CHANGES_DUR, to_ms(changes));
+    push(&BLOCK_EDIT_DUR, to_ms(block_edit));
+    push(&STABILISE_DUR, to_ms(stabilise));
+    push(&CARET_DUR, to_ms(caret));
+}
+
+pub fn spawn(window: &mut Window, shell: WeakEntity<Shell>, cx: &mut App) {
+    if std::env::var_os(ENV).is_none() {
+        return;
+    }
+    let wcx = window.to_async(cx);
+    let samples = Rc::new(RefCell::new(Vec::new()));
+    let op_loop_ms = Rc::new(RefCell::new(Vec::new()));
+    wcx.spawn(async move |wcx| {
+        run(wcx, shell, samples, op_loop_ms).await;
+    })
+    .detach();
+}
+
+fn emit(line: &str) {
+    tracing::info!(target: "md_editor::interact", "{line}");
+}
+
+fn stamp(shell: &WeakEntity<Shell>, cx: &App) -> Option<Stamp> {
+    let shell = shell.upgrade()?;
+    let editor = shell.read(cx).editor().clone();
+    let view = editor.read(cx);
+    Some(Stamp {
+        bytes: view.state.doc.document.source.len(),
+        revision: view.state.doc.document.revision(),
+        scroll: view.state.scroll.round() as i64,
+        rebuilds: view
+            .state
+            .incremental
+            .as_ref()
+            .map(|engine| engine.doc_rebuilds())
+            .unwrap_or(0),
+    })
+}
+
+fn wheel(position: Point<Pixels>) -> ScrollWheelEvent {
+    ScrollWheelEvent {
+        position,
+        delta: ScrollDelta::Lines(Point { x: 0.0, y: -3.0 }),
+        modifiers: Modifiers::none(),
+        touch_phase: TouchPhase::Moved,
+    }
+}
+
+fn reps_from_env() -> usize {
+    std::env::var(REPS_ENV)
+        .ok()
+        .and_then(|raw| raw.parse().ok())
+        .unwrap_or(DEFAULT_REPS)
+}
+
+async fn await_frames(state: &Rc<Cell<u8>>, wcx: &mut AsyncWindowContext) {
+    let deadline = Instant::now() + WAIT_CAP;
+    while state.get() < 2 {
+        if Instant::now() >= deadline {
+            return;
+        }
+        wcx.background_executor().timer(POLL).await;
+    }
+}
+
+async fn run(
+    wcx: &mut AsyncWindowContext,
+    shell: WeakEntity<Shell>,
+    samples: Rc<RefCell<Vec<Sample>>>,
+    op_loop_ms: Rc<RefCell<Vec<(usize, f64)>>>,
+) {
+    wcx.background_executor().timer(START_DELAY).await;
+    let reps = reps_from_env();
+    let doc = wcx.update(|_, cx| stamp(&shell, cx)).ok().flatten();
+    emit(&format!(
+        "interact start reps={reps} ops={} doc={doc:?}",
+        OPS.len()
+    ));
+
+    let Ok(centre) = wcx.update(|window, _| {
+        let bounds = window.bounds();
+        Point {
+            x: px(f32::from(bounds.size.width) * 0.5),
+            y: px(f32::from(bounds.size.height) * 0.5),
+        }
+    }) else {
+        return;
+    };
+
+    let _ = wcx.update(|window, cx| {
+        window.dispatch_event(
+            PlatformInput::MouseMove(MouseMoveEvent {
+                position: centre,
+                pressed_button: None,
+                modifiers: Modifiers::none(),
+            }),
+            cx,
+        );
+    });
+    wcx.background_executor().timer(SETTLE).await;
+
+    for (op_index, op) in OPS.iter().copied().enumerate() {
+        let op_started = Instant::now();
+        let _ = wcx.update(|_, cx| cx.activate(true));
+        for rep in 0..(reps + WARMUP_REPS) {
+            let warm = rep < WARMUP_REPS;
+            wcx.background_executor().timer(SETTLE).await;
+            let before = wcx.update(|_, cx| stamp(&shell, cx)).ok().flatten();
+
+            let dispatched = wcx.update(|window, cx| {
+                let epoch = EPOCH.fetch_add(1, Ordering::Relaxed) + 1;
+                let t0 = Instant::now();
+                match op {
+                    Op::Idle => {}
+                    Op::ScrollNotch | Op::ScrollBurst => {
+                        for _ in 0..op.notches() {
+                            window.dispatch_event(PlatformInput::ScrollWheel(wheel(centre)), cx);
+                        }
+                    }
+                    _ => {
+                        if let Some(keystroke) = op.keystroke() {
+                            window.dispatch_keystroke(keystroke, cx);
+                        }
+                    }
+                }
+                (t0, epoch)
+            });
+            let Ok((t0, epoch)) = dispatched else {
+                continue;
+            };
+
+            let state = Rc::new(Cell::new(0u8));
+            let sink = Rc::clone(&samples);
+            let frame_shell = shell.clone();
+            let response = Rc::clone(&state);
+            wcx.on_next_frame(move |window, _| {
+                let t1 = Instant::now();
+                let next = Rc::clone(&response);
+                let sink = Rc::clone(&sink);
+                window.on_next_frame(move |_, cx| {
+                    let t2 = Instant::now();
+                    let origin = crate::interact_probe::origin_instant();
+                    let after = stamp(&frame_shell, cx);
+                    if !warm {
+                        let rebuilds = match (before, after) {
+                            (Some(before), Some(after)) => {
+                                after.rebuilds.saturating_sub(before.rebuilds)
+                            }
+                            _ => 0,
+                        };
+                        let pre_draw_ms = origin
+                            .map(|at| at.saturating_duration_since(t1).as_secs_f64() * 1000.0)
+                            .unwrap_or(f64::NAN);
+                        let post_draw_ms = origin
+                            .map(|at| t2.saturating_duration_since(at).as_secs_f64() * 1000.0)
+                            .unwrap_or(f64::NAN);
+                        sink.borrow_mut().push(Sample {
+                            op: op_index,
+                            pickup_ms: (t1 - t0).as_secs_f64() * 1000.0,
+                            period_ms: (t2 - t1).as_secs_f64() * 1000.0,
+                            pre_draw_ms,
+                            post_draw_ms,
+                            epoch,
+                            moved: before.is_some() && after.is_some() && before != after,
+                            rebuilds,
+                        });
+                    }
+                    next.set(2);
+                });
+                response.set(1);
+            });
+
+            await_frames(&state, wcx).await;
+        }
+        op_loop_ms
+            .borrow_mut()
+            .push((op_index, op_started.elapsed().as_secs_f64() * 1000.0));
+    }
+
+    wcx.background_executor().timer(SETTLE).await;
+    {
+        let render = RENDER_END.lock().unwrap_or_else(|e| e.into_inner());
+        let prepaint_start = PREPAINT_START.lock().unwrap_or_else(|e| e.into_inner());
+        let prepaint_end = PREPAINT_END.lock().unwrap_or_else(|e| e.into_inner());
+        let paint_start = PAINT_START.lock().unwrap_or_else(|e| e.into_inner());
+        let paint_end = PAINT_END.lock().unwrap_or_else(|e| e.into_inner());
+        let paint_dur = PAINT_DUR.lock().unwrap_or_else(|e| e.into_inner());
+        let status = STATUS_DUR.lock().unwrap_or_else(|e| e.into_inner());
+        let pre_build = PRE_BUILD.lock().unwrap_or_else(|e| e.into_inner());
+        let engine = ENGINE_DUR.lock().unwrap_or_else(|e| e.into_inner());
+        let assemble = ASSEMBLE_DUR.lock().unwrap_or_else(|e| e.into_inner());
+        let geometry = GEOMETRY_DUR.lock().unwrap_or_else(|e| e.into_inner());
+        let changes = CHANGES_DUR.lock().unwrap_or_else(|e| e.into_inner());
+        let block_edit = BLOCK_EDIT_DUR.lock().unwrap_or_else(|e| e.into_inner());
+        let stabilise = STABILISE_DUR.lock().unwrap_or_else(|e| e.into_inner());
+        let caret = CARET_DUR.lock().unwrap_or_else(|e| e.into_inner());
+        report(
+            &samples.borrow(),
+            &op_loop_ms.borrow(),
+            &render,
+            &prepaint_start,
+            &prepaint_end,
+            &paint_start,
+            &paint_end,
+            &paint_dur,
+            &status,
+            &pre_build,
+            &engine,
+            &assemble,
+            &geometry,
+            &changes,
+            &block_edit,
+            &stabilise,
+            &caret,
+        );
+    }
+    wcx.background_executor().timer(FLUSH).await;
+    std::process::exit(0);
+}
+
+fn percentile(values: &mut [f64], p: f64) -> f64 {
+    if values.is_empty() {
+        return f64::NAN;
+    }
+    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let index = (((values.len() - 1) as f64) * p).round() as usize;
+    values[index]
+}
+
+fn nth_at(costs: &[Cost], epoch: u64, ordinal: usize) -> Option<f64> {
+    costs
+        .iter()
+        .filter(|cost| cost.epoch == epoch)
+        .nth(ordinal)
+        .map(|cost| cost.ms)
+}
+
+fn marks_for(epoch: u64, spans: &Spans<'_>) -> Option<Marks> {
+    let render = nth_at(spans.render, epoch, 0)?;
+    let prepaint_start = nth_at(spans.prepaint_start, epoch, 0)?;
+    let prepaint_end = nth_at(spans.prepaint_end, epoch, 0)?;
+    let paint_start = nth_at(spans.paint_start, epoch, 0)?;
+    let paint_end = nth_at(spans.paint_end, epoch, 0)?;
+    let paint = nth_at(spans.paint_dur, epoch, 0)?;
+    if prepaint_start < render || prepaint_end < prepaint_start || paint_start < prepaint_end {
+        return None;
+    }
+    Some(Marks {
+        render,
+        to_prepaint: prepaint_start - render,
+        prepaint: prepaint_end - prepaint_start,
+        gap: paint_start - prepaint_end,
+        paint,
+        draw: paint_end,
+    })
+}
+
+struct Spans<'a> {
+    render: &'a [Cost],
+    prepaint_start: &'a [Cost],
+    prepaint_end: &'a [Cost],
+    paint_start: &'a [Cost],
+    paint_end: &'a [Cost],
+    paint_dur: &'a [Cost],
+    status: &'a [Cost],
+    pre_build: &'a [Cost],
+    engine: &'a [Cost],
+    assemble: &'a [Cost],
+    geometry: &'a [Cost],
+    changes: &'a [Cost],
+    block_edit: &'a [Cost],
+    stabilise: &'a [Cost],
+    caret: &'a [Cost],
+}
+
+#[allow(clippy::too_many_arguments)]
+fn report(
+    samples: &[Sample],
+    op_loop_ms: &[(usize, f64)],
+    render: &[Cost],
+    prepaint_start: &[Cost],
+    prepaint_end: &[Cost],
+    paint_start: &[Cost],
+    paint_end: &[Cost],
+    paint_dur: &[Cost],
+    status: &[Cost],
+    pre_build: &[Cost],
+    engine: &[Cost],
+    assemble: &[Cost],
+    geometry: &[Cost],
+    changes: &[Cost],
+    block_edit: &[Cost],
+    stabilise: &[Cost],
+    caret: &[Cost],
+) {
+    let spans = Spans {
+        render,
+        prepaint_start,
+        prepaint_end,
+        paint_start,
+        paint_end,
+        paint_dur,
+        status,
+        pre_build,
+        engine,
+        assemble,
+        geometry,
+        changes,
+        block_edit,
+        stabilise,
+        caret,
+    };
+
+    for (op_index, op) in OPS.iter().copied().enumerate() {
+        let mut pickup: Vec<f64> = Vec::new();
+        let mut period: Vec<f64> = Vec::new();
+        let mut render_ms: Vec<f64> = Vec::new();
+        let mut to_prepaint_ms: Vec<f64> = Vec::new();
+        let mut prepaint_ms: Vec<f64> = Vec::new();
+        let mut gap_ms: Vec<f64> = Vec::new();
+        let mut paint_ms: Vec<f64> = Vec::new();
+        let mut draw_ms: Vec<f64> = Vec::new();
+        let mut pre_draw_ms: Vec<f64> = Vec::new();
+        let mut after_paint_ms: Vec<f64> = Vec::new();
+        let mut status_ms: Vec<f64> = Vec::new();
+        let mut pre_build_ms: Vec<f64> = Vec::new();
+        let mut engine_ms: Vec<f64> = Vec::new();
+        let mut assemble_ms: Vec<f64> = Vec::new();
+        let mut geometry_ms: Vec<f64> = Vec::new();
+        let mut changes_ms: Vec<f64> = Vec::new();
+        let mut block_edit_ms: Vec<f64> = Vec::new();
+        let mut stabilise_ms: Vec<f64> = Vec::new();
+        let mut caret_ms: Vec<f64> = Vec::new();
+        let mut moved = 0usize;
+        let mut rebuilt = 0usize;
+        let mut marks = 0usize;
+        for sample in samples.iter().filter(|sample| sample.op == op_index) {
+            pickup.push(sample.pickup_ms);
+            period.push(sample.period_ms);
+            if sample.moved {
+                moved += 1;
+            }
+            if sample.rebuilds > 0 {
+                rebuilt += 1;
+            }
+            if let Some(mark) = marks_for(sample.epoch, &spans) {
+                marks += 1;
+                render_ms.push(mark.render);
+                to_prepaint_ms.push(mark.to_prepaint);
+                prepaint_ms.push(mark.prepaint);
+                gap_ms.push(mark.gap);
+                paint_ms.push(mark.paint);
+                draw_ms.push(mark.draw);
+                if sample.post_draw_ms.is_finite() {
+                    after_paint_ms.push(sample.post_draw_ms - mark.draw);
+                }
+            }
+            if sample.pre_draw_ms.is_finite() {
+                pre_draw_ms.push(sample.pre_draw_ms);
+            }
+            if let Some(ms) = nth_at(spans.status, sample.epoch, 0) {
+                status_ms.push(ms);
+            }
+            if let Some(ms) = nth_at(spans.pre_build, sample.epoch, 0) {
+                pre_build_ms.push(ms);
+            }
+            if let Some(ms) = nth_at(spans.engine, sample.epoch, 0) {
+                engine_ms.push(ms);
+            }
+            if let Some(ms) = nth_at(spans.assemble, sample.epoch, 0) {
+                assemble_ms.push(ms);
+            }
+            if let Some(ms) = nth_at(spans.geometry, sample.epoch, 0) {
+                geometry_ms.push(ms);
+            }
+            if let Some(ms) = nth_at(spans.changes, sample.epoch, 0) {
+                changes_ms.push(ms);
+            }
+            if let Some(ms) = nth_at(spans.block_edit, sample.epoch, 0) {
+                block_edit_ms.push(ms);
+            }
+            if let Some(ms) = nth_at(spans.stabilise, sample.epoch, 0) {
+                stabilise_ms.push(ms);
+            }
+            if let Some(ms) = nth_at(spans.caret, sample.epoch, 0) {
+                caret_ms.push(ms);
+            }
+        }
+
+        let reps = pickup.len();
+        let loop_ms = op_loop_ms
+            .iter()
+            .find(|(index, _)| *index == op_index)
+            .map(|(_, ms)| *ms)
+            .unwrap_or(f64::NAN);
+        emit(&format!(
+            "interact op={} reps={} moved={}/{} rebuilt={}/{} loop_ms={:.0} pickup_p50={:.3} pickup_p95={:.3} period_p50={:.3} period_p95={:.3} pre_draw_p50={:.3} render_p50={:.3} to_prepaint_p50={:.3} prepaint_p50={:.3} gap_p50={:.3} paint_p50={:.3} draw_p50={:.3} after_paint_p50={:.3} status_p50={:.3} status_p95={:.3} pre_build_p50={:.3} engine_p50={:.3} assemble_p50={:.3} geometry_p50={:.3} changes_p50={:.3} block_edit_p50={:.3} stabilise_p50={:.3} caret_p50={:.3} frames={} marks={} status={}",
+            op.name(),
+            reps,
+            moved,
+            reps,
+            rebuilt,
+            reps,
+            loop_ms,
+            percentile(&mut pickup, 0.5),
+            percentile(&mut pickup, 0.95),
+            percentile(&mut period, 0.5),
+            percentile(&mut period, 0.95),
+            percentile(&mut pre_draw_ms, 0.5),
+            percentile(&mut render_ms, 0.5),
+            percentile(&mut to_prepaint_ms, 0.5),
+            percentile(&mut prepaint_ms, 0.5),
+            percentile(&mut gap_ms, 0.5),
+            percentile(&mut paint_ms, 0.5),
+            percentile(&mut draw_ms, 0.5),
+            percentile(&mut after_paint_ms, 0.5),
+            percentile(&mut status_ms, 0.5),
+            percentile(&mut status_ms, 0.95),
+            percentile(&mut pre_build_ms, 0.5),
+            percentile(&mut engine_ms, 0.5),
+            percentile(&mut assemble_ms, 0.5),
+            percentile(&mut geometry_ms, 0.5),
+            percentile(&mut changes_ms, 0.5),
+            percentile(&mut block_edit_ms, 0.5),
+            percentile(&mut stabilise_ms, 0.5),
+            percentile(&mut caret_ms, 0.5),
+            reps,
+            marks,
+            status_ms.len(),
+        ));
+    }
+}

@@ -3,6 +3,9 @@ pub const APP_NAME: &str = "Markdown Editor RS";
 pub mod app;
 pub mod app_icon;
 
+#[cfg(feature = "bench-support")]
+pub mod interact_probe;
+
 pub mod shell;
 pub mod view;
 

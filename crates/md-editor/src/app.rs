@@ -74,6 +74,8 @@ pub fn run(doc: Doc, config: RunConfig) {
                     move |window, cx| {
                         let shell = cx.new(|cx| Shell::new(doc, cx));
                         shell.update(cx, |s, cx| s.boot(notice, window, cx));
+                        #[cfg(feature = "bench-support")]
+                        crate::interact_probe::spawn(window, shell.downgrade(), cx);
                         let handle = shell.clone();
                         window.on_window_should_close(cx, move |window, cx| {
                             handle.update(cx, |s, cx| s.on_window_should_close(window, cx))
