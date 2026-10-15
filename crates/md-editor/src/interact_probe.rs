@@ -52,6 +52,7 @@ struct Stamp {
     revision: u64,
     scroll: i64,
     rebuilds: u64,
+    selection: Option<(u32, u32)>,
 }
 
 struct Sample {
@@ -84,9 +85,13 @@ enum Op {
     Redo,
     ScrollNotch,
     ScrollBurst,
+    PageDown,
+    ShiftDown,
+    ShiftPageDown,
+    SelectAll,
 }
 
-const OPS: [Op; 8] = [
+const OPS: [Op; 12] = [
     Op::Idle,
     Op::InsertChar,
     Op::Newline,
@@ -95,6 +100,10 @@ const OPS: [Op; 8] = [
     Op::Redo,
     Op::ScrollNotch,
     Op::ScrollBurst,
+    Op::PageDown,
+    Op::ShiftDown,
+    Op::ShiftPageDown,
+    Op::SelectAll,
 ];
 
 impl Op {
@@ -108,6 +117,10 @@ impl Op {
             Op::Redo => "redo",
             Op::ScrollNotch => "scroll_notch",
             Op::ScrollBurst => "scroll_burst",
+            Op::PageDown => "page_down",
+            Op::ShiftDown => "shift_down",
+            Op::ShiftPageDown => "shift_page_down",
+            Op::SelectAll => "select_all",
         }
     }
 
@@ -118,6 +131,10 @@ impl Op {
             Op::Backspace => "backspace",
             Op::Undo => "ctrl-z",
             Op::Redo => "ctrl-y",
+            Op::PageDown => "pagedown",
+            Op::ShiftDown => "shift-down",
+            Op::ShiftPageDown => "shift-pagedown",
+            Op::SelectAll => "ctrl-a",
             _ => return None,
         };
         Keystroke::parse(source).ok()
@@ -273,6 +290,10 @@ fn stamp(shell: &WeakEntity<Shell>, cx: &App) -> Option<Stamp> {
             .as_ref()
             .map(|engine| engine.doc_rebuilds())
             .unwrap_or(0),
+        selection: view
+            .state
+            .selection
+            .map(|(from, to)| (from.block, to.block)),
     })
 }
 
