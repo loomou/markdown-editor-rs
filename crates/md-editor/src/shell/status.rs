@@ -18,31 +18,30 @@ pub(super) struct StatusCounts {
 }
 
 #[cfg(test)]
-pub(super) static LEAF_VISITS: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-
-#[cfg(test)]
-pub(super) static RECOUNTS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+std::thread_local! {
+    pub(super) static LEAF_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(super) static RECOUNTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 #[cfg(test)]
 pub(super) fn leaf_visits() -> usize {
-    LEAF_VISITS.load(std::sync::atomic::Ordering::Relaxed)
+    LEAF_VISITS.with(std::cell::Cell::get)
 }
 
 #[cfg(test)]
 pub(super) fn recounts() -> usize {
-    RECOUNTS.load(std::sync::atomic::Ordering::Relaxed)
+    RECOUNTS.with(std::cell::Cell::get)
 }
 
 #[cfg(test)]
 pub(super) fn reset_leaf_visits() {
-    LEAF_VISITS.store(0, std::sync::atomic::Ordering::Relaxed);
-    RECOUNTS.store(0, std::sync::atomic::Ordering::Relaxed);
+    LEAF_VISITS.with(|visits| visits.set(0));
+    RECOUNTS.with(|count| count.set(0));
 }
 
 fn note_leaf_visit() {
     #[cfg(test)]
-    LEAF_VISITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    LEAF_VISITS.with(|visits| visits.set(visits.get() + 1));
 }
 
 fn count_text(text: &str) -> (usize, usize) {
@@ -93,7 +92,7 @@ impl LeafCounts {
     fn recount(&mut self, doc: &Doc) {
         #[cfg(test)]
         {
-            RECOUNTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            RECOUNTS.with(|count| count.set(count.get() + 1));
         }
         self.words.clear();
         self.chars.clear();
