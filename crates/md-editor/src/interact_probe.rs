@@ -487,6 +487,16 @@ fn percentile(values: &mut [f64], p: f64) -> f64 {
     values[index]
 }
 
+fn push_stats(out: &mut String, name: &str, values: &mut [f64]) {
+    out.push_str(&format!(
+        " {name}_p50={:.3} {name}_p95={:.3} {name}_p99={:.3} {name}_max={:.3}",
+        percentile(values, 0.5),
+        percentile(values, 0.95),
+        percentile(values, 0.99),
+        percentile(values, 1.0)
+    ));
+}
+
 fn nth_at(costs: &[Cost], epoch: u64, ordinal: usize) -> Option<f64> {
     costs
         .iter()
@@ -653,40 +663,32 @@ fn report(
             .find(|(index, _)| *index == op_index)
             .map(|(_, ms)| *ms)
             .unwrap_or(f64::NAN);
+        let mut line = format!(
+            "interact op={} reps={reps} moved={moved}/{reps} rebuilt={rebuilt}/{reps} loop_ms={loop_ms:.0}",
+            op.name()
+        );
+        push_stats(&mut line, "pickup", &mut pickup);
+        push_stats(&mut line, "period", &mut period);
+        push_stats(&mut line, "pre_draw", &mut pre_draw_ms);
+        push_stats(&mut line, "render", &mut render_ms);
+        push_stats(&mut line, "to_prepaint", &mut to_prepaint_ms);
+        push_stats(&mut line, "prepaint", &mut prepaint_ms);
+        push_stats(&mut line, "gap", &mut gap_ms);
+        push_stats(&mut line, "paint", &mut paint_ms);
+        push_stats(&mut line, "draw", &mut draw_ms);
+        push_stats(&mut line, "after_paint", &mut after_paint_ms);
+        push_stats(&mut line, "status", &mut status_ms);
+        push_stats(&mut line, "pre_build", &mut pre_build_ms);
+        push_stats(&mut line, "engine", &mut engine_ms);
+        push_stats(&mut line, "assemble", &mut assemble_ms);
+        push_stats(&mut line, "geometry", &mut geometry_ms);
+        push_stats(&mut line, "changes", &mut changes_ms);
+        push_stats(&mut line, "block_edit", &mut block_edit_ms);
+        push_stats(&mut line, "stabilise", &mut stabilise_ms);
+        push_stats(&mut line, "caret", &mut caret_ms);
         emit(&format!(
-            "interact op={} reps={} moved={}/{} rebuilt={}/{} loop_ms={:.0} pickup_p50={:.3} pickup_p95={:.3} period_p50={:.3} period_p95={:.3} pre_draw_p50={:.3} render_p50={:.3} to_prepaint_p50={:.3} prepaint_p50={:.3} gap_p50={:.3} paint_p50={:.3} draw_p50={:.3} after_paint_p50={:.3} status_p50={:.3} status_p95={:.3} pre_build_p50={:.3} engine_p50={:.3} assemble_p50={:.3} geometry_p50={:.3} changes_p50={:.3} block_edit_p50={:.3} stabilise_p50={:.3} caret_p50={:.3} frames={} marks={} status={}",
-            op.name(),
-            reps,
-            moved,
-            reps,
-            rebuilt,
-            reps,
-            loop_ms,
-            percentile(&mut pickup, 0.5),
-            percentile(&mut pickup, 0.95),
-            percentile(&mut period, 0.5),
-            percentile(&mut period, 0.95),
-            percentile(&mut pre_draw_ms, 0.5),
-            percentile(&mut render_ms, 0.5),
-            percentile(&mut to_prepaint_ms, 0.5),
-            percentile(&mut prepaint_ms, 0.5),
-            percentile(&mut gap_ms, 0.5),
-            percentile(&mut paint_ms, 0.5),
-            percentile(&mut draw_ms, 0.5),
-            percentile(&mut after_paint_ms, 0.5),
-            percentile(&mut status_ms, 0.5),
-            percentile(&mut status_ms, 0.95),
-            percentile(&mut pre_build_ms, 0.5),
-            percentile(&mut engine_ms, 0.5),
-            percentile(&mut assemble_ms, 0.5),
-            percentile(&mut geometry_ms, 0.5),
-            percentile(&mut changes_ms, 0.5),
-            percentile(&mut block_edit_ms, 0.5),
-            percentile(&mut stabilise_ms, 0.5),
-            percentile(&mut caret_ms, 0.5),
-            reps,
-            marks,
-            status_ms.len(),
+            "{line} frames={reps} marks={marks} status={}",
+            status_ms.len()
         ));
     }
 }
