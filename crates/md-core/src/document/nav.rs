@@ -189,6 +189,9 @@ impl Document {
         if a_id == b_id {
             return Ordering::Equal;
         }
+        if let Some(ord) = self.order_compare(a_id, b_id) {
+            return ord;
+        }
         let chain = |from: NodeId| {
             let mut out = Vec::new();
             let mut cur = Some(from);

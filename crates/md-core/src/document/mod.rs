@@ -1,5 +1,7 @@
 use crate::block::{BlockId, NodeExtra, TextEditStrategy, alignment_at};
+use order::OrderIndex;
 use pulldown_cmark::Options;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::Arc;
@@ -21,6 +23,7 @@ mod ledger;
 mod load;
 mod metrics;
 mod nav;
+mod order;
 mod paste;
 mod promote;
 mod query;
@@ -84,6 +87,7 @@ pub struct Document {
     pub(crate) changes: ChangeSet,
     pub(crate) focus: Option<focus::InlineFocus>,
     pub(crate) block_edit: Option<NodeId>,
+    order: RefCell<OrderIndex>,
 }
 
 impl Document {

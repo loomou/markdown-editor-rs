@@ -6,8 +6,10 @@ use crate::document::arena::{DocumentArena, NodeId};
 use crate::document::bind;
 use crate::document::change::ChangeSet;
 use crate::document::focus::ConstructRecorder;
+use crate::document::order::OrderIndex;
 use crate::document::text::{LeafSource, TextStore};
 use crate::inline::InlineMarks;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
@@ -323,6 +325,7 @@ impl Builder {
             changes: ChangeSet::document_replaced(1),
             focus: None,
             block_edit: None,
+            order: RefCell::new(OrderIndex::empty()),
         }
     }
 
