@@ -5,6 +5,21 @@ use super::focus::{RevealedImage, RevealedMath};
 use crate::block::{BlockId, BlockKind, NodeExtra, TextEditStrategy};
 use crate::inline::InlineRun;
 
+#[cfg(test)]
+std::thread_local! {
+    pub(super) static DOC_WALKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(super) fn doc_walks() -> usize {
+    DOC_WALKS.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+pub(super) fn reset_doc_walks() {
+    DOC_WALKS.with(|count| count.set(0));
+}
+
 impl Document {
     pub fn intern_len(&self) -> usize {
         self.intern.len()
@@ -147,6 +162,8 @@ impl Document {
         let mut out = Vec::new();
         let mut stack = vec![self.root];
         while let Some(id) = stack.pop() {
+            #[cfg(test)]
+            DOC_WALKS.with(|count| count.set(count.get() + 1));
             out.push(id);
             let mut child = self.arena.get(id).and_then(|node| node.last_child);
             while let Some(id) = child {
@@ -209,6 +226,8 @@ impl Document {
     fn for_each_leaf_text(&self, collapsed: bool, mut visit: impl FnMut(BlockId, &str) -> bool) {
         let mut stack = vec![self.root];
         while let Some(id) = stack.pop() {
+            #[cfg(test)]
+            DOC_WALKS.with(|count| count.set(count.get() + 1));
             let Some(node) = self.arena.get(id) else {
                 continue;
             };

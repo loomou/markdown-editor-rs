@@ -5,6 +5,7 @@ use super::reference;
 use super::{Document, bind, write};
 use crate::block::{BlockId, BlockKind, NodeExtra, TextEditStrategy};
 use crate::inline::{InlineMarks, InlineRun, covering_runs};
+use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::ops::Range;
 
@@ -20,45 +21,35 @@ impl Document {
         if self.selection_reaches_textless_block(sel) {
             return self.whole_document_markdown();
         }
-        let sel = Sel {
-            anchor: self.first_leaf_of(sel.anchor),
-            head: sel.head,
-        };
-        let mut leaves = Vec::new();
-        let mut i0 = None;
-        let mut i1 = None;
-        self.for_each_text_leaf(|id, _| {
-            let index = leaves.len();
-            if id == sel.anchor.block {
-                i0 = Some(index);
-            }
-            if id == sel.head.block {
-                i1 = Some(index);
-            }
-            leaves.push(id);
-            true
-        });
-        let Some(i0) = i0 else {
+        let anchor = self.first_leaf_of(sel.anchor);
+        let Some(anchor_id) = self.live_id(anchor.block) else {
             return String::new();
         };
-        let Some(i1) = i1 else {
+        let Some(head_id) = self.live_id(sel.head.block) else {
             return String::new();
         };
-        if i0 == i1 && sel.anchor.offset == sel.head.offset {
+        let is_leaf = |id: NodeId| {
+            self.arena
+                .get(id)
+                .is_some_and(|node| node.kind.is_text_leaf())
+        };
+        if !is_leaf(anchor_id) || !is_leaf(head_id) {
             return String::new();
         }
-        let (lo_i, hi_i, from, to) = match i0.cmp(&i1) {
-            std::cmp::Ordering::Less => (i0, i1, sel.anchor.offset, sel.head.offset),
-            std::cmp::Ordering::Greater => (i1, i0, sel.head.offset, sel.anchor.offset),
-            std::cmp::Ordering::Equal => (
-                i0,
-                i0,
-                sel.anchor.offset.min(sel.head.offset),
-                sel.anchor.offset.max(sel.head.offset),
-            ),
+        let (lo, hi, from, to) = match self.cmp_reading_order(anchor.block, sel.head.block) {
+            Ordering::Less => (anchor, sel.head, anchor.offset, sel.head.offset),
+            Ordering::Greater => (sel.head, anchor, sel.head.offset, anchor.offset),
+            Ordering::Equal => {
+                if anchor.offset == sel.head.offset {
+                    return String::new();
+                }
+                let from = anchor.offset.min(sel.head.offset);
+                let to = anchor.offset.max(sel.head.offset);
+                (anchor, sel.head, from, to)
+            }
         };
         let mut deps = CopiedDeps::default();
-        let piece = self.copy_leaf_span(&leaves, lo_i, hi_i, from, to, &mut deps);
+        let piece = self.copy_leaf_span(lo, hi, from, to, &mut deps);
         let piece = self.with_footnote_definitions(&mut deps, piece);
         self.with_reference_definitions(&deps.links, piece)
     }
@@ -81,15 +72,29 @@ impl Document {
         {
             return caret;
         }
-        let mut kids = Vec::new();
-        self.subtree_text_leaves(id, &mut kids);
-        match kids.first() {
-            Some(&first) => Caret {
+        match self.first_text_leaf_in(id) {
+            Some(first) => Caret {
                 block: first.index,
                 offset: 0,
             },
             None => caret,
         }
+    }
+
+    fn first_text_leaf_in(&self, id: NodeId) -> Option<NodeId> {
+        let mut stack = vec![id];
+        while let Some(cur) = stack.pop() {
+            let node = self.arena.get(cur)?;
+            if node.kind.is_text_leaf() {
+                return Some(cur);
+            }
+            let mut child = node.last_child;
+            while let Some(c) = child {
+                stack.push(c);
+                child = self.arena.get(c).and_then(|n| n.prev_sibling);
+            }
+        }
+        None
     }
 
     fn whole_document_markdown(&self) -> String {
@@ -146,7 +151,7 @@ impl Document {
     }
 
     fn with_reference_definitions(&self, used_links: &[u32], mut out: String) -> String {
-        if self.reference_definitions.is_empty() {
+        if self.reference_definitions.is_empty() || used_links.is_empty() {
             return out;
         }
         let mut wanted: Vec<(String, String)> = Vec::new();
@@ -203,61 +208,73 @@ impl Document {
 
     fn copy_leaf_span(
         &self,
-        leaves: &[BlockId],
-        lo_i: usize,
-        hi_i: usize,
+        lo: Caret,
+        hi: Caret,
         from: usize,
         to: usize,
         deps: &mut CopiedDeps,
     ) -> String {
         let mut out = String::new();
-        let mut group: Option<(NodeId, u64)> = None;
-        let rules = self.rules_between(leaves, lo_i, hi_i);
+        let Some(lo_id) = self.live_id(lo.block) else {
+            return out;
+        };
+        let Some(hi_id) = self.live_id(hi.block) else {
+            return out;
+        };
+        let multi = lo_id != hi_id;
+        let rules = self.rules_between(lo_id, hi_id);
         let mut next_rule = 0;
-        let mut jumped_item: Option<NodeId> = None;
+        let mut group: Option<(NodeId, u64)> = None;
+        let mut jumped_container: Option<NodeId> = None;
         let mut skipped = 0usize;
-        let mut i = lo_i;
-        while i <= hi_i {
-            while next_rule < rules.len() && rules[next_rule].0 <= i {
-                let (rule, id) = rules[next_rule];
-                let _ = rule;
-                let skip = jumped_item.is_some_and(|item| self.descends_from(id, item));
+        let mut cur = lo_id;
+        loop {
+            if self.cmp_reading_order(cur.index, hi.block) == Ordering::Greater {
+                break;
+            }
+            while next_rule < rules.len()
+                && self.cmp_reading_order(rules[next_rule].0.index, cur.index) != Ordering::Greater
+            {
+                let (_, rule) = rules[next_rule];
+                let skip = jumped_container.is_some_and(|item| self.descends_from(rule, item));
                 if !skip {
                     let mut piece = String::new();
-                    write::write_node(self, id, &mut piece);
+                    write::write_node(self, rule, &mut piece);
                     push_piece(&mut out, &piece, true, &mut skipped);
                 }
                 next_rule += 1;
             }
-            jumped_item = None;
-            let Some(id) = self.live_id(leaves[i]) else {
-                i += 1;
-                continue;
-            };
-            let len = self.caret_text(id).len();
-            let start = if i == lo_i { from.min(len) } else { 0 };
-            let end = if i == hi_i { to.min(len) } else { len };
-            let whole = start == 0 && end == len && (len > 0 || lo_i != hi_i);
-            if whole && let Some((def, last)) = self.covered_footnote(leaves, i, hi_i, to) {
+            jumped_container = None;
+            let len = self.caret_text(cur).len();
+            let start = if cur == lo_id { from.min(len) } else { 0 };
+            let end = if cur == hi_id { to.min(len) } else { len };
+            let whole = start == 0 && end == len && (len > 0 || multi);
+            if whole && let Some(def) = self.covered_footnote(cur, hi.block, to) {
                 let mut piece = String::new();
                 write::write_node(self, def, &mut piece);
                 self.collect_subtree_deps(def, &mut deps.footnotes, &mut deps.links);
                 push_piece(&mut out, &piece, true, &mut skipped);
                 deps.promoted_footnotes.push(def);
-                jumped_item = Some(def);
-                i = last + 1;
+                jumped_container = Some(def);
+                let Some(next) = self.leaf_after_container(cur, def) else {
+                    break;
+                };
+                cur = next;
                 continue;
             }
-            if whole && let Some((quote, last)) = self.covered_quote(leaves, i, hi_i, to) {
+            if whole && let Some(quote) = self.covered_quote(cur, hi.block, to) {
                 let mut piece = String::new();
                 write::write_node(self, quote, &mut piece);
                 self.collect_subtree_deps(quote, &mut deps.footnotes, &mut deps.links);
                 push_piece(&mut out, &piece, true, &mut skipped);
-                jumped_item = Some(quote);
-                i = last + 1;
+                jumped_container = Some(quote);
+                let Some(next) = self.leaf_after_container(cur, quote) else {
+                    break;
+                };
+                cur = next;
                 continue;
             }
-            if whole && let Some((item, last)) = self.covered_item(leaves, i, hi_i, to) {
+            if whole && let Some(item) = self.covered_item(cur, hi.block, to) {
                 let list = self.arena.get(item).and_then(|n| n.parent);
                 let extra = list.map(|l| self.extra(l)).unwrap_or(NodeExtra::None);
                 let continuing = matches!(group, Some((g, _)) if Some(g) == list);
@@ -270,53 +287,77 @@ impl Document {
                 self.collect_subtree_deps(item, &mut deps.footnotes, &mut deps.links);
                 push_piece(&mut out, &piece, !continuing, &mut skipped);
                 group = list.map(|l| (l, num));
-                jumped_item = Some(item);
-                i = last + 1;
+                jumped_container = Some(item);
+                let Some(next) = self.leaf_after_container(cur, item) else {
+                    break;
+                };
+                cur = next;
                 continue;
             }
-            if whole && let Some((table, last)) = self.covered_table(leaves, i, hi_i, to) {
+            if whole && let Some(table) = self.covered_table(cur, hi.block, to) {
                 let mut piece = String::new();
                 write::write_node(self, table, &mut piece);
                 self.collect_subtree_deps(table, &mut deps.footnotes, &mut deps.links);
                 let piece = piece.trim_end_matches(['\n', '\r']);
                 push_piece(&mut out, piece, true, &mut skipped);
-                jumped_item = Some(table);
-                i = last + 1;
+                jumped_container = Some(table);
+                let Some(next) = self.leaf_after_container(cur, table) else {
+                    break;
+                };
+                cur = next;
                 continue;
             }
             group = None;
             if whole
                 && self
                     .arena
-                    .get(id)
+                    .get(cur)
                     .is_some_and(|n| n.kind != BlockKind::TableCell)
             {
                 let mut piece = String::new();
-                write::write_node(self, id, &mut piece);
-                self.collect_leaf_deps(id, &mut deps.footnotes, &mut deps.links);
+                write::write_node(self, cur, &mut piece);
+                self.collect_leaf_deps(cur, &mut deps.footnotes, &mut deps.links);
                 push_piece(&mut out, &piece, true, &mut skipped);
             } else {
-                let text = self.copy_leaf(id, start..end, deps);
+                let text = self.copy_leaf(cur, start..end, deps);
                 push_piece(&mut out, &text, true, &mut skipped);
             }
-            i += 1;
+            if cur == hi_id {
+                break;
+            }
+            let Some(next) = self.next_text_leaf(cur) else {
+                break;
+            };
+            cur = next;
         }
         out
     }
 
-    fn rules_between(&self, leaves: &[BlockId], lo_i: usize, hi_i: usize) -> Vec<(usize, NodeId)> {
-        let _ = leaves;
+    fn rules_between(&self, lo: NodeId, hi: NodeId) -> Vec<(NodeId, NodeId)> {
+        if lo == hi {
+            return Vec::new();
+        }
         let mut out = Vec::new();
-        let mut seen = 0usize;
-        for id in self.preorder() {
+        let mut pending: Vec<NodeId> = Vec::new();
+        let mut cur = self.preorder_next(lo);
+        while let Some(id) = cur {
+            if id == hi {
+                for rule in pending.drain(..) {
+                    out.push((hi, rule));
+                }
+                break;
+            }
             let Some(node) = self.arena.get(id) else {
-                continue;
+                break;
             };
             if node.kind.is_text_leaf() {
-                seen += 1;
-            } else if node.kind == BlockKind::ThematicBreak && seen > lo_i && seen <= hi_i {
-                out.push((seen, id));
+                for rule in pending.drain(..) {
+                    out.push((id, rule));
+                }
+            } else if node.kind == BlockKind::ThematicBreak {
+                pending.push(id);
             }
+            cur = self.preorder_next(id);
         }
         out
     }
@@ -332,14 +373,38 @@ impl Document {
         false
     }
 
-    fn covered_quote(
-        &self,
-        leaves: &[BlockId],
-        at: usize,
-        hi_i: usize,
-        to: usize,
-    ) -> Option<(NodeId, usize)> {
-        let leaf = self.live_id(leaves[at])?;
+    fn starts_at(&self, leaf: NodeId, container: NodeId) -> bool {
+        match self.prev_text_leaf(leaf) {
+            Some(prev) => !self.descends_from(prev, container),
+            None => true,
+        }
+    }
+
+    fn covers_leaf(&self, container: NodeId, hi: BlockId, to: usize) -> bool {
+        let Some(hi_id) = self.live_id(hi) else {
+            return false;
+        };
+        if !self.descends_from(hi_id, container) {
+            return true;
+        }
+        if to < self.caret_text(hi_id).len() {
+            return false;
+        }
+        match self.next_text_leaf(hi_id) {
+            Some(next) => !self.descends_from(next, container),
+            None => true,
+        }
+    }
+
+    fn leaf_after_container(&self, from: NodeId, container: NodeId) -> Option<NodeId> {
+        let mut cur = self.next_text_leaf(from)?;
+        while self.descends_from(cur, container) {
+            cur = self.next_text_leaf(cur)?;
+        }
+        Some(cur)
+    }
+
+    fn covered_quote(&self, leaf: NodeId, hi: BlockId, to: usize) -> Option<NodeId> {
         let mut best = None;
         let mut up = self.arena.get(leaf).and_then(|n| n.parent);
         while let Some(id) = up {
@@ -350,31 +415,14 @@ impl Document {
             if node.kind != BlockKind::BlockQuote {
                 continue;
             }
-            let mut kids = Vec::new();
-            self.subtree_text_leaves(id, &mut kids);
-            let (Some(&first), Some(&last)) = (kids.first(), kids.last()) else {
-                continue;
-            };
-            if first != leaf {
-                continue;
+            if self.starts_at(leaf, id) && self.covers_leaf(id, hi, to) {
+                best = Some(id);
             }
-            let end = at + kids.len() - 1;
-            if end > hi_i || (end == hi_i && to < self.caret_text(last).len()) {
-                continue;
-            }
-            best = Some((id, end));
         }
         best
     }
 
-    fn covered_item(
-        &self,
-        leaves: &[BlockId],
-        at: usize,
-        hi_i: usize,
-        to: usize,
-    ) -> Option<(NodeId, usize)> {
-        let leaf = self.live_id(leaves[at])?;
+    fn covered_item(&self, leaf: NodeId, hi: BlockId, to: usize) -> Option<NodeId> {
         let mut best = None;
         let mut up = self.arena.get(leaf).and_then(|n| n.parent);
         while let Some(id) = up {
@@ -385,31 +433,14 @@ impl Document {
             if node.kind != BlockKind::ListItem {
                 continue;
             }
-            let mut kids = Vec::new();
-            self.subtree_text_leaves(id, &mut kids);
-            let (Some(&first), Some(&last)) = (kids.first(), kids.last()) else {
-                continue;
-            };
-            if first != leaf {
-                continue;
+            if self.starts_at(leaf, id) && self.covers_leaf(id, hi, to) {
+                best = Some(id);
             }
-            let end = at + kids.len() - 1;
-            if end > hi_i || (end == hi_i && to < self.caret_text(last).len()) {
-                continue;
-            }
-            best = Some((id, end));
         }
         best
     }
 
-    fn covered_table(
-        &self,
-        leaves: &[BlockId],
-        at: usize,
-        hi_i: usize,
-        to: usize,
-    ) -> Option<(NodeId, usize)> {
-        let leaf = self.live_id(leaves[at])?;
+    fn covered_table(&self, leaf: NodeId, hi: BlockId, to: usize) -> Option<NodeId> {
         let mut up = self.arena.get(leaf).and_then(|n| n.parent);
         while let Some(id) = up {
             let Some(node) = self.arena.get(id) else {
@@ -419,31 +450,14 @@ impl Document {
             if node.kind != BlockKind::Table {
                 continue;
             }
-            let mut kids = Vec::new();
-            self.subtree_text_leaves(id, &mut kids);
-            let (Some(&first), Some(&last)) = (kids.first(), kids.last()) else {
-                continue;
-            };
-            if first != leaf {
-                continue;
+            if self.starts_at(leaf, id) && self.covers_leaf(id, hi, to) {
+                return Some(id);
             }
-            let end = at + kids.len() - 1;
-            if end > hi_i || (end == hi_i && to < self.caret_text(last).len()) {
-                continue;
-            }
-            return Some((id, end));
         }
         None
     }
 
-    fn covered_footnote(
-        &self,
-        leaves: &[BlockId],
-        at: usize,
-        hi_i: usize,
-        to: usize,
-    ) -> Option<(NodeId, usize)> {
-        let leaf = self.live_id(leaves[at])?;
+    fn covered_footnote(&self, leaf: NodeId, hi: BlockId, to: usize) -> Option<NodeId> {
         let mut up = self.arena.get(leaf).and_then(|n| n.parent);
         while let Some(id) = up {
             let Some(node) = self.arena.get(id) else {
@@ -453,19 +467,9 @@ impl Document {
             if node.kind != BlockKind::FootnoteDefinition {
                 continue;
             }
-            let mut kids = Vec::new();
-            self.subtree_text_leaves(id, &mut kids);
-            let (Some(&first), Some(&last)) = (kids.first(), kids.last()) else {
-                continue;
-            };
-            if first != leaf {
-                continue;
+            if self.starts_at(leaf, id) && self.covers_leaf(id, hi, to) {
+                return Some(id);
             }
-            let end = at + kids.len() - 1;
-            if end > hi_i || (end == hi_i && to < self.caret_text(last).len()) {
-                continue;
-            }
-            return Some((id, end));
         }
         None
     }

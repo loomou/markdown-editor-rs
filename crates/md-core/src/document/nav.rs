@@ -3,7 +3,7 @@ use crate::block::{BlockId, BlockKind};
 use std::cmp::Ordering;
 
 impl Document {
-    fn preorder_next(&self, id: NodeId) -> Option<NodeId> {
+    pub(crate) fn preorder_next(&self, id: NodeId) -> Option<NodeId> {
         let node = self.arena.get(id)?;
         if let Some(first) = node.first_child {
             return Some(first);

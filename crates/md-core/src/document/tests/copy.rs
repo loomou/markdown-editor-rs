@@ -693,6 +693,34 @@ fn a_loose_list_copies_its_items_adjacent() {
 }
 
 #[test]
+fn a_small_selection_does_not_walk_the_whole_document() {
+    use crate::document::query::{doc_walks, reset_doc_walks};
+
+    let mut source = String::new();
+    for index in 0..1000 {
+        source.push_str(&format!("paragraph {index} with a handful of words\n\n"));
+    }
+    let doc = load_markdown(&source, editor_options());
+    let first = doc.first_text_leaf().expect("leaf");
+    let leaves = doc.text_leaves();
+    let last = *leaves.last().expect("leaf");
+    let leaf_count = leaves.len();
+    doc.cmp_reading_order(first, last);
+    let sel = Sel {
+        anchor: caret(first, 0),
+        head: caret(first, 7),
+    };
+    reset_doc_walks();
+    let copied = doc.copy_markdown(sel);
+    let walks = doc_walks();
+    assert_eq!(copied, "paragra");
+    assert_eq!(
+        walks, 0,
+        "a seven byte copy walked {walks} nodes of a {leaf_count} leaf document"
+    );
+}
+
+#[test]
 fn a_rule_inside_a_copied_container_is_not_repeated() {
     for source in [
         "p\n\n> a\n>\n> ---\n>\n> b\n\nq\n",
