@@ -1,4 +1,5 @@
 use std::cell::{Cell, RefCell};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -8,6 +9,9 @@ use gpui::{
     App, AsyncWindowContext, Keystroke, Modifiers, MouseMoveEvent, Pixels, PlatformInput, Point,
     ScrollDelta, ScrollWheelEvent, TouchPhase, WeakEntity, Window, px,
 };
+
+use md_core::doc::Doc;
+use md_core::document::{editor_options, load_markdown};
 
 use crate::Shell;
 
@@ -39,6 +43,8 @@ static CHANGES_DUR: Mutex<Vec<Cost>> = Mutex::new(Vec::new());
 static BLOCK_EDIT_DUR: Mutex<Vec<Cost>> = Mutex::new(Vec::new());
 static STABILISE_DUR: Mutex<Vec<Cost>> = Mutex::new(Vec::new());
 static CARET_DUR: Mutex<Vec<Cost>> = Mutex::new(Vec::new());
+static CLIPBOARD_WRITES: AtomicU64 = AtomicU64::new(0);
+static CLIPBOARD_BYTES: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy)]
 struct Cost {
@@ -53,10 +59,13 @@ struct Stamp {
     scroll: i64,
     rebuilds: u64,
     selection: Option<(u32, u32)>,
+    clipboard_writes: u64,
+    clipboard_bytes: usize,
 }
 
 struct Sample {
     op: usize,
+    dispatch_ms: f64,
     pickup_ms: f64,
     period_ms: f64,
     pre_draw_ms: f64,
@@ -64,6 +73,10 @@ struct Sample {
     epoch: u64,
     moved: bool,
     rebuilds: u64,
+    rev_before: u64,
+    rev_after: u64,
+    clip_writes: u64,
+    clip_bytes: usize,
 }
 
 struct Marks {
@@ -89,9 +102,13 @@ enum Op {
     ShiftDown,
     ShiftPageDown,
     SelectAll,
+    CopySmall,
+    PasteSmall,
+    CopyLarge,
+    PasteLarge,
 }
 
-const OPS: [Op; 12] = [
+const OPS: [Op; 16] = [
     Op::Idle,
     Op::InsertChar,
     Op::Newline,
@@ -104,6 +121,10 @@ const OPS: [Op; 12] = [
     Op::ShiftDown,
     Op::ShiftPageDown,
     Op::SelectAll,
+    Op::CopySmall,
+    Op::PasteSmall,
+    Op::CopyLarge,
+    Op::PasteLarge,
 ];
 
 impl Op {
@@ -121,23 +142,43 @@ impl Op {
             Op::ShiftDown => "shift_down",
             Op::ShiftPageDown => "shift_page_down",
             Op::SelectAll => "select_all",
+            Op::CopySmall => "copy_small",
+            Op::PasteSmall => "paste_small",
+            Op::CopyLarge => "copy_large",
+            Op::PasteLarge => "paste_large",
         }
     }
 
-    fn keystroke(self) -> Option<Keystroke> {
-        let source = match self {
-            Op::InsertChar => "x",
-            Op::Newline => "enter",
-            Op::Backspace => "backspace",
-            Op::Undo => "ctrl-z",
-            Op::Redo => "ctrl-y",
-            Op::PageDown => "pagedown",
-            Op::ShiftDown => "shift-down",
-            Op::ShiftPageDown => "shift-pagedown",
-            Op::SelectAll => "ctrl-a",
-            _ => return None,
-        };
-        Keystroke::parse(source).ok()
+    fn keys(self) -> &'static [&'static str] {
+        match self {
+            Op::InsertChar => &["x"],
+            Op::Newline => &["enter"],
+            Op::Backspace => &["backspace"],
+            Op::Undo => &["ctrl-z"],
+            Op::Redo => &["ctrl-y"],
+            Op::PageDown => &["pagedown"],
+            Op::ShiftDown => &["shift-down"],
+            Op::ShiftPageDown => &["shift-pagedown"],
+            Op::SelectAll => &["ctrl-a"],
+            Op::CopySmall => &["ctrl-shift-right", "ctrl-c"],
+            Op::PasteSmall | Op::PasteLarge => &["ctrl-v"],
+            Op::CopyLarge => &["ctrl-c"],
+            _ => &[],
+        }
+    }
+
+    fn setup(self) -> &'static [&'static str] {
+        match self {
+            Op::CopyLarge => &["shift-pagedown"],
+            _ => &[],
+        }
+    }
+
+    fn resets(self) -> bool {
+        matches!(
+            self,
+            Op::CopySmall | Op::PasteSmall | Op::CopyLarge | Op::PasteLarge
+        )
     }
 
     fn notches(self) -> usize {
@@ -259,6 +300,11 @@ pub fn record_phases(
     push(&CARET_DUR, to_ms(caret));
 }
 
+pub fn note_clipboard_write(bytes: usize) {
+    CLIPBOARD_WRITES.fetch_add(1, Ordering::Relaxed);
+    CLIPBOARD_BYTES.fetch_add(bytes as u64, Ordering::Relaxed);
+}
+
 pub fn spawn(window: &mut Window, shell: WeakEntity<Shell>, cx: &mut App) {
     if std::env::var_os(ENV).is_none() {
         return;
@@ -294,6 +340,8 @@ fn stamp(shell: &WeakEntity<Shell>, cx: &App) -> Option<Stamp> {
             .state
             .selection
             .map(|(from, to)| (from.block, to.block)),
+        clipboard_writes: CLIPBOARD_WRITES.load(Ordering::Relaxed),
+        clipboard_bytes: CLIPBOARD_BYTES.load(Ordering::Relaxed) as usize,
     })
 }
 
@@ -323,6 +371,48 @@ async fn await_frames(state: &Rc<Cell<u8>>, wcx: &mut AsyncWindowContext) {
     }
 }
 
+async fn next_frame(wcx: &mut AsyncWindowContext) {
+    let seen = Rc::new(Cell::new(false));
+    let flag = Rc::clone(&seen);
+    wcx.on_next_frame(move |_, _| flag.set(true));
+    let deadline = Instant::now() + WAIT_CAP;
+    while !seen.get() {
+        if Instant::now() >= deadline {
+            return;
+        }
+        wcx.background_executor().timer(POLL).await;
+    }
+}
+
+fn dispatch_keys(wcx: &mut AsyncWindowContext, keys: &[&str]) {
+    let _ = wcx.update(|window, cx| {
+        for source in keys {
+            if let Ok(keystroke) = Keystroke::parse(source) {
+                window.dispatch_keystroke(keystroke, cx);
+            }
+        }
+    });
+}
+
+fn reset_document(
+    wcx: &mut AsyncWindowContext,
+    shell: &WeakEntity<Shell>,
+    source: &str,
+    path: &Option<PathBuf>,
+) {
+    let _ = wcx.update(|_, cx| {
+        let Some(shell) = shell.upgrade() else {
+            return;
+        };
+        let editor = shell.read(cx).editor().clone();
+        let doc = Doc::with_path(load_markdown(source, editor_options()), path.clone());
+        editor.update(cx, |view, cx| {
+            view.replace_document(doc, cx);
+            cx.notify();
+        });
+    });
+}
+
 async fn run(
     wcx: &mut AsyncWindowContext,
     shell: WeakEntity<Shell>,
@@ -336,6 +426,22 @@ async fn run(
         "interact start reps={reps} ops={} doc={doc:?}",
         OPS.len()
     ));
+
+    let origin = wcx
+        .update(|_, cx| {
+            let shell = shell.upgrade()?;
+            let editor = shell.read(cx).editor().clone();
+            let view = editor.read(cx);
+            Some((
+                view.state.doc.document.source.clone(),
+                view.state.doc.source_path.clone(),
+            ))
+        })
+        .ok()
+        .flatten();
+    let Some((source, source_path)) = origin else {
+        return;
+    };
 
     let Ok(centre) = wcx.update(|window, _| {
         let bounds = window.bounds();
@@ -364,6 +470,14 @@ async fn run(
         let _ = wcx.update(|_, cx| cx.activate(true));
         for rep in 0..(reps + WARMUP_REPS) {
             let warm = rep < WARMUP_REPS;
+            if op.resets() {
+                reset_document(wcx, &shell, source.as_ref(), &source_path);
+                next_frame(wcx).await;
+            }
+            for &step in op.setup() {
+                dispatch_keys(wcx, &[step]);
+                next_frame(wcx).await;
+            }
             wcx.background_executor().timer(SETTLE).await;
             let before = wcx.update(|_, cx| stamp(&shell, cx)).ok().flatten();
 
@@ -378,16 +492,19 @@ async fn run(
                         }
                     }
                     _ => {
-                        if let Some(keystroke) = op.keystroke() {
-                            window.dispatch_keystroke(keystroke, cx);
+                        for source in op.keys() {
+                            if let Ok(keystroke) = Keystroke::parse(source) {
+                                window.dispatch_keystroke(keystroke, cx);
+                            }
                         }
                     }
                 }
-                (t0, epoch)
+                (t0, Instant::now(), epoch)
             });
-            let Ok((t0, epoch)) = dispatched else {
+            let Ok((t0, t_dispatch, epoch)) = dispatched else {
                 continue;
             };
+            let dispatch_ms = t_dispatch.saturating_duration_since(t0).as_secs_f64() * 1000.0;
 
             let state = Rc::new(Cell::new(0u8));
             let sink = Rc::clone(&samples);
@@ -416,6 +533,7 @@ async fn run(
                             .unwrap_or(f64::NAN);
                         sink.borrow_mut().push(Sample {
                             op: op_index,
+                            dispatch_ms,
                             pickup_ms: (t1 - t0).as_secs_f64() * 1000.0,
                             period_ms: (t2 - t1).as_secs_f64() * 1000.0,
                             pre_draw_ms,
@@ -423,6 +541,20 @@ async fn run(
                             epoch,
                             moved: before.is_some() && after.is_some() && before != after,
                             rebuilds,
+                            rev_before: before.map(|s| s.revision).unwrap_or(0),
+                            rev_after: after.map(|s| s.revision).unwrap_or(0),
+                            clip_writes: match (before, after) {
+                                (Some(before), Some(after)) => after
+                                    .clipboard_writes
+                                    .saturating_sub(before.clipboard_writes),
+                                _ => 0,
+                            },
+                            clip_bytes: match (before, after) {
+                                (Some(before), Some(after)) => after
+                                    .clipboard_bytes
+                                    .saturating_sub(before.clipboard_bytes),
+                                _ => 0,
+                            },
                         });
                     }
                     next.set(2);
@@ -582,6 +714,7 @@ fn report(
     };
 
     for (op_index, op) in OPS.iter().copied().enumerate() {
+        let mut dispatch: Vec<f64> = Vec::new();
         let mut pickup: Vec<f64> = Vec::new();
         let mut period: Vec<f64> = Vec::new();
         let mut render_ms: Vec<f64> = Vec::new();
@@ -604,9 +737,20 @@ fn report(
         let mut moved = 0usize;
         let mut rebuilt = 0usize;
         let mut marks = 0usize;
+        let mut rev_start = None;
+        let mut rev_end = None;
+        let mut clip_writes = 0u64;
+        let mut clip_bytes = 0usize;
         for sample in samples.iter().filter(|sample| sample.op == op_index) {
+            dispatch.push(sample.dispatch_ms);
             pickup.push(sample.pickup_ms);
             period.push(sample.period_ms);
+            clip_writes += sample.clip_writes;
+            clip_bytes = clip_bytes.max(sample.clip_bytes);
+            if rev_start.is_none() {
+                rev_start = Some(sample.rev_before);
+            }
+            rev_end = Some(sample.rev_after);
             if sample.moved {
                 moved += 1;
             }
@@ -664,9 +808,12 @@ fn report(
             .map(|(_, ms)| *ms)
             .unwrap_or(f64::NAN);
         let mut line = format!(
-            "interact op={} reps={reps} moved={moved}/{reps} rebuilt={rebuilt}/{reps} loop_ms={loop_ms:.0}",
-            op.name()
+            "interact op={} reps={reps} moved={moved}/{reps} rebuilt={rebuilt}/{reps} loop_ms={loop_ms:.0} rev={}->{} clip={clip_writes}w/{clip_bytes}b",
+            op.name(),
+            rev_start.unwrap_or(0),
+            rev_end.unwrap_or(0),
         );
+        push_stats(&mut line, "dispatch", &mut dispatch);
         push_stats(&mut line, "pickup", &mut pickup);
         push_stats(&mut line, "period", &mut period);
         push_stats(&mut line, "pre_draw", &mut pre_draw_ms);

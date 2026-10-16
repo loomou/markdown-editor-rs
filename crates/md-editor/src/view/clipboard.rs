@@ -28,6 +28,8 @@ impl EditorView {
         if md.is_empty() {
             return;
         }
+        #[cfg(feature = "bench-support")]
+        crate::interact_probe::note_clipboard_write(md.len());
         cx.write_to_clipboard(ClipboardItem::new_string(md));
     }
 
