@@ -30,7 +30,11 @@ impl EditorView {
         }
         #[cfg(feature = "bench-support")]
         crate::interact_probe::note_clipboard_write(md.len());
+        #[cfg(feature = "bench-support")]
+        let write_started = std::time::Instant::now();
         cx.write_to_clipboard(ClipboardItem::new_string(md));
+        #[cfg(feature = "bench-support")]
+        crate::interact_probe::record_clip_write(write_started.elapsed());
     }
 
     pub(super) fn copy_well_source(&mut self, block: BlockId, cx: &mut Context<'_, Self>) {
