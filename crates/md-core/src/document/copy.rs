@@ -244,6 +244,7 @@ impl Document {
                 self.collect_subtree_deps(def, &mut deps.footnotes, &mut deps.links);
                 push_piece(&mut out, &piece, true, &mut skipped);
                 deps.promoted_footnotes.push(def);
+                jumped_item = Some(def);
                 i = last + 1;
                 continue;
             }
@@ -252,6 +253,7 @@ impl Document {
                 write::write_node(self, quote, &mut piece);
                 self.collect_subtree_deps(quote, &mut deps.footnotes, &mut deps.links);
                 push_piece(&mut out, &piece, true, &mut skipped);
+                jumped_item = Some(quote);
                 i = last + 1;
                 continue;
             }
@@ -278,6 +280,7 @@ impl Document {
                 self.collect_subtree_deps(table, &mut deps.footnotes, &mut deps.links);
                 let piece = piece.trim_end_matches(['\n', '\r']);
                 push_piece(&mut out, piece, true, &mut skipped);
+                jumped_item = Some(table);
                 i = last + 1;
                 continue;
             }

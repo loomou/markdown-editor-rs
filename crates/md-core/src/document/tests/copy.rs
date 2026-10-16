@@ -691,3 +691,40 @@ fn a_loose_list_copies_its_items_adjacent() {
     );
     assert!(again.extra(lists[0]).list_loose(), "copied={all:?}");
 }
+
+#[test]
+fn a_rule_inside_a_copied_container_is_not_repeated() {
+    for source in [
+        "p\n\n> a\n>\n> ---\n>\n> b\n\nq\n",
+        "p\n\n> a\n>\n> ---\n\nq\n",
+        "> a\n>\n> ---\n\n---\n\nq\n",
+        "> a\n>\n> ---\n",
+        "a[^1]\n\n[^1]: x\n\n    ---\n\n    y\n\nz\n",
+    ] {
+        let doc = load_markdown(source, editor_options());
+        let copied = copy_document(&doc);
+        let want = source.trim_end_matches('\n');
+        assert_eq!(copied, want, "source={source:?}");
+        let reloaded = load_markdown(&copied, editor_options()).to_markdown();
+        assert_eq!(
+            reloaded.trim_end_matches('\n'),
+            want,
+            "the copy must reload to the same shape: source={source:?}"
+        );
+    }
+}
+
+#[test]
+fn a_rule_after_a_copied_container_is_kept() {
+    let source = "> a\n>\n> ---\n\n---\n\nq\n";
+    let doc = load_markdown(source, editor_options());
+    let copied = copy_document(&doc);
+    assert_eq!(copied, source.trim_end_matches('\n'));
+    let again = load_markdown(&copied, editor_options());
+    let rules = again
+        .preorder()
+        .into_iter()
+        .filter(|&id| again.kind(id.index) == Some(BlockKind::ThematicBreak))
+        .count();
+    assert_eq!(rules, 2, "both rules must survive: copied={copied:?}");
+}
