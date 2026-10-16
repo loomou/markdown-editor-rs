@@ -45,6 +45,9 @@ static STABILISE_DUR: Mutex<Vec<Cost>> = Mutex::new(Vec::new());
 static CARET_DUR: Mutex<Vec<Cost>> = Mutex::new(Vec::new());
 static CLIPBOARD_WRITES: AtomicU64 = AtomicU64::new(0);
 static CLIPBOARD_BYTES: AtomicU64 = AtomicU64::new(0);
+static PASTE_READ: Mutex<Vec<Cost>> = Mutex::new(Vec::new());
+static PASTE_APPLY: Mutex<Vec<Cost>> = Mutex::new(Vec::new());
+static PASTE_NOTE: Mutex<Vec<Cost>> = Mutex::new(Vec::new());
 
 #[derive(Clone, Copy)]
 struct Cost {
@@ -106,9 +109,11 @@ enum Op {
     PasteSmall,
     CopyLarge,
     PasteLarge,
+    IdleReset,
+    PasteNoReset,
 }
 
-const OPS: [Op; 16] = [
+const OPS: [Op; 18] = [
     Op::Idle,
     Op::InsertChar,
     Op::Newline,
@@ -125,6 +130,8 @@ const OPS: [Op; 16] = [
     Op::PasteSmall,
     Op::CopyLarge,
     Op::PasteLarge,
+    Op::IdleReset,
+    Op::PasteNoReset,
 ];
 
 impl Op {
@@ -146,6 +153,8 @@ impl Op {
             Op::PasteSmall => "paste_small",
             Op::CopyLarge => "copy_large",
             Op::PasteLarge => "paste_large",
+            Op::IdleReset => "idle_reset",
+            Op::PasteNoReset => "paste_noreset",
         }
     }
 
@@ -161,7 +170,7 @@ impl Op {
             Op::ShiftPageDown => &["shift-pagedown"],
             Op::SelectAll => &["ctrl-a"],
             Op::CopySmall => &["ctrl-shift-right", "ctrl-c"],
-            Op::PasteSmall | Op::PasteLarge => &["ctrl-v"],
+            Op::PasteSmall | Op::PasteLarge | Op::PasteNoReset => &["ctrl-v"],
             Op::CopyLarge => &["ctrl-c"],
             _ => &[],
         }
@@ -177,7 +186,7 @@ impl Op {
     fn resets(self) -> bool {
         matches!(
             self,
-            Op::CopySmall | Op::PasteSmall | Op::CopyLarge | Op::PasteLarge
+            Op::CopySmall | Op::PasteSmall | Op::CopyLarge | Op::PasteLarge | Op::IdleReset
         )
     }
 
@@ -303,6 +312,13 @@ pub fn record_phases(
 pub fn note_clipboard_write(bytes: usize) {
     CLIPBOARD_WRITES.fetch_add(1, Ordering::Relaxed);
     CLIPBOARD_BYTES.fetch_add(bytes as u64, Ordering::Relaxed);
+}
+
+pub fn record_paste_phases(read: Duration, apply: Duration, note: Duration) {
+    let to_ms = |d: Duration| d.as_secs_f64() * 1000.0;
+    push(&PASTE_READ, to_ms(read));
+    push(&PASTE_APPLY, to_ms(apply));
+    push(&PASTE_NOTE, to_ms(note));
 }
 
 pub fn spawn(window: &mut Window, shell: WeakEntity<Shell>, cx: &mut App) {
@@ -550,9 +566,9 @@ async fn run(
                                 _ => 0,
                             },
                             clip_bytes: match (before, after) {
-                                (Some(before), Some(after)) => after
-                                    .clipboard_bytes
-                                    .saturating_sub(before.clipboard_bytes),
+                                (Some(before), Some(after)) => {
+                                    after.clipboard_bytes.saturating_sub(before.clipboard_bytes)
+                                }
                                 _ => 0,
                             },
                         });
@@ -586,6 +602,9 @@ async fn run(
         let block_edit = BLOCK_EDIT_DUR.lock().unwrap_or_else(|e| e.into_inner());
         let stabilise = STABILISE_DUR.lock().unwrap_or_else(|e| e.into_inner());
         let caret = CARET_DUR.lock().unwrap_or_else(|e| e.into_inner());
+        let paste_read = PASTE_READ.lock().unwrap_or_else(|e| e.into_inner());
+        let paste_apply = PASTE_APPLY.lock().unwrap_or_else(|e| e.into_inner());
+        let paste_note = PASTE_NOTE.lock().unwrap_or_else(|e| e.into_inner());
         report(
             &samples.borrow(),
             &op_loop_ms.borrow(),
@@ -604,6 +623,9 @@ async fn run(
             &block_edit,
             &stabilise,
             &caret,
+            &paste_read,
+            &paste_apply,
+            &paste_note,
         );
     }
     wcx.background_executor().timer(FLUSH).await;
@@ -673,6 +695,9 @@ struct Spans<'a> {
     block_edit: &'a [Cost],
     stabilise: &'a [Cost],
     caret: &'a [Cost],
+    paste_read: &'a [Cost],
+    paste_apply: &'a [Cost],
+    paste_note: &'a [Cost],
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -694,6 +719,9 @@ fn report(
     block_edit: &[Cost],
     stabilise: &[Cost],
     caret: &[Cost],
+    paste_read: &[Cost],
+    paste_apply: &[Cost],
+    paste_note: &[Cost],
 ) {
     let spans = Spans {
         render,
@@ -711,6 +739,9 @@ fn report(
         block_edit,
         stabilise,
         caret,
+        paste_read,
+        paste_apply,
+        paste_note,
     };
 
     for (op_index, op) in OPS.iter().copied().enumerate() {
@@ -734,6 +765,9 @@ fn report(
         let mut block_edit_ms: Vec<f64> = Vec::new();
         let mut stabilise_ms: Vec<f64> = Vec::new();
         let mut caret_ms: Vec<f64> = Vec::new();
+        let mut paste_read_ms: Vec<f64> = Vec::new();
+        let mut paste_apply_ms: Vec<f64> = Vec::new();
+        let mut paste_note_ms: Vec<f64> = Vec::new();
         let mut moved = 0usize;
         let mut rebuilt = 0usize;
         let mut marks = 0usize;
@@ -799,6 +833,15 @@ fn report(
             if let Some(ms) = nth_at(spans.caret, sample.epoch, 0) {
                 caret_ms.push(ms);
             }
+            if let Some(ms) = nth_at(spans.paste_read, sample.epoch, 0) {
+                paste_read_ms.push(ms);
+            }
+            if let Some(ms) = nth_at(spans.paste_apply, sample.epoch, 0) {
+                paste_apply_ms.push(ms);
+            }
+            if let Some(ms) = nth_at(spans.paste_note, sample.epoch, 0) {
+                paste_note_ms.push(ms);
+            }
         }
 
         let reps = pickup.len();
@@ -833,6 +876,9 @@ fn report(
         push_stats(&mut line, "block_edit", &mut block_edit_ms);
         push_stats(&mut line, "stabilise", &mut stabilise_ms);
         push_stats(&mut line, "caret", &mut caret_ms);
+        push_stats(&mut line, "clip_read", &mut paste_read_ms);
+        push_stats(&mut line, "clip_apply", &mut paste_apply_ms);
+        push_stats(&mut line, "clip_note", &mut paste_note_ms);
         emit(&format!(
             "{line} frames={reps} marks={marks} status={}",
             status_ms.len()
