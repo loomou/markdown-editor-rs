@@ -28,7 +28,13 @@ impl EditorView {
         if md.is_empty() {
             return;
         }
+        #[cfg(feature = "bench-support")]
+        crate::interact_probe::note_clipboard_write(md.len());
+        #[cfg(feature = "bench-support")]
+        let write_started = std::time::Instant::now();
         cx.write_to_clipboard(ClipboardItem::new_string(md));
+        #[cfg(feature = "bench-support")]
+        crate::interact_probe::record_clip_write(write_started.elapsed());
     }
 
     pub(super) fn copy_well_source(&mut self, block: BlockId, cx: &mut Context<'_, Self>) {
@@ -82,19 +88,31 @@ impl EditorView {
     }
 
     pub(crate) fn paste(&mut self, cx: &mut Context<'_, Self>) {
+        #[cfg(feature = "bench-support")]
+        let read_started = std::time::Instant::now();
         let Some(text) = cx.read_from_clipboard().and_then(|it| it.text()) else {
             return;
         };
+        #[cfg(feature = "bench-support")]
+        let read = read_started.elapsed();
         if text.is_empty() {
             return;
         }
+        #[cfg(feature = "bench-support")]
+        let apply_started = std::time::Instant::now();
         let intent = if hosts_plain_text_paste(self.paste_host()) {
             PasteIntent::PlainText
         } else {
             PasteIntent::IndependentFragment
         };
         self.apply_cmd(Command::Paste { text, intent });
+        #[cfg(feature = "bench-support")]
+        let apply = apply_started.elapsed();
+        #[cfg(feature = "bench-support")]
+        let note_started = std::time::Instant::now();
         self.note_edit(cx);
+        #[cfg(feature = "bench-support")]
+        crate::interact_probe::record_paste_phases(read, apply, note_started.elapsed());
     }
 
     pub(crate) fn select_all(&mut self) {

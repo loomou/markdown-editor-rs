@@ -347,3 +347,210 @@ fn a_front_matter_registers_the_lang_its_marker_implies() {
         assert_eq!(*maps.block_code_lang, rebuilt(&doc).1, "{src:?}");
     }
 }
+
+fn sync_and_check(doc: &mut Doc, maps: &mut DocShapeMaps, label: &str) -> bool {
+    let images = std::rc::Rc::as_ptr(&maps.block_image_dest);
+    let langs = std::rc::Rc::as_ptr(&maps.block_code_lang);
+    maps.sync(doc);
+    let fresh = rebuilt(doc);
+    assert_eq!(
+        *maps.block_image_dest, fresh.0,
+        "{label}: the image table drifted from a full rebuild"
+    );
+    assert_eq!(
+        *maps.block_code_lang, fresh.1,
+        "{label}: the lang table drifted from a full rebuild"
+    );
+    images == std::rc::Rc::as_ptr(&maps.block_image_dest)
+        && langs == std::rc::Rc::as_ptr(&maps.block_code_lang)
+}
+
+fn replace_all(doc: &mut Doc, block: u32, text: &str) {
+    let n = doc.document.text_of(block).map(str::len).unwrap_or(0);
+    let _ = doc.apply(
+        Sel {
+            anchor: Caret { block, offset: 0 },
+            head: Caret { block, offset: n },
+        },
+        Command::Insert { text: text.into() },
+    );
+}
+
+fn break_at(doc: &mut Doc, block: u32, offset: usize) {
+    let _ = doc.apply(Sel::collapsed(Caret { block, offset }), Command::Break);
+}
+
+fn empty_block(doc: &mut Doc, block: u32) {
+    let n = doc.document.text_of(block).map(str::len).unwrap_or(0);
+    let _ = doc.apply(
+        Sel {
+            anchor: Caret { block, offset: 0 },
+            head: Caret { block, offset: n },
+        },
+        Command::DeleteBackward,
+    );
+    let _ = doc.apply(
+        Sel::collapsed(Caret { block, offset: 0 }),
+        Command::DeleteBackward,
+    );
+}
+
+#[test]
+fn opening_a_fence_folds_into_the_tables() {
+    let (mut doc, mut maps) = synced("head\n\n```rust\nlet a = 1;\n```\n\ntail\n");
+    let tail = doc
+        .document
+        .text_leaves()
+        .last()
+        .copied()
+        .expect("a tail paragraph");
+
+    replace_all(&mut doc, tail, "```python");
+    break_at(&mut doc, tail, 9);
+    assert_eq!(doc.document.kind(tail), Some(BlockKind::CodeBlock));
+
+    assert!(
+        sync_and_check(&mut doc, &mut maps, "open a fence"),
+        "opening a fence must fold into the tables instead of rebuilding them"
+    );
+    assert_eq!(
+        maps.block_code_lang.get(&tail).map(String::as_str),
+        Some("python")
+    );
+}
+
+#[test]
+fn deleting_a_fence_folds_and_drops_its_lang() {
+    let (mut doc, mut maps) = synced("head\n\n```rust\nlet a = 1;\n```\n\ntail\n");
+    let code = first_of(&doc, BlockKind::CodeBlock);
+    assert_eq!(
+        maps.block_code_lang.get(&code).map(String::as_str),
+        Some("rust")
+    );
+
+    empty_block(&mut doc, code);
+    assert_eq!(doc.document.kind(code), Some(BlockKind::Paragraph));
+
+    assert!(
+        sync_and_check(&mut doc, &mut maps, "delete a fence"),
+        "deleting a fence must fold into the tables instead of rebuilding them"
+    );
+    assert!(
+        !maps.block_code_lang.contains_key(&code),
+        "the emptied slot must not keep its lang"
+    );
+}
+
+#[test]
+fn undo_and_redo_fold_the_tables_back_and_forth() {
+    let (mut doc, mut maps) =
+        synced("head\n\n```rust\nlet a = 1;\n```\n\n![solo](https://i/2.png)\n");
+    let code = first_of(&doc, BlockKind::CodeBlock);
+    assert_eq!(
+        maps.block_code_lang.get(&code).map(String::as_str),
+        Some("rust")
+    );
+
+    empty_block(&mut doc, code);
+    assert!(sync_and_check(&mut doc, &mut maps, "delete a fence"));
+    assert!(!maps.block_code_lang.contains_key(&code));
+
+    let mut steps = 0;
+    while doc.document.kind(code) != Some(BlockKind::CodeBlock) {
+        assert!(doc.undo().is_some(), "the emptied fence must be undoable");
+        steps += 1;
+        assert!(steps <= 4, "undo never restored the fence");
+    }
+    assert!(
+        sync_and_check(&mut doc, &mut maps, "undo the delete"),
+        "undo must fold the re-inserted fence back in instead of rebuilding"
+    );
+    assert_eq!(
+        maps.block_code_lang.get(&code).map(String::as_str),
+        Some("rust"),
+        "undo must bring the fence's lang back"
+    );
+
+    for _ in 0..steps {
+        assert!(doc.redo().is_some(), "the delete must be redoable");
+    }
+    assert!(sync_and_check(&mut doc, &mut maps, "redo the delete"));
+    assert_eq!(doc.document.kind(code), Some(BlockKind::Paragraph));
+    assert!(!maps.block_code_lang.contains_key(&code));
+}
+
+#[test]
+fn renaming_a_fence_language_folds_the_new_lang_in() {
+    let (mut doc, mut maps) = synced("```rust\nlet a = 1;\n```\n\ntail\n");
+    let code = first_of(&doc, BlockKind::CodeBlock);
+    assert_eq!(
+        maps.block_code_lang.get(&code).map(String::as_str),
+        Some("rust")
+    );
+
+    let _ = doc.apply(
+        Sel::collapsed(Caret {
+            block: code,
+            offset: 0,
+        }),
+        Command::SetFenceLang {
+            block: code,
+            lang: "python".into(),
+        },
+    );
+    assert!(
+        sync_and_check(&mut doc, &mut maps, "rename the fence language"),
+        "an attrs-only change must fold into the tables instead of rebuilding them"
+    );
+    assert_eq!(
+        maps.block_code_lang.get(&code).map(String::as_str),
+        Some("python"),
+        "the fence must highlight as its new language"
+    );
+
+    let _ = doc.apply(
+        Sel::collapsed(Caret {
+            block: code,
+            offset: 0,
+        }),
+        Command::SetFenceLang {
+            block: code,
+            lang: String::new(),
+        },
+    );
+    assert!(sync_and_check(
+        &mut doc,
+        &mut maps,
+        "clear the fence language"
+    ));
+    assert_eq!(
+        maps.block_code_lang.get(&code).map(String::as_str),
+        Some(""),
+        "a fence with no info string must still be listed"
+    );
+}
+
+#[test]
+fn a_log_another_consumer_took_falls_back_to_a_full_rebuild() {
+    let (mut doc, mut maps) = synced("head\n\ntail\n");
+    let tail = doc
+        .document
+        .text_leaves()
+        .last()
+        .copied()
+        .expect("a tail paragraph");
+
+    replace_all(&mut doc, tail, "```python");
+    break_at(&mut doc, tail, 9);
+    let _ = doc.take_changes();
+
+    let folded = sync_and_check(&mut doc, &mut maps, "after a consumed log");
+    assert!(
+        !folded,
+        "a log another consumer already took must force a full rebuild"
+    );
+    assert!(
+        maps.block_code_lang.values().any(|l| l == "python"),
+        "the rebuild must still pick up the new fence"
+    );
+}

@@ -7,6 +7,7 @@ use gpui::{
     Stateful, StatefulInteractiveElement, Styled, Window, div, px, svg,
 };
 use md_core::doc::{Cursor, Doc, floor_char_boundary};
+use md_core::document::{ChangeSet, DocChange, NodeId};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct StatusCounts {
@@ -16,10 +17,176 @@ pub(super) struct StatusCounts {
     pub(super) chars: usize,
 }
 
+#[cfg(test)]
+std::thread_local! {
+    pub(super) static LEAF_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(super) static RECOUNTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(super) fn leaf_visits() -> usize {
+    LEAF_VISITS.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+pub(super) fn recounts() -> usize {
+    RECOUNTS.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+pub(super) fn reset_leaf_visits() {
+    LEAF_VISITS.with(|visits| visits.set(0));
+    RECOUNTS.with(|count| count.set(0));
+}
+
+fn note_leaf_visit() {
+    #[cfg(test)]
+    LEAF_VISITS.with(|visits| visits.set(visits.get() + 1));
+}
+
+fn count_text(text: &str) -> (usize, usize) {
+    (text.split_whitespace().count(), text.chars().count())
+}
+
+#[derive(Default)]
+struct LeafCounts {
+    words: Vec<u32>,
+    chars: Vec<u32>,
+    generation: Vec<u32>,
+    total_words: usize,
+    total_chars: usize,
+}
+
+impl LeafCounts {
+    fn totals(&self) -> (usize, usize) {
+        (self.total_words, self.total_chars)
+    }
+
+    fn cached(&self, node: NodeId) -> Option<(usize, usize)> {
+        let slot = node.index as usize;
+        if self.generation.get(slot).copied() != Some(node.generation.get()) {
+            return None;
+        }
+        Some((self.words[slot] as usize, self.chars[slot] as usize))
+    }
+
+    fn store(&mut self, node: NodeId, words: usize, chars: usize) {
+        let slot = node.index as usize;
+        if self.generation.len() <= slot {
+            self.words.resize(slot + 1, 0);
+            self.chars.resize(slot + 1, 0);
+            self.generation.resize(slot + 1, 0);
+        }
+        self.words[slot] = words as u32;
+        self.chars[slot] = chars as u32;
+        self.generation[slot] = node.generation.get();
+    }
+
+    fn adopt(&mut self, node: NodeId, words: usize, chars: usize) {
+        let (old_words, old_chars) = self.cached(node).unwrap_or((0, 0));
+        self.store(node, words, chars);
+        self.total_words = self.total_words + words - old_words;
+        self.total_chars = self.total_chars + chars - old_chars;
+    }
+
+    fn recount(&mut self, doc: &Doc) {
+        #[cfg(test)]
+        {
+            RECOUNTS.with(|count| count.set(count.get() + 1));
+        }
+        self.words.clear();
+        self.chars.clear();
+        self.generation.clear();
+        self.total_words = 0;
+        self.total_chars = 0;
+        self.adopt_subtree(doc, doc.document.root);
+    }
+
+    fn adopt_subtree(&mut self, doc: &Doc, root: NodeId) -> bool {
+        let arena = &doc.document.arena;
+        if arena.get(root).is_none() {
+            return false;
+        }
+        let mut stack = vec![root];
+        while let Some(id) = stack.pop() {
+            let Some(node) = arena.get(id) else {
+                continue;
+            };
+            if node.kind.is_text_leaf() {
+                note_leaf_visit();
+                let (words, chars) = count_text(doc.document.display(id));
+                self.adopt(id, words, chars);
+            }
+            let mut child = node.last_child;
+            while let Some(c) = child {
+                stack.push(c);
+                child = arena.get(c).and_then(|n| n.prev_sibling);
+            }
+        }
+        true
+    }
+
+    fn forget(&mut self, node: NodeId) -> bool {
+        let Some((words, chars)) = self.cached(node) else {
+            return false;
+        };
+        self.total_words -= words;
+        self.total_chars -= chars;
+        self.store(node, 0, 0);
+        true
+    }
+
+    fn fold(&mut self, doc: &Doc, pending: &ChangeSet) -> bool {
+        let mut forgotten: Vec<u32> = Vec::new();
+        for change in &pending.changes {
+            match change {
+                DocChange::TreeSpliced { removed, .. } => {
+                    for node in removed {
+                        if !self.forget(*node) {
+                            return false;
+                        }
+                        forgotten.push(node.index);
+                    }
+                }
+                DocChange::DocumentReplaced
+                | DocChange::AttrsChanged { .. }
+                | DocChange::ReferenceDefsChanged { .. } => return false,
+                _ => {}
+            }
+        }
+        for change in &pending.changes {
+            match change {
+                DocChange::TextChanged { node, .. } => {
+                    if doc.document.arena.get(*node).is_none() {
+                        if !forgotten.contains(&node.index) {
+                            return false;
+                        }
+                        continue;
+                    }
+                    if !self.adopt_subtree(doc, *node) {
+                        return false;
+                    }
+                }
+                DocChange::TreeSpliced { inserted, .. } => {
+                    for node in inserted {
+                        if !self.adopt_subtree(doc, *node) {
+                            return false;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        true
+    }
+}
+
 pub(super) struct StatusCache {
     identity: u64,
     revision: u64,
     cursor: Cursor,
+    folded: u64,
+    leaves: LeafCounts,
     pub(super) counts: StatusCounts,
 }
 
@@ -32,6 +199,8 @@ impl Default for StatusCache {
                 block: 0,
                 offset: 0,
             },
+            folded: u64::MAX,
+            leaves: LeafCounts::default(),
             counts: StatusCounts {
                 line: 1,
                 column: 1,
@@ -43,27 +212,19 @@ impl Default for StatusCache {
 }
 
 impl StatusCache {
-    pub(super) fn refresh_with(
-        &mut self,
-        identity: u64,
-        revision: u64,
-        cursor: Cursor,
-        full: impl FnOnce() -> StatusCounts,
-        line_col: impl FnOnce() -> (usize, usize),
-    ) -> StatusCounts {
+    pub(super) fn get(&mut self, doc: &Doc, cursor: Cursor) -> StatusCounts {
+        let identity = doc.identity();
+        let revision = doc.document.revision();
         if self.identity == identity && self.revision == revision && self.cursor == cursor {
             return self.counts;
         }
-        let counts = if self.identity == identity && self.revision == revision {
-            let (line, column) = line_col();
-            StatusCounts {
-                line,
-                column,
-                words: self.counts.words,
-                chars: self.counts.chars,
-            }
-        } else {
-            full()
+        let (words, chars) = self.totals(doc, identity, revision);
+        let (line, column) = status_line_column(doc, cursor);
+        let counts = StatusCounts {
+            line,
+            column,
+            words,
+            chars,
         };
         self.identity = identity;
         self.revision = revision;
@@ -72,14 +233,23 @@ impl StatusCache {
         counts
     }
 
-    pub(super) fn get(&mut self, doc: &Doc, cursor: Cursor) -> StatusCounts {
-        self.refresh_with(
-            doc.identity(),
-            doc.document.revision(),
-            cursor,
-            || status_counts(doc, cursor),
-            || status_line_column(doc, cursor),
-        )
+    fn totals(&mut self, doc: &Doc, identity: u64, revision: u64) -> (usize, usize) {
+        if self.identity != identity {
+            self.leaves.recount(doc);
+            self.folded = revision;
+            return self.leaves.totals();
+        }
+        if self.revision != revision {
+            let pending = doc.document.pending_changes();
+            let folded = pending.before_revision == self.folded
+                && pending.after_revision == revision
+                && self.leaves.fold(doc, pending);
+            if !folded {
+                self.leaves.recount(doc);
+            }
+            self.folded = revision;
+        }
+        self.leaves.totals()
     }
 }
 
@@ -108,6 +278,7 @@ pub(super) fn status_line_column(doc: &Doc, cursor: Cursor) -> (usize, usize) {
     (line, column)
 }
 
+#[cfg(test)]
 pub(super) fn status_counts(doc: &Doc, cursor: Cursor) -> StatusCounts {
     let (before, column) = caret_prefix_and_column(doc, cursor);
     let mut line = 1;

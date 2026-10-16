@@ -79,6 +79,7 @@ pub struct DocumentArena {
     frozen: HashMap<u32, Node>,
     retained: Vec<u32>,
     free_list: Vec<u32>,
+    structure_epoch: u64,
 }
 
 impl DocumentArena {
@@ -93,6 +94,7 @@ impl DocumentArena {
             frozen: HashMap::new(),
             retained: vec![0],
             free_list: Vec::new(),
+            structure_epoch: 0,
         }
     }
 
@@ -191,6 +193,14 @@ impl Default for DocumentArena {
 }
 
 impl DocumentArena {
+    pub(crate) fn structure_epoch(&self) -> u64 {
+        self.structure_epoch
+    }
+
+    pub(crate) fn slot_count(&self) -> usize {
+        self.slots.len()
+    }
+
     pub fn live_count(&self) -> usize {
         self.slots.iter().skip(1).filter(|s| s.live).count()
     }
@@ -205,6 +215,7 @@ impl DocumentArena {
     }
 
     pub(crate) fn alloc(&mut self, kind: BlockKind) -> NodeId {
+        self.structure_epoch += 1;
         if let Some(index) = self.free_list.pop() {
             let slot = &mut self.slots[index as usize];
             slot.generation += 1;
@@ -240,6 +251,7 @@ impl DocumentArena {
         if !slot.live || slot.generation != id.generation.get() {
             return;
         }
+        self.structure_epoch += 1;
         self.freeze(id.index, false);
         self.slots[id.index as usize].live = false;
     }
@@ -287,11 +299,14 @@ impl DocumentArena {
         if let Some(frozen) = self.frozen.remove(&index) {
             self.slots[index as usize].node = frozen;
         }
-        let slot = &mut self.slots[index as usize];
-        slot.node.parent = None;
-        slot.node.prev_sibling = None;
-        slot.node.next_sibling = None;
-        slot.live = true;
+        {
+            let slot = &mut self.slots[index as usize];
+            slot.node.parent = None;
+            slot.node.prev_sibling = None;
+            slot.node.next_sibling = None;
+            slot.live = true;
+        }
+        self.structure_epoch += 1;
         true
     }
 
@@ -339,6 +354,7 @@ impl DocumentArena {
         let parent = node.parent;
         let prev = node.prev_sibling;
         let next = node.next_sibling;
+        self.structure_epoch += 1;
         if let Some(p) = parent
             && let Some(pn) = self.get_mut(p)
         {
@@ -380,6 +396,7 @@ impl DocumentArena {
             return false;
         }
 
+        self.structure_epoch += 1;
         self.detach(child);
         let next = match after {
             Some(prev) => self.get(prev).and_then(|n| n.next_sibling),

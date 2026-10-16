@@ -309,3 +309,94 @@ fn dead_block_falls_back_to_slot_order() {
     );
     assert_eq!(doc.cmp_reading_order(dead, dead), std::cmp::Ordering::Equal);
 }
+
+fn check_against_preorder(doc: &Document, step: &str) {
+    let order = doc.preorder();
+    for (i, &a) in order.iter().enumerate() {
+        for (j, &b) in order.iter().enumerate() {
+            assert_eq!(
+                doc.cmp_reading_order(a.index, b.index),
+                i.cmp(&j),
+                "{step}: the nodes at preorder {i} and {j}"
+            );
+        }
+    }
+}
+
+#[test]
+fn reading_order_matches_preorder_through_edits() {
+    use crate::document::{Caret, Command, Sel, apply};
+
+    let mut doc =
+        doc_of("# head\n\nfirst\n\n- a\n  - b\n\n> quote\n\nsecond\n\n```\ncode\n```\n\ntail\n");
+    check_against_preorder(&doc, "loaded");
+
+    let edits = [
+        Command::Insert { text: "x".into() },
+        Command::Break,
+        Command::DeleteBackward,
+        Command::Indent,
+        Command::Outdent,
+        Command::WrapList {
+            ordered: true,
+            task: None,
+        },
+    ];
+    for (step, cmd) in edits.into_iter().enumerate() {
+        let leaves = doc.text_leaves();
+        let block = leaves[leaves.len() / 2];
+        let offset = doc.text_of(block).map(str::len).unwrap_or(0);
+        apply(&mut doc, Sel::collapsed(Caret { block, offset }), cmd);
+        check_against_preorder(&doc, &format!("edit {step}"));
+    }
+}
+
+#[test]
+fn a_text_edit_keeps_the_order_index_and_a_structural_edit_rebuilds_it() {
+    use crate::document::order::{rebuilds, reset_rebuilds};
+    use crate::document::{Caret, Command, Sel, apply};
+
+    let mut doc = doc_of("one\n\ntwo\n\nthree\n");
+    reset_rebuilds();
+
+    let first = doc.first_text_leaf().expect("leaf");
+    let last = *doc.text_leaves().last().expect("leaf");
+    assert_eq!(doc.cmp_reading_order(first, last), std::cmp::Ordering::Less);
+    assert_eq!(
+        doc.cmp_reading_order(last, first),
+        std::cmp::Ordering::Greater
+    );
+    assert_eq!(rebuilds(), 1, "the first comparison builds the rank once");
+
+    let epoch = doc.arena.structure_epoch();
+    apply(
+        &mut doc,
+        Sel::collapsed(Caret {
+            block: first,
+            offset: 0,
+        }),
+        Command::Insert { text: "x".into() },
+    );
+    assert_eq!(
+        doc.arena.structure_epoch(),
+        epoch,
+        "a text edit must not invalidate the rank"
+    );
+    assert_eq!(doc.cmp_reading_order(first, last), std::cmp::Ordering::Less);
+    assert_eq!(rebuilds(), 1, "a text edit must not rebuild the rank");
+
+    apply(
+        &mut doc,
+        Sel::collapsed(Caret {
+            block: first,
+            offset: 1,
+        }),
+        Command::Break,
+    );
+    assert!(
+        doc.arena.structure_epoch() > epoch,
+        "a structural edit must invalidate the rank"
+    );
+    assert_eq!(doc.cmp_reading_order(first, last), std::cmp::Ordering::Less);
+    assert_eq!(rebuilds(), 2, "the structural edit rebuilds the rank once");
+}

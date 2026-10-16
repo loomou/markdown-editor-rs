@@ -115,10 +115,10 @@ pub fn sync_layout(
             DocChange::AttrsChanged { node, .. } => patch_attrs(tree, doc, *node, theme),
             DocChange::TreeSpliced {
                 parent,
+                before,
                 removed,
                 inserted,
-                ..
-            } => splice_nodes(tree, doc, *parent, removed, inserted, theme),
+            } => splice_nodes(tree, doc, *parent, *before, removed, inserted, theme),
             DocChange::DocumentReplaced => {}
             DocChange::ReferenceDefsChanged { .. } | DocChange::TableAlignOverflow { .. } => {}
         }
@@ -212,8 +212,8 @@ fn retarget_descendant_slots(tree: &mut BoxTree, doc: &Document, id: NodeId, the
 fn retarget_lead_top_margins(
     tree: &mut BoxTree,
     doc: &Document,
-    parent: NodeId,
     parent_kind: BlockKind,
+    touched: &[NodeId],
     theme: &LayoutTheme,
 ) {
     if !matches!(
@@ -225,8 +225,10 @@ fn retarget_lead_top_margins(
     ) {
         return;
     }
-    let kids: Vec<NodeId> = doc.arena.children(parent).collect();
-    for c in kids {
+    for &c in touched {
+        if doc.arena.get(c).is_none() {
+            continue;
+        }
         let kind = doc
             .arena
             .get(c)
@@ -360,6 +362,7 @@ fn splice_nodes(
     tree: &mut BoxTree,
     doc: &Document,
     parent: NodeId,
+    before: Option<NodeId>,
     removed: &[NodeId],
     inserted: &[NodeId],
     theme: &LayoutTheme,
@@ -383,6 +386,10 @@ fn splice_nodes(
         refresh_deferred_estimate(tree, doc, theme, parent);
         return;
     };
+    let fresh = !inserted
+        .iter()
+        .any(|n| !removed.contains(n) && box_already_under(tree, doc, *n, parent_box));
+    let mut new_ids: Vec<LayoutBoxId> = Vec::new();
     for n in inserted {
         if doc.arena.get(*n).is_none() {
             continue;
@@ -396,6 +403,7 @@ fn splice_nodes(
             &mut tree.styles,
             &mut tree.intern,
         );
+        new_ids.push(cid);
         emit_preview(
             doc,
             *n,
@@ -406,7 +414,104 @@ fn splice_nodes(
             &mut tree.styles,
             &mut tree.intern,
         );
+        let preview = LayoutBoxId::preview(n.index);
+        if tree.nodes.contains_key(&preview) {
+            new_ids.push(preview);
+        }
     }
+    let touched = if fresh
+        && let Some(window) = splice_child_list(tree, doc, parent_box, before, removed, new_ids)
+    {
+        let lead = doc.arena.get(parent).and_then(|n| n.first_child);
+        let mut touched: Vec<NodeId> = Vec::with_capacity(3);
+        for id in [window.lead, window.successor, lead].into_iter().flatten() {
+            if !touched.contains(&id) {
+                touched.push(id);
+            }
+        }
+        touched
+    } else {
+        rebuild_child_list(tree, doc, parent, parent_box);
+        doc.arena.children(parent).collect()
+    };
+    retarget_lead_top_margins(tree, doc, parent_kind, &touched, theme);
+    if parent_kind == BlockKind::List {
+        apply_list_metrics(
+            doc,
+            parent,
+            parent_box,
+            theme,
+            &mut tree.nodes,
+            &mut tree.styles,
+        );
+    }
+}
+
+struct ChildWindow {
+    lead: Option<NodeId>,
+    successor: Option<NodeId>,
+}
+
+fn box_already_under(
+    tree: &BoxTree,
+    doc: &Document,
+    node: NodeId,
+    parent_box: LayoutBoxId,
+) -> bool {
+    let Some(n) = doc.arena.get(node) else {
+        return false;
+    };
+    let bid = LayoutBoxId::for_kind(n.kind, node.index);
+    tree.nodes
+        .get(&bid)
+        .is_some_and(|b| b.parent == Some(parent_box))
+}
+
+fn live_block(doc: &Document, id: LayoutBoxId) -> Option<NodeId> {
+    match id.owner {
+        BoxOwner::Block(index) => doc.live_id(index),
+        BoxOwner::DocStart => None,
+    }
+}
+
+fn splice_child_list(
+    tree: &mut BoxTree,
+    doc: &Document,
+    parent_box: LayoutBoxId,
+    before: Option<NodeId>,
+    removed: &[NodeId],
+    new_ids: Vec<LayoutBoxId>,
+) -> Option<ChildWindow> {
+    let node = tree.nodes.get_mut(&parent_box)?;
+    let kids = match &mut node.children {
+        BoxChildren::Vertical(k) | BoxChildren::Island(k) => k,
+        BoxChildren::None => return None,
+    };
+    let start = match before {
+        None => 0,
+        Some(b) => {
+            kids.iter()
+                .rposition(|id| id.owner == BoxOwner::Block(b.index))?
+                + 1
+        }
+    };
+    let mut end = start;
+    while let Some(id) = kids.get(end) {
+        match id.owner {
+            BoxOwner::Block(index) if removed.iter().any(|r| r.index == index) => end += 1,
+            _ => break,
+        }
+    }
+    if !removed.is_empty() && end == start {
+        return None;
+    }
+    let lead = kids.first().and_then(|id| live_block(doc, *id));
+    let successor = kids.get(end).and_then(|id| live_block(doc, *id));
+    kids.splice(start..end, new_ids);
+    Some(ChildWindow { lead, successor })
+}
+
+fn rebuild_child_list(tree: &mut BoxTree, doc: &Document, parent: NodeId, parent_box: LayoutBoxId) {
     let mut child_ids: Vec<LayoutBoxId> = Vec::new();
     for c in doc.arena.children(parent) {
         let kind = doc
@@ -441,16 +546,5 @@ fn splice_nodes(
                 child_ids.len()
             );
         };
-    }
-    retarget_lead_top_margins(tree, doc, parent, parent_kind, theme);
-    if parent_kind == BlockKind::List {
-        apply_list_metrics(
-            doc,
-            parent,
-            parent_box,
-            theme,
-            &mut tree.nodes,
-            &mut tree.styles,
-        );
     }
 }

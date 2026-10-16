@@ -78,6 +78,10 @@ struct BuildTimings {
     engine: Duration,
     assemble: Duration,
     geometry: Duration,
+    #[cfg(feature = "bench-support")]
+    changes: Duration,
+    #[cfg(feature = "bench-support")]
+    block_edit: Duration,
 }
 
 impl EditorElement {
@@ -121,6 +125,8 @@ impl EditorElement {
         let reading_scroll = self.apply_reading_scroll(scroll, viewport.1, cx);
         let scroll = reading_scroll.unwrap_or(scroll);
 
+        #[cfg(feature = "bench-support")]
+        let t_build0 = std::time::Instant::now();
         let (mut frame, timings) = self.build_frame(
             FrameBuild {
                 env,
@@ -137,10 +143,22 @@ impl EditorElement {
             },
             cx,
         );
+        #[cfg(feature = "bench-support")]
+        crate::interact_probe::record_build(
+            t_prepaint_start,
+            t_build0,
+            timings.engine,
+            timings.assemble,
+            timings.geometry,
+        );
         shape_cache.end_frame();
 
         self.inject_geometry_fault(&mut frame, cx);
+        #[cfg(feature = "bench-support")]
+        let t_stab0 = std::time::Instant::now();
         self.stabilise_frame(&mut frame, bounds, scale, env, cx);
+        #[cfg(feature = "bench-support")]
+        let stabilise = t_stab0.elapsed();
 
         let gear = FrameGear {
             env,
@@ -155,12 +173,18 @@ impl EditorElement {
             caret_ly: frame.caret_logical_y,
         };
 
+        #[cfg(feature = "bench-support")]
+        let t_caret0 = std::time::Instant::now();
         self.clamp_well_scrolls(&frame, cx);
         self.follow_caret(&frame, gear, cx);
         self.park_caret_at_top(&frame, gear, cx);
         self.reveal_search_match(&frame, gear, cx);
         self.tick_search_refresh(cx);
         self.apply_pending_input(&frame, gear, cx);
+        #[cfg(feature = "bench-support")]
+        let caret = t_caret0.elapsed();
+        #[cfg(feature = "bench-support")]
+        crate::interact_probe::record_phases(timings.changes, timings.block_edit, stabilise, caret);
         if let Some(target) = reading_scroll {
             let bottom = (frame.total_height - viewport.1).max(0.0);
             let total = frame.total_height;
@@ -190,6 +214,10 @@ impl EditorElement {
             });
         }
         self.record_frame_stats(&frame, t_prepaint_start, cx);
+        #[cfg(feature = "bench-support")]
+        crate::interact_probe::mark_prepaint_start(t_prepaint_start);
+        #[cfg(feature = "bench-support")]
+        crate::interact_probe::mark_prepaint_end();
 
         let caret_on = self.state.update(cx, |v, _| {
             let focused = v.focus.is_focused(&*window);
@@ -346,10 +374,18 @@ impl EditorElement {
             }
             engine.set_table_col_tracks(&v.table_ui.col_widths);
 
+            #[cfg(feature = "bench-support")]
+            let t_chg0 = std::time::Instant::now();
             let changes = v.state.doc.take_changes();
             if !changes.is_empty() {
                 engine.apply_changes(&v.state.doc.document, &changes);
             }
+            #[cfg(feature = "bench-support")]
+            {
+                t.changes = t_chg0.elapsed();
+            }
+            #[cfg(feature = "bench-support")]
+            let t_be0 = std::time::Instant::now();
             scroll = engine.sync_block_edit_retain_y(
                 &v.state.doc.document,
                 cursor.block,
@@ -357,6 +393,10 @@ impl EditorElement {
                 shaper,
                 solver,
             );
+            #[cfg(feature = "bench-support")]
+            {
+                t.block_edit = t_be0.elapsed();
+            }
             scroll = scroll.clamp(0.0, (engine.total_height() - viewport.1).max(0.0));
             v.state.scroll = scroll;
 

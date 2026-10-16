@@ -198,7 +198,7 @@ impl Shell {
         &self.find
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "bench-support"))]
     pub(crate) fn editor(&self) -> &Entity<EditorView> {
         &self.editor
     }
@@ -327,6 +327,8 @@ impl Shell {
 
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+        #[cfg(feature = "bench-support")]
+        crate::interact_probe::mark_frame_start();
         let t = self.theme();
         let this = cx.entity();
         let editor = self.editor.read(cx);
@@ -336,10 +338,14 @@ impl Render for Shell {
         let status = if self.show_settings {
             None
         } else {
-            Some(
-                self.status_cache
-                    .get(&editor.state.doc, editor.state.cursor),
-            )
+            #[cfg(feature = "bench-support")]
+            let started = std::time::Instant::now();
+            let counts = self
+                .status_cache
+                .get(&editor.state.doc, editor.state.cursor);
+            #[cfg(feature = "bench-support")]
+            crate::interact_probe::record_status(started.elapsed().as_secs_f64() * 1000.0);
+            Some(counts)
         };
         if show_outline {
             let switched = self.outline_cache.get(&editor.state.doc);
@@ -369,7 +375,7 @@ impl Render for Shell {
             }
         }
 
-        div()
+        let root = div()
             .relative()
             .size_full()
             .flex()
@@ -466,7 +472,10 @@ impl Render for Shell {
             .children(self.unsaved_overlay(t, this.clone(), editor))
             .children(editor.insert_table.clone())
             .children(editor.code_lang.clone())
-            .children(self.save_conflict_overlay(t, this, editor))
+            .children(self.save_conflict_overlay(t, this, editor));
+        #[cfg(feature = "bench-support")]
+        crate::interact_probe::mark_render_end();
+        root
     }
 }
 
