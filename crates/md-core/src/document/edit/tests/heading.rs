@@ -110,6 +110,84 @@ fn heading_enter_still_splits() {
 }
 
 #[test]
+fn heading_break_at_the_head_carries_the_marker_down() {
+    let mut doc = load_markdown("# title\n\nbody\n", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let head = doc.live_id(leaf).expect("live");
+    let out = apply(&mut doc, Sel::collapsed(caret(leaf, 0)), Command::Break);
+    assert_ne!(out.block, leaf);
+    assert_eq!(out.offset, 0);
+    assert_eq!(doc.kind(leaf), Some(BlockKind::Paragraph));
+    assert_eq!(doc.leaf_source(head), "");
+    let tail = doc.live_id(out.block).expect("live");
+    assert_eq!(doc.kind(out.block), Some(BlockKind::Heading(1)));
+    assert_eq!(doc.leaf_source(tail), "# title");
+    assert_eq!(doc.collapsed_text_of(out.block).unwrap(), "title");
+    assert_eq!(doc.to_markdown(), "\n\n# title\n\nbody");
+}
+
+#[test]
+fn heading_break_at_the_head_keeps_the_level() {
+    let mut doc = load_markdown("### title\n", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let out = apply(&mut doc, Sel::collapsed(caret(leaf, 0)), Command::Break);
+    assert_eq!(doc.kind(leaf), Some(BlockKind::Paragraph));
+    assert_eq!(doc.kind(out.block), Some(BlockKind::Heading(3)));
+    assert_eq!(
+        doc.leaf_source(doc.live_id(out.block).expect("live")),
+        "### title"
+    );
+    assert_eq!(doc.to_markdown(), "\n\n### title");
+}
+
+#[test]
+fn heading_break_at_the_head_keeps_the_inline_marks() {
+    let mut doc = load_markdown("# **bold** x\n\nbody\n", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let out = apply(&mut doc, Sel::collapsed(caret(leaf, 0)), Command::Break);
+    let tail = doc.live_id(out.block).expect("live");
+    assert_eq!(doc.kind(out.block), Some(BlockKind::Heading(1)));
+    assert_eq!(doc.collapsed_text_of(out.block).unwrap(), "bold x");
+    assert!(
+        doc.collapsed_runs(tail)
+            .iter()
+            .any(|run| run.marks.contains(InlineMarks::STRONG)),
+        "the tail lost its strong run: {:?}",
+        doc.collapsed_runs(tail)
+    );
+    assert_eq!(doc.to_markdown(), "\n\n# **bold** x\n\nbody");
+}
+
+#[test]
+fn setext_heading_break_at_the_head_keeps_the_underline_with_the_text() {
+    let mut doc = load_markdown("title\n=====\n\nbody\n", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let head = doc.live_id(leaf).expect("live");
+    let out = apply(&mut doc, Sel::collapsed(caret(leaf, 0)), Command::Break);
+    assert_eq!(doc.kind(leaf), Some(BlockKind::Paragraph));
+    assert_eq!(doc.leaf_source(head), "");
+    let tail = doc.live_id(out.block).expect("live");
+    assert_eq!(doc.kind(out.block), Some(BlockKind::Heading(1)));
+    assert_eq!(doc.leaf_source(tail), "title\n=====");
+    assert_eq!(doc.to_markdown(), "\n\ntitle\n=====\n\nbody");
+    let reparsed = load_markdown(&doc.to_markdown(), editor_options());
+    assert_eq!(
+        reparsed.kind(reparsed.text_leaves()[1]),
+        Some(BlockKind::Heading(1))
+    );
+}
+
+#[test]
+fn empty_heading_break_at_the_head_leaves_the_heading_above() {
+    let mut doc = load_markdown("# \n\nbody\n", editor_options());
+    let leaf = doc.text_leaves()[0];
+    let out = apply(&mut doc, Sel::collapsed(caret(leaf, 0)), Command::Break);
+    assert_eq!(doc.kind(leaf), Some(BlockKind::Heading(1)));
+    assert_eq!(doc.kind(out.block), Some(BlockKind::Paragraph));
+    assert_eq!(doc.to_markdown(), "# \n\n\n\nbody");
+}
+
+#[test]
 fn heading_backspace_at_start_demotes() {
     let mut doc = load_markdown("", editor_options());
     let leaf = doc.text_leaves()[0];
