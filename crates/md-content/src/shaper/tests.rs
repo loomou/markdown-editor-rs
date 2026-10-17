@@ -205,3 +205,40 @@ fn fallback_multiline_text_retains_every_character(cx: &mut gpui::TestAppContext
         assert_eq!(line.text.as_ref(), "$\\notacommand second$");
     });
 }
+
+fn shape_media() -> super::ShapeMedia {
+    use std::collections::{HashMap, HashSet};
+    use std::rc::Rc;
+    super::ShapeMedia {
+        mermaid_fitted: Rc::new(HashMap::new()),
+        math_metrics: Rc::new(crate::math::MathMetrics::default()),
+        math_gen: 0,
+        image_sizes: Rc::new(HashMap::new()),
+        image_failed: Rc::new(HashSet::new()),
+        image_gen: 0,
+        link_dests: Rc::new(HashMap::new()),
+        link_raw: Rc::new(HashMap::new()),
+        block_image_dest: Rc::new(HashMap::new()),
+        block_code_lang: Rc::new(HashMap::new()),
+    }
+}
+
+#[gpui::test]
+fn a_completed_task_item_is_not_struck_through(cx: &mut gpui::TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let theme = DocumentTheme::one_dark();
+        let shaper = super::GpuiShaper::new(
+            window,
+            app,
+            &theme,
+            1.0,
+            super::ShapeCache::new(),
+            shape_media(),
+        );
+        assert!(
+            shaper.roles.task_done.strikethrough.is_none(),
+            "a checked task item keeps its text unlined"
+        );
+    });
+}
