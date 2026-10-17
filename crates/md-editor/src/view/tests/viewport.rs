@@ -62,6 +62,44 @@ fn caret_is_visible(caret: Option<DeviceRect>) -> bool {
 }
 
 #[gpui::test]
+fn enter_at_the_bottom_edge_keeps_the_caret_inside_the_frame_it_builds(cx: &mut TestAppContext) {
+    let mut md = String::new();
+    for i in 0..40 {
+        md.push_str(&format!("para {i}: {}\n\n", "word ".repeat(18)));
+    }
+    let (editor, cx) = editor_with_doc(&md, cx);
+    focus_editor(&editor, cx);
+    place_caret(&editor, cx, 0, 0);
+    let _ = draw_settled(cx, &editor);
+    for _ in 0..40 {
+        cx.simulate_keystrokes("down");
+        let _ = draw_settled(cx, &editor);
+    }
+
+    crate::view::prepaint::clear_built_frames();
+    for _ in 0..4 {
+        cx.simulate_keystrokes("enter");
+        let _ = draw_settled(cx, &editor);
+    }
+    let frames = crate::view::prepaint::built_frames();
+
+    assert!(
+        !frames.is_empty(),
+        "the keystroke did not build a frame at all"
+    );
+    let outside: Vec<_> = frames
+        .iter()
+        .filter(|(_, caret)| !caret_is_visible(*caret))
+        .collect();
+    assert!(
+        outside.is_empty(),
+        "{} of {} frames were built with the caret outside the viewport: {outside:?}",
+        outside.len(),
+        frames.len()
+    );
+}
+
+#[gpui::test]
 fn arrow_keys_keep_the_caret_inside_the_viewport(cx: &mut TestAppContext) {
     let (editor, cx) = editor_with_doc(&tall_mixed_doc(), cx);
     focus_editor(&editor, cx);
