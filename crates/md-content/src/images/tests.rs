@@ -952,8 +952,15 @@ fn multiframe_gifs_over_the_decoded_budget_are_rejected_before_decode() {
     let err = validate_image_dimensions(ImageFormat::Gif, &bomb)
         .expect_err("three 4000×4000 frames exceed the cumulative decode budget and must be refused before decoding");
     assert!(matches!(err, crate::Error::Image(_)));
+    let per_frame = 1400usize * 1400 * 4;
     assert!(
-        validate_image_dimensions(ImageFormat::Gif, &gif_with_canvas_and_frames(4000, 4000, 2))
+        validate_image_dimensions(ImageFormat::Gif, &gif_with_canvas_and_frames(1400, 1400, 5))
+            .is_err(),
+        "five frames at {} bytes exceed the animation budget",
+        per_frame * 5
+    );
+    assert!(
+        validate_image_dimensions(ImageFormat::Gif, &gif_with_canvas_and_frames(1400, 1400, 2))
             .is_ok()
     );
     assert!(
@@ -963,15 +970,34 @@ fn multiframe_gifs_over_the_decoded_budget_are_rejected_before_decode() {
 
 #[test]
 fn gifs_with_more_frames_than_the_animation_cap_are_rejected() {
-    let bomb = gif_with_canvas_and_frames(4, 4, 4097);
+    let bomb = gif_with_canvas_and_frames(4, 4, 513);
     assert!(
         validate_image_dimensions(ImageFormat::Gif, &bomb).is_err(),
-        "4097 frames must be refused by the frame cap"
+        "513 frames must be refused by the frame cap"
     );
-    let capped = gif_with_canvas_and_frames(4, 4, 4096);
+    let capped = gif_with_canvas_and_frames(4, 4, 512);
     assert!(
         validate_image_dimensions(ImageFormat::Gif, &capped).is_ok(),
-        "4096 frames, within the cap, must pass"
+        "512 frames, within the cap, must pass"
+    );
+}
+
+#[test]
+fn animations_get_a_tighter_decoded_budget_than_stills() {
+    let still = gif_with_canvas_and_frames(4200, 4200, 1);
+    assert!(
+        validate_image_dimensions(ImageFormat::Gif, &still).is_ok(),
+        "a single ~70 MiB frame still fits the still budget"
+    );
+    let animated = gif_with_canvas_and_frames(1024, 1024, 9);
+    assert!(
+        validate_image_dimensions(ImageFormat::Gif, &animated).is_err(),
+        "nine 4 MiB frames exceed the 32 MiB animation budget"
+    );
+    let within = gif_with_canvas_and_frames(1024, 1024, 8);
+    assert!(
+        validate_image_dimensions(ImageFormat::Gif, &within).is_ok(),
+        "eight 4 MiB frames land exactly on the 32 MiB animation budget"
     );
 }
 

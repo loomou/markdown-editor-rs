@@ -388,7 +388,12 @@ pub(super) fn validate_image_dimensions(
     Ok(())
 }
 
-const MAX_ANIMATION_FRAMES: u64 = 4096;
+const MAX_ANIMATION_FRAMES: u64 = 512;
+
+/// Animated sources get a much tighter decoded budget than stills: their
+/// frames stay resident for the lifetime of the cache entry, so a long gif
+/// is the cheapest way to pin hundreds of MiB.
+const MAX_ANIMATION_DECODED_BYTES: usize = 32 * 1024 * 1024;
 
 const DECODED_BYTES_PER_PIXEL: u64 = 4;
 
@@ -402,13 +407,19 @@ fn validate_decoded_budget(
         ImageFormat::Webp => webp_frame_count(bytes).unwrap_or(u64::MAX),
         _ => 1,
     };
-    if frames > MAX_ANIMATION_FRAMES {
+    let animated = frames > 1;
+    if animated && frames > MAX_ANIMATION_FRAMES {
         return Err(crate::Error::Image(md_i18n::Key::ImageTooLarge.into()));
     }
     let decoded = canvas_pixels
         .saturating_mul(frames)
         .saturating_mul(DECODED_BYTES_PER_PIXEL);
-    if decoded > MAX_SOURCE_BYTES as u64 {
+    let budget = if animated {
+        MAX_ANIMATION_DECODED_BYTES
+    } else {
+        MAX_SOURCE_BYTES
+    };
+    if decoded > budget as u64 {
         return Err(crate::Error::Image(md_i18n::Key::ImageTooLarge.into()));
     }
     Ok(())
