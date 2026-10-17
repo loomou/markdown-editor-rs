@@ -13,15 +13,24 @@ use md_i18n::{Key, t as t18};
 use std::cell::Cell;
 use std::rc::Rc;
 
-pub(super) const MENU_W: f32 = 210.0;
+pub(super) const MENU_W: f32 = 240.0;
 
-const TABLE_FLYOUT_W: f32 = 186.0;
+pub(super) const TABLE_FLYOUT_W: f32 = 232.0;
 
 const RECENT_FLYOUT_W: f32 = 240.0;
 
 pub(super) const MENU_PAD: f32 = 4.0;
 
 pub(super) const FLYOUT_GAP: f32 = 4.0;
+
+const ROW_PAD_X: f32 = 10.0;
+
+pub(super) const ROW_GAP: f32 = 8.0;
+
+#[cfg(test)]
+pub(super) fn row_text_width(popup_w: f32) -> f32 {
+    popup_w - MENU_PAD * 2.0 - ROW_PAD_X * 2.0
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum MenuId {
@@ -635,7 +644,8 @@ impl Shell {
             .flex_none()
             .flex()
             .items_center()
-            .px(px(10.))
+            .gap(px(ROW_GAP))
+            .px(px(ROW_PAD_X))
             .rounded(px(5.))
             .text_size(px(12.5))
             .text_color(color)
@@ -666,11 +676,11 @@ impl Shell {
                         });
                     })
             })
-            .child(t18(label))
+            .child(div().flex_1().min_w(px(0.)).truncate().child(t18(label)))
             .children(chord.map(|chord| {
                 div()
                     .debug_selector(move || format!("menukb:{}", label.debug_name()))
-                    .ml_auto()
+                    .flex_none()
                     .font_family(MONO_FONT)
                     .text_size(px(10.5))
                     .text_color(t.text_disabled)
@@ -695,7 +705,7 @@ impl Shell {
             .flex_none()
             .flex()
             .items_center()
-            .px(px(10.))
+            .px(px(ROW_PAD_X))
             .rounded(px(5.))
             .text_size(px(12.5))
             .text_color(if open { t.text } else { t.text_muted })
@@ -711,10 +721,10 @@ impl Shell {
                     }
                 }
             })
-            .child(t18(label))
+            .child(div().flex_1().min_w(px(0.)).truncate().child(t18(label)))
             .child(
                 div()
-                    .ml_auto()
+                    .flex_none()
                     .text_size(px(10.5))
                     .text_color(if open { t.text } else { t.text_disabled })
                     .child("▸"),
@@ -774,7 +784,7 @@ impl Shell {
             .flex_none()
             .flex()
             .items_center()
-            .px(px(10.))
+            .px(px(ROW_PAD_X))
             .rounded(px(5.))
             .text_size(px(12.5))
             .text_color(if open { t.text } else { t.text_muted })
@@ -790,10 +800,16 @@ impl Shell {
                     }
                 }
             })
-            .child(t18(Key::MenuOpenRecent))
             .child(
                 div()
-                    .ml_auto()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .truncate()
+                    .child(t18(Key::MenuOpenRecent)),
+            )
+            .child(
+                div()
+                    .flex_none()
                     .text_size(px(10.5))
                     .text_color(if open { t.text } else { t.text_disabled })
                     .child("▸"),
@@ -813,6 +829,7 @@ impl Shell {
         let place = place_recent_flyout(popup, viewport, self.recent_files.len());
         div()
             .id("menu-recent-flyout")
+            .debug_selector(|| "menuflyout:recent".into())
             .absolute()
             .left(px(place.x))
             .top(px(place.y))
@@ -854,7 +871,7 @@ impl Shell {
             .flex_none()
             .flex()
             .items_center()
-            .px(px(10.))
+            .px(px(ROW_PAD_X))
             .rounded(px(5.))
             .text_size(px(12.5))
             .text_color(t.text_muted)
@@ -867,7 +884,16 @@ impl Shell {
                     cx.notify();
                 });
             })
-            .child(name)
+            .child(
+                div()
+                    .debug_selector(move || format!("menuname:{index}"))
+                    .flex_1()
+                    .min_w(px(0.))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis_middle()
+                    .child(name),
+            )
     }
 
     pub(super) fn run_menu_action(

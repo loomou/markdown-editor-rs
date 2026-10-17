@@ -189,7 +189,6 @@ impl ColorSlot {
         *dst = ThemeColor { a: dst.a, ..color };
         let follower = match self {
             Self::Link => &mut theme.inline.link_underline,
-            Self::Strikethrough => &mut theme.inline.task_strike,
             _ => return,
         };
         *follower = ThemeColor {
@@ -437,11 +436,6 @@ mod tests {
         let u = theme.inline.link_underline;
         assert_eq!((u.h, u.s, u.l), (PROBE.h, PROBE.s, PROBE.l));
         assert_eq!(u.a, base.inline.link_underline.a);
-
-        ColorSlot::Strikethrough.write(&mut theme, PROBE);
-        let s = theme.inline.task_strike;
-        assert_eq!((s.h, s.s, s.l), (PROBE.h, PROBE.s, PROBE.l));
-        assert_eq!(s.a, base.inline.task_strike.a);
     }
 
     #[test]

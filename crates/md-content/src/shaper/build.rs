@@ -2,7 +2,6 @@ use super::GpuiShaper;
 use super::artifact::{ShapeArtifact, ShapeMedia};
 use super::cache::{ShapeCache, Stats};
 use super::resolved::{ResolvedTypes, resolve_type};
-use crate::gpui_theme::ThemeColorExt;
 use gpui::App;
 use md_core::Px;
 use md_core::block::BlockKind;
@@ -49,11 +48,7 @@ impl GpuiShaper {
             table_header: resolve_type(cx, theme.type_scale.table_header, scale),
             image: resolve_type(cx, theme.type_scale.image, scale),
             footnote: resolve_type(cx, theme.type_scale.footnote, scale),
-            task_done: {
-                let mut r = resolve_type(cx, theme.type_scale.task_done, scale);
-                r.strikethrough = Some(theme.inline.task_strike.hsla());
-                r
-            },
+            task_done: resolve_type(cx, theme.type_scale.task_done, scale),
         };
         GpuiShaper {
             text_system: window.text_system().clone(),

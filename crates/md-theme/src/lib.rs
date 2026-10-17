@@ -133,10 +133,6 @@ impl DocumentTheme {
         inline.image_fill = palette.slate_800;
         inline.image_border = palette.slate_200;
         inline.strikethrough = palette.slate_600;
-        inline.task_strike = ThemeColor {
-            a: 0.5,
-            ..palette.slate_600
-        };
         inline.link_underline = ThemeColor {
             a: 0.4,
             ..palette.link
@@ -293,7 +289,6 @@ mod tests {
         assert_eq!(dark.decoration.task_border, 1.5);
         assert_eq!(dark.decoration.task_gap, 10.0);
         assert_eq!(dark.type_scale.task_done.color.to_css_hex(), "#a9afbc");
-        assert!((dark.inline.task_strike.a - 0.5).abs() < f32::EPSILON);
         assert_eq!(dark.decoration.placeholder_label_size, 13.0);
         assert_eq!(dark.paint.table_head_fill.to_css_hex(), "#21252c");
         assert_eq!(dark.paint.code_border.to_css_hex(), "#363c46");

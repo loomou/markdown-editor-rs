@@ -554,7 +554,7 @@ impl Document {
                 if let Some(text) = bind::source_span(source, &s2d, rs, hi) {
                     out.push_str(text);
                 } else {
-                    bind::escape_literal(&mut out, display.get(rs..hi).unwrap_or(""));
+                    out.push_str(display.get(rs..hi).unwrap_or(""));
                 }
                 i = j + 1;
                 continue;
@@ -562,7 +562,7 @@ impl Document {
             let lo = range.start.max(rs);
             let hi = range.end.min(re);
             if lo < hi {
-                bind::escape_literal(&mut out, display.get(lo..hi).unwrap_or(""));
+                out.push_str(display.get(lo..hi).unwrap_or(""));
             }
             i += 1;
         }
