@@ -1,3 +1,4 @@
+use base64::Engine;
 use gpui::http_client::{AsyncBody, FakeHttpClient, Response};
 use md_content::images::{self, ImageCache, Resolved, SourceError};
 
@@ -44,6 +45,36 @@ fn load_local(cx: &mut gpui::TestAppContext, dest: &str, source: &std::path::Pat
     let resolved = images::resolve(dest, Some(source)).expect("resolve");
     let future = cx.update(|app| images::load_source(resolved, false, app));
     futures::executor::block_on(future).is_ok()
+}
+
+#[gpui::test]
+fn oversized_raster_sources_are_capped_once(cx: &mut gpui::TestAppContext) {
+    let img = image::RgbaImage::from_pixel(3000, 3000, image::Rgba([1, 2, 3, 255]));
+    let mut buf = Vec::new();
+    image::DynamicImage::ImageRgba8(img)
+        .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
+        .unwrap();
+    let resolved = images::resolve(
+        &format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(buf)
+        ),
+        None,
+    )
+    .expect("resolve");
+    let future = cx.update(|app| images::load_source(resolved, false, app));
+    let source = futures::executor::block_on(future).expect("load");
+    let (w, h) = source.dims();
+    let pixels = u64::from(w) * u64::from(h);
+    assert!(
+        pixels <= 4 * 1024 * 1024,
+        "a 9M-pixel source must land at {pixels} pixels, not exceed the 4M budget"
+    );
+    assert!(
+        source.resident_bytes() <= 4 * 1024 * 1024 * 4 + 4096,
+        "{} decoded bytes exceed the capped budget",
+        source.resident_bytes()
+    );
 }
 
 #[test]

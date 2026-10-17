@@ -6,10 +6,12 @@ use super::source::{
     webp_frame_count,
 };
 use super::{
-    DataEncoding, ImageCache, MAX_FAILED_ENTRIES, MAX_IN_FLIGHT, Resolved, SOURCE_RETRY_BASE,
-    SOURCE_RETRY_MAX, SourceError, SourceKey, SourceMedia, WARM_DISPLAY_EXTRA, source_retry_delay,
+    DataEncoding, ImageCache, MAX_FAILED_ENTRIES, MAX_IN_FLIGHT, MAX_RASTER_PIXELS, Resolved,
+    SOURCE_RETRY_BASE, SOURCE_RETRY_MAX, SourceError, SourceKey, SourceMedia, WARM_DISPLAY_EXTRA,
+    source_retry_delay,
 };
 use crate::images::fit::{contain_fit, width_fit};
+use crate::pixels::cap_bitmap;
 use gpui::{ImageFormat, RenderImage};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -45,6 +47,34 @@ fn resident_bytes_counts_every_animation_frame() {
     ];
     let media = SourceMedia::Bitmap(Arc::new(RenderImage::new(frames)));
     assert_eq!(media.resident_bytes(), 2 * 2 * 3 * 4);
+}
+
+#[test]
+fn cap_bitmap_downscales_an_oversized_source_once() {
+    let img = image::RgbaImage::from_pixel(3000, 3000, image::Rgba([10, 20, 30, 255]));
+    let big = Arc::new(RenderImage::new(smallvec![image::Frame::new(img)]));
+    let capped = cap_bitmap(Arc::clone(&big), MAX_RASTER_PIXELS);
+    assert!(
+        !Arc::ptr_eq(&big, &capped),
+        "an oversized source is rebuilt"
+    );
+    let sz = capped.size(0);
+    let pixels = (sz.width.0 as u64) * (sz.height.0 as u64);
+    assert!(pixels <= MAX_RASTER_PIXELS, "{pixels} pixels exceed budget");
+    let rw = sz.width.0 as f32 / 3000.0;
+    let rh = sz.height.0 as f32 / 3000.0;
+    assert!((rw - rh).abs() < 0.01, "aspect {rw}x{rh} must be preserved");
+}
+
+#[test]
+fn cap_bitmap_shares_small_sources() {
+    let img = image::RgbaImage::from_pixel(1000, 800, image::Rgba([1, 2, 3, 255]));
+    let small = Arc::new(RenderImage::new(smallvec![image::Frame::new(img)]));
+    let capped = cap_bitmap(Arc::clone(&small), MAX_RASTER_PIXELS);
+    assert!(
+        Arc::ptr_eq(&small, &capped),
+        "a source within the budget must not be copied or rebuilt"
+    );
 }
 
 #[test]

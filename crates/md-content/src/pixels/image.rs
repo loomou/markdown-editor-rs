@@ -1,7 +1,39 @@
 use gpui::RenderImage;
 use image::RgbaImage;
+use image::imageops::{self, FilterType};
 use smallvec::smallvec;
 use std::sync::Arc;
+
+/// Downscale a decoded bitmap whose pixel count exceeds `max_pixels`, keeping
+/// the aspect ratio. Frame bytes are channel-order agnostic under a triangle
+/// filter, so the BGRA frames gpui produced can be resized in place.
+pub fn cap_bitmap(image: Arc<RenderImage>, max_pixels: u64) -> Arc<RenderImage> {
+    let sz = image.size(0);
+    let width = sz.width.0.max(0) as u32;
+    let height = sz.height.0.max(0) as u32;
+    if width == 0 || height == 0 || u64::from(width) * u64::from(height) <= max_pixels {
+        return image;
+    }
+    let scale = (max_pixels as f32 / (width as f32 * height as f32).max(1.0)).sqrt();
+    let new_w = ((width as f32 * scale).floor() as u32).max(1);
+    let new_h = ((height as f32 * scale).floor() as u32).max(1);
+    let mut frames = smallvec![];
+    for frame in 0..image.frame_count() {
+        let Some(bytes) = image.as_bytes(frame) else {
+            return image;
+        };
+        let Some(source) = RgbaImage::from_raw(width, height, bytes.to_vec()) else {
+            return image;
+        };
+        frames.push(image::Frame::new(imageops::resize(
+            &source,
+            new_w,
+            new_h,
+            FilterType::Triangle,
+        )));
+    }
+    Arc::new(RenderImage::new(frames))
+}
 
 #[derive(Clone)]
 pub struct ReadyImage {

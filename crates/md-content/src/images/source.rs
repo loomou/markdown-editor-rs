@@ -1,8 +1,9 @@
 use super::raster::native_dims;
 use super::{
-    DataEncoding, MAX_FETCH, MAX_IMAGE_PIXELS, MAX_SOURCE_BYTES, Resolved, SOURCE_RETRY_BASE,
-    SOURCE_RETRY_MAX, SourceError, SourceLoad, SourceMedia,
+    DataEncoding, MAX_FETCH, MAX_IMAGE_PIXELS, MAX_RASTER_PIXELS, MAX_SOURCE_BYTES, Resolved,
+    SOURCE_RETRY_BASE, SOURCE_RETRY_MAX, SourceError, SourceLoad, SourceMedia,
 };
+use crate::pixels::cap_bitmap;
 use futures::AsyncReadExt;
 use gpui::{App, Image, ImageFormat, http_client};
 use image::ImageReader;
@@ -171,6 +172,7 @@ fn parse_source(
         .map_err(|e| SourceError::Fatal(crate::Error::Image(e.to_string().into())))?;
     let (img, _, _) = native_dims(img)
         .ok_or_else(|| SourceError::Fatal(crate::Error::Image(md_i18n::Key::ImageEmpty.into())))?;
+    let img = cap_bitmap(img, MAX_RASTER_PIXELS);
     Ok(SourceMedia::Bitmap(img))
 }
 
