@@ -432,6 +432,30 @@ impl EditorElement {
                     v.state.scroll = scroll;
                 }
             }
+            if v.follow_caret
+                && v.search.reveal.is_none()
+                && v.park_caret_top.is_none()
+                && let Some(ly) = engine.spine_caret_y(cursor, shaper, env)
+            {
+                let kind = v
+                    .state
+                    .doc
+                    .kind(cursor.block)
+                    .unwrap_or(BlockKind::Paragraph);
+                let lh = shaper.row_advance_for(kind);
+                let vh = viewport.1;
+                let want = if ly < scroll {
+                    Some(ly - lh)
+                } else if ly + lh > scroll + vh {
+                    Some(ly + lh * 2.0 - vh)
+                } else {
+                    None
+                };
+                if let Some(s) = want {
+                    scroll = s.clamp(0.0, (engine.total_height() - vh).max(0.0));
+                    v.state.scroll = scroll;
+                }
+            }
             if let Some((blk, _)) = marked.as_ref() {
                 engine.materialize_pin_block(*blk, shaper, solver);
             }
@@ -480,6 +504,10 @@ impl EditorElement {
                 revs,
             );
             t.geometry = t_geom0.elapsed();
+            #[cfg(test)]
+            BUILT_FRAMES.with(|frames| {
+                frames.borrow_mut().push((built.scroll, built.caret_device));
+            });
             built
         });
         (frame, t)
@@ -1273,6 +1301,24 @@ fn caret_row_in(frame: &Frame, block: BlockId) -> Option<i64> {
 fn mark_stale(v: &mut EditorView, cx: &mut Context<'_, EditorView>) {
     v.stale_paint = true;
     cx.notify();
+}
+
+#[cfg(test)]
+type BuiltFrame = (Px, Option<(Px, Px, Px, Px)>);
+
+#[cfg(test)]
+thread_local! {
+    static BUILT_FRAMES: std::cell::RefCell<Vec<BuiltFrame>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+#[cfg(test)]
+pub(crate) fn built_frames() -> Vec<BuiltFrame> {
+    BUILT_FRAMES.with(|frames| frames.borrow().clone())
+}
+
+#[cfg(test)]
+pub(crate) fn clear_built_frames() {
+    BUILT_FRAMES.with(|frames| frames.borrow_mut().clear());
 }
 
 fn log_cold_trace(
