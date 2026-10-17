@@ -2,7 +2,7 @@ use super::support::{context_labels, mono_px, stop_blink, test_doc, text_px};
 use crate::keymap::Cmd;
 use crate::shell::menu::MenuEntry::{Item, RecentSubmenu, Separator, Submenu};
 use crate::shell::menu::{
-    FLYOUT_GAP, MENU_PAD, MENU_W, MenuId, clamp_menu_pos, entries_for, flyout_screen_rect,
+    FLYOUT_GAP, MENU_PAD, MENU_W, MenuId, ROW_GAP, clamp_menu_pos, entries_for, flyout_screen_rect,
     menu_entries, place_table_flyout, submenu_row_top,
 };
 use crate::shell::{Shell, VIEW_MARGIN};
@@ -521,4 +521,126 @@ fn scrolling_dismisses_the_menu_even_under_the_pointer(cx: &mut TestAppContext) 
             "scrolling with no menu open should be a no-op"
         );
     });
+}
+
+#[gpui::test]
+fn every_menu_row_fits_inside_its_popup(cx: &mut TestAppContext) {
+    use crate::keymap::table_op_chord_cmd;
+    use crate::shell::menu::{MenuAction, TABLE_FLYOUT_W, row_text_width};
+    use crate::view::table_commands::{TABLE_MENU, TableMenuEntry};
+    use md_i18n::{Lang, t_in};
+
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
+    stop_blink(&shell, cx);
+    cx.run_until_parked();
+
+    const ARROW: f32 = 10.5;
+    let chord_px = |cx: &mut gpui::VisualTestContext, cmd| {
+        shell
+            .read_with(cx, |s, _| s.settings.keymap.chord_for(cmd).cloned())
+            .map(|chord| mono_px(cx, &chord.display(), 10.5))
+            .unwrap_or(0.0)
+    };
+
+    let mut offenders: Vec<String> = Vec::new();
+    for lang in [Lang::ZhCn, Lang::En] {
+        for id in [
+            MenuId::File,
+            MenuId::Edit,
+            MenuId::View,
+            MenuId::Go,
+            MenuId::Help,
+            MenuId::Context,
+        ] {
+            let avail = row_text_width(MENU_W);
+            for entry in entries_for(id, true, 1) {
+                let (label, tail) = match entry {
+                    Item { label, action } => {
+                        let cmd = match action {
+                            MenuAction::Cmd(cmd) => Some(cmd),
+                            MenuAction::Table(op) => table_op_chord_cmd(op),
+                            _ => None,
+                        };
+                        (label, cmd.map(|cmd| chord_px(cx, cmd)).unwrap_or(0.0))
+                    }
+                    Submenu { label, .. } => (label, ARROW),
+                    RecentSubmenu => (Key::MenuOpenRecent, ARROW),
+                    Separator => continue,
+                };
+                let need = text_px(cx, t_in(lang, label), 12.5) + tail;
+                let need = need + if tail > 0.0 { ROW_GAP } else { 0.0 };
+                if need > avail {
+                    offenders.push(format!(
+                        "{lang:?} {id:?} {}: needs {need:.1}px, the row gives {avail:.1}px",
+                        label.debug_name()
+                    ));
+                }
+            }
+        }
+        let avail = row_text_width(TABLE_FLYOUT_W);
+        for entry in TABLE_MENU {
+            let TableMenuEntry::Item { label, op, .. } = entry else {
+                continue;
+            };
+            let tail = table_op_chord_cmd(*op)
+                .map(|cmd| chord_px(cx, cmd))
+                .unwrap_or(0.0);
+            let need = text_px(cx, t_in(lang, *label), 12.5) + tail;
+            let need = need + if tail > 0.0 { ROW_GAP } else { 0.0 };
+            if need > avail {
+                offenders.push(format!(
+                    "{lang:?} table {}: needs {need:.1}px, the row gives {avail:.1}px",
+                    label.debug_name()
+                ));
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "a label that outgrows its row paints outside the dropdown: {}",
+        offenders.join("; ")
+    );
+}
+
+#[gpui::test]
+fn a_long_recent_name_stays_on_one_line_inside_the_flyout(cx: &mut TestAppContext) {
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
+    stop_blink(&shell, cx);
+    cx.run_until_parked();
+
+    let long = format!("{}.md", "a-rather-long-document-name-".repeat(8));
+    let file = std::env::temp_dir().join(long);
+    cx.update(|_, app| {
+        shell.update(app, |s, cx| {
+            s.recent_files = vec![file.clone()];
+            s.open_menu = Some((MenuId::File, point(px(10.), px(30.))));
+            cx.notify();
+        });
+    });
+    cx.run_until_parked();
+
+    let row = cx
+        .debug_bounds("menusub:MenuOpenRecent")
+        .expect("the Open Recent row should be painted");
+    cx.simulate_event(MouseMoveEvent {
+        position: row.center(),
+        pressed_button: None,
+        modifiers: gpui::Modifiers::default(),
+    });
+    cx.run_until_parked();
+
+    let flyout = cx
+        .debug_bounds("menuflyout:recent")
+        .expect("the recent flyout should be painted");
+    let name = cx
+        .debug_bounds("menuname:0")
+        .expect("the recent file name should be painted");
+    assert!(
+        f32::from(name.size.height) < 26.0,
+        "the name wrapped onto a second line: {name:?}"
+    );
+    assert!(
+        name.origin.x + name.size.width <= flyout.origin.x + flyout.size.width + px(0.5),
+        "the name paints past the flyout: name={name:?} flyout={flyout:?}"
+    );
 }
