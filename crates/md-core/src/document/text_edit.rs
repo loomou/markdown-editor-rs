@@ -1033,10 +1033,7 @@ impl Document {
     pub(crate) fn split_leaf_nodes(&mut self, id: NodeId, offset: usize) -> (DocChange, NodeId) {
         let node = self.arena.get(id).expect("live node");
         let kind = node.kind;
-        let new_kind = match kind {
-            BlockKind::Heading(_) => BlockKind::Paragraph,
-            k => k,
-        };
+        let old_extra = node.extra;
         let parent = node.parent.expect("leaf parent");
         let display = self.display(id).to_string();
         let source = self.leaf_source(id).to_string();
@@ -1058,8 +1055,21 @@ impl Document {
         } else {
             None
         };
+        let marker_follows_the_text =
+            matches!(kind, BlockKind::Heading(_)) && off == 0 && !display.is_empty();
+        let new_kind = if marker_follows_the_text {
+            kind
+        } else {
+            match kind {
+                BlockKind::Heading(_) => BlockKind::Paragraph,
+                k => k,
+            }
+        };
         let head_s;
-        let tail_s = if let Some(body_len) = setext_body_len {
+        let tail_s = if marker_follows_the_text {
+            head_s = String::new();
+            source.clone()
+        } else if let Some(body_len) = setext_body_len {
             let sep = source[body_len..].to_string();
             let cut = src_off.min(body_len);
             src_off = cut;
@@ -1072,7 +1082,9 @@ impl Document {
         let tail_d = display[off..].to_string();
         let head_len = head_s.len();
         let src_end = source.len() as u32;
-        let head_edit = if setext_body_len.is_some() {
+        let head_edit = if marker_follows_the_text {
+            (0..src_end, source.clone(), String::new())
+        } else if setext_body_len.is_some() {
             (
                 src_off as u32..src_end,
                 source[src_off..].to_string(),
@@ -1081,6 +1093,9 @@ impl Document {
         } else {
             (src_off as u32..src_end, tail_s.clone(), String::new())
         };
+        if marker_follows_the_text && let Some(node) = self.arena.get_mut(id) {
+            node.kind = BlockKind::Paragraph;
+        }
         let text_changed = if kind.text_edit_strategy() == TextEditStrategy::Phrasing {
             self.project_phrasing_at(id, head_s, head_len, head_edit, true)
                 .0
@@ -1088,6 +1103,9 @@ impl Document {
             let (change, _) = self.rewrite_literal(id, off..display.len(), "");
             change
         };
+        if marker_follows_the_text {
+            self.push_change(self.attrs_change(id, kind, old_extra));
+        }
         let new_id = self.alloc_leaf(new_kind);
         if new_kind.text_edit_strategy() == TextEditStrategy::Phrasing {
             let (fill, caret) = self.project_phrasing_at(
