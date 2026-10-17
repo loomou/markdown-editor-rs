@@ -443,12 +443,7 @@ fn partial_copy_keeps_literal_markdown_characters() {
         Some("before *literal* after")
     );
     let copied = doc.copy_markdown(sel(&doc, 0, 7, 0, 16));
-    let reloaded = load_markdown(&copied, editor_options());
-    assert_eq!(
-        reloaded.text_of(reloaded.first_text_leaf().unwrap()),
-        Some("*literal*"),
-        "copied={copied:?}"
-    );
+    assert_eq!(copied, "*literal*");
 }
 
 #[test]
@@ -522,31 +517,20 @@ fn partial_copy_after_a_multibyte_character_does_not_panic() {
 }
 
 #[test]
-fn partial_copy_escapes_a_leading_ordered_marker_punct() {
-    let doc = load_markdown("x2. 10\n", editor_options());
-    let copied = doc.copy_markdown(sel(&doc, 0, 1, 0, 6));
-    assert_eq!(copied, "2\\. 10");
-    let reloaded = load_markdown(&copied, editor_options());
-    assert_eq!(
-        reloaded.text_of(reloaded.first_text_leaf().unwrap()),
-        Some("2. 10")
-    );
-    assert_eq!(
-        reloaded.kind(reloaded.first_text_leaf().unwrap()),
-        Some(BlockKind::Paragraph)
-    );
-
-    let mid = load_markdown("a 1. b\n", editor_options());
-    assert_eq!(mid.copy_markdown(sel(&mid, 0, 0, 0, 6)), "a 1. b");
-
-    let multi = load_markdown("x12) one\n", editor_options());
-    let copied = multi.copy_markdown(sel(&multi, 0, 1, 0, 8));
-    assert_eq!(copied, "12\\) one");
-    let reloaded = load_markdown(&copied, editor_options());
-    assert_eq!(
-        reloaded.text_of(reloaded.first_text_leaf().unwrap()),
-        Some("12) one")
-    );
+fn partial_copy_hands_back_the_text_without_escaping_it() {
+    for (source, from, to, want) in [
+        ("x2. 10\n", 1, 6, "2. 10"),
+        ("a 1. b\n", 0, 6, "a 1. b"),
+        ("x12) one\n", 1, 8, "12) one"),
+        ("a - b\n", 1, 4, " - "),
+        ("a > b\n", 0, 4, "a > "),
+        ("x&y z\n", 0, 4, "x&y "),
+        ("snake_case and C++\n", 0, 17, "snake_case and C+"),
+    ] {
+        let doc = load_markdown(source, editor_options());
+        let copied = doc.copy_markdown(sel(&doc, 0, from, 0, to));
+        assert_eq!(copied, want, "src={source:?} [{from}..{to}]");
+    }
 }
 
 #[test]
@@ -569,7 +553,7 @@ fn multiline_reference_definitions_travel_with_the_copy() {
 }
 
 #[test]
-fn copying_literal_dollars_and_carets_preserves_literal_text() {
+fn copying_literal_dollars_and_carets_hands_back_the_text() {
     let doc = load_markdown(
         r"pre \$x\$ post
 ",
@@ -580,9 +564,7 @@ fn copying_literal_dollars_and_carets_preserves_literal_text() {
         anchor: caret(block, 4),
         head: caret(block, 7),
     });
-    let reloaded = load_markdown(&copied, editor_options());
-    let first = reloaded.first_text_leaf().unwrap();
-    assert_eq!(reloaded.text_of(first), Some("$x$"), "copied={copied:?}");
+    assert_eq!(copied, "$x$");
 
     let doc = load_markdown(
         r"pre \^x\^ post
@@ -594,9 +576,7 @@ fn copying_literal_dollars_and_carets_preserves_literal_text() {
         anchor: caret(block, 4),
         head: caret(block, 7),
     });
-    let reloaded = load_markdown(&copied, editor_options());
-    let first = reloaded.first_text_leaf().unwrap();
-    assert_eq!(reloaded.text_of(first), Some("^x^"), "copied={copied:?}");
+    assert_eq!(copied, "^x^");
 }
 
 #[test]
