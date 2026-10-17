@@ -164,7 +164,9 @@ pub(super) fn flow_top_margin(
             return 0.0;
         }
     }
-    if is_prose(kind) && has_ancestor_kind(doc, id, BlockKind::BlockQuote) {
+    if (is_prose(kind) || kind == BlockKind::BlockQuote)
+        && has_ancestor_kind(doc, id, BlockKind::BlockQuote)
+    {
         return theme.quote_paragraph_top;
     }
     if is_prose(kind) && prev_is_heading(doc, id, 1) {

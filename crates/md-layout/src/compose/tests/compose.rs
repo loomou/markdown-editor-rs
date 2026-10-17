@@ -112,7 +112,7 @@ fn compose_paragraph_after_h1_uses_lead_top() {
 }
 
 #[test]
-fn compose_nested_quote_keeps_quote_top_margin() {
+fn compose_nested_quote_sits_flush_against_the_line_above() {
     let theme = quote_spacing_theme();
     let tree = compose(
         &load_markdown("> outer\n>\n> > inner\n", editor_options()),
@@ -140,7 +140,11 @@ fn compose_nested_quote_keeps_quote_top_margin() {
     assert_eq!(outer.len(), 1, "one doc-lead outer quote");
     assert_eq!(inner.len(), 1, "one nested inner quote");
     assert_eq!(tree.style_of(outer[0]).margin.top, 0.0);
-    assert_eq!(tree.style_of(inner[0]).margin.top, 32.0);
+    assert_eq!(
+        tree.style_of(inner[0]).margin.top,
+        0.0,
+        "a quote inside a quote is content of that quote, so it takes the quote's own paragraph spacing"
+    );
     for q in quotes {
         let crate::box_tree::BoxChildren::Vertical(kids) = &q.children else {
             panic!("quote should stack children");
