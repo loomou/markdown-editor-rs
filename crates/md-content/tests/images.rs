@@ -140,7 +140,7 @@ fn clear_must_reject_an_old_source_result(cx: &mut gpui::TestAppContext) {
             image::Rgba([0, 0, 255, 255]),
         ));
         let image = std::sync::Arc::new(gpui::RenderImage::new(vec![frame]));
-        let accepted_old = cache.finish_source(old, Ok((image, 2, 2)), app);
+        let accepted_old = cache.finish_source(old, Ok(images::SourceMedia::Bitmap(image)), app);
         assert!(
             !accepted_old,
             "clear must void the old job's identity, not just the map entry"
@@ -149,7 +149,7 @@ fn clear_must_reject_an_old_source_result(cx: &mut gpui::TestAppContext) {
         let accepted_new = cache.finish_source(new, Err(SourceError::Fatal(failure())), app);
         assert!(accepted_new, "the new job's failure must be booked");
         assert!(
-            cache.source_image(&key).is_none(),
+            cache.source_media(&key).is_none(),
             "after the old result was refused, the source must not be Ready"
         );
     });

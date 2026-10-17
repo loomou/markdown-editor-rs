@@ -1,7 +1,7 @@
 use super::raster::native_dims;
 use super::{
     DataEncoding, MAX_FETCH, MAX_IMAGE_PIXELS, MAX_SOURCE_BYTES, Resolved, SOURCE_RETRY_BASE,
-    SOURCE_RETRY_MAX, SourceError, SourceLoad,
+    SOURCE_RETRY_MAX, SourceError, SourceLoad, SourceMedia,
 };
 use futures::AsyncReadExt;
 use gpui::{App, Image, ImageFormat, http_client};
@@ -138,15 +138,7 @@ fn load_remote(url: String, cx: &mut App) -> SourceLoad {
                 "unsupported image format".to_owned().into(),
             ))
         })?;
-        validate_image_dimensions(format, &bytes)?;
-        Image::from_bytes(format, bytes)
-            .to_image_data(svg)
-            .map_err(|e| SourceError::Fatal(crate::Error::Image(e.to_string().into())))
-            .and_then(|img| {
-                native_dims(img).ok_or_else(|| {
-                    SourceError::Fatal(crate::Error::Image(md_i18n::Key::ImageEmpty.into()))
-                })
-            })
+        parse_source(format, bytes, svg)
     })
 }
 
@@ -154,6 +146,50 @@ pub(super) fn parse_retry_after(headers: &http_client::http::HeaderMap) -> Optio
     let value = headers.get("Retry-After")?.to_str().ok()?;
     let secs: u64 = value.trim().parse().ok()?;
     Some(Duration::from_secs(secs).clamp(SOURCE_RETRY_BASE, SOURCE_RETRY_MAX))
+}
+
+fn parse_source(
+    format: ImageFormat,
+    bytes: Vec<u8>,
+    svg: gpui::SvgRenderer,
+) -> Result<SourceMedia, SourceError> {
+    if format == ImageFormat::Svg {
+        let tree = svg_tree(&bytes)?;
+        let size = tree.size();
+        let width = size.width().ceil().max(1.0) as u32;
+        let height = size.height().ceil().max(1.0) as u32;
+        return Ok(SourceMedia::Vector {
+            tree: Arc::new(tree),
+            width,
+            height,
+            bytes: bytes.len(),
+        });
+    }
+    validate_image_dimensions(format, &bytes)?;
+    let img = Image::from_bytes(format, bytes)
+        .to_image_data(svg)
+        .map_err(|e| SourceError::Fatal(crate::Error::Image(e.to_string().into())))?;
+    let (img, _, _) = native_dims(img)
+        .ok_or_else(|| SourceError::Fatal(crate::Error::Image(md_i18n::Key::ImageEmpty.into())))?;
+    Ok(SourceMedia::Bitmap(img))
+}
+
+fn svg_tree(bytes: &[u8]) -> Result<usvg::Tree, crate::Error> {
+    if !svg_depth_within_limit(bytes) {
+        return Err(crate::Error::Image(md_i18n::Key::ImageTooLarge.into()));
+    }
+    let refused = Arc::new(AtomicBool::new(false));
+    let tree = usvg::Tree::from_data(bytes, &svg_parse_options(Some(Arc::clone(&refused))))
+        .map_err(|e| crate::Error::Image(e.to_string().into()))?;
+    if refused.load(Ordering::Relaxed) {
+        return Err(crate::Error::Image(md_i18n::Key::ImageBadPath.into()));
+    }
+    let size = tree.size();
+    let pixels = f64::from(size.width()) * f64::from(size.height());
+    if pixels > MAX_IMAGE_PIXELS as f64 {
+        return Err(crate::Error::Image(md_i18n::Key::ImageTooLarge.into()));
+    }
+    Ok(tree)
 }
 
 fn decode_bytes_from_path(path: PathBuf, format: Option<ImageFormat>, cx: &mut App) -> SourceLoad {
@@ -171,15 +207,7 @@ fn decode_bytes_from_path(path: PathBuf, format: Option<ImageFormat>, cx: &mut A
                 "unsupported image format".to_owned().into(),
             ))
         })?;
-        validate_image_dimensions(format, &bytes)?;
-        Image::from_bytes(format, bytes)
-            .to_image_data(svg)
-            .map_err(|e| SourceError::Fatal(crate::Error::Image(e.to_string().into())))
-            .and_then(|img| {
-                native_dims(img).ok_or_else(|| {
-                    SourceError::Fatal(crate::Error::Image(md_i18n::Key::ImageEmpty.into()))
-                })
-            })
+        parse_source(format, bytes, svg)
     })
 }
 
@@ -199,15 +227,7 @@ fn decode_data(
             )));
         }
         let bytes = decompress_svgz_bounded(bytes)?;
-        validate_image_dimensions(format, &bytes)?;
-        Image::from_bytes(format, bytes)
-            .to_image_data(svg)
-            .map_err(|e| SourceError::Fatal(crate::Error::Image(e.to_string().into())))
-            .and_then(|img| {
-                native_dims(img).ok_or_else(|| {
-                    SourceError::Fatal(crate::Error::Image(md_i18n::Key::ImageEmpty.into()))
-                })
-            })
+        parse_source(format, bytes, svg)
     })
 }
 
@@ -338,21 +358,7 @@ fn svg_depth_within_limit(bytes: &[u8]) -> bool {
 }
 
 pub(super) fn validate_svg_dimensions(bytes: &[u8]) -> Result<(), crate::Error> {
-    if !svg_depth_within_limit(bytes) {
-        return Err(crate::Error::Image(md_i18n::Key::ImageTooLarge.into()));
-    }
-    let refused = Arc::new(AtomicBool::new(false));
-    let tree = usvg::Tree::from_data(bytes, &svg_parse_options(Some(Arc::clone(&refused))))
-        .map_err(|e| crate::Error::Image(e.to_string().into()))?;
-    if refused.load(Ordering::Relaxed) {
-        return Err(crate::Error::Image(md_i18n::Key::ImageBadPath.into()));
-    }
-    let size = tree.size();
-    let pixels = f64::from(size.width()) * f64::from(size.height());
-    if pixels > MAX_IMAGE_PIXELS as f64 {
-        return Err(crate::Error::Image(md_i18n::Key::ImageTooLarge.into()));
-    }
-    Ok(())
+    svg_tree(bytes).map(|_| ())
 }
 
 pub(super) fn validate_image_dimensions(

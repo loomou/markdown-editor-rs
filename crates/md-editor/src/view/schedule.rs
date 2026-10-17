@@ -309,7 +309,16 @@ impl EditorView {
                 let raster_key = key.clone();
                 let result = cx
                     .background_executor()
-                    .spawn(async move { images::raster_display(&source, &raster_key) })
+                    .spawn(async move {
+                        match &source {
+                            images::SourceMedia::Bitmap(image) => {
+                                images::raster_display(image, &raster_key)
+                            }
+                            images::SourceMedia::Vector { tree, .. } => {
+                                images::raster_display_svg(tree, &raster_key)
+                            }
+                        }
+                    })
                     .await;
                 let _ = this.update(cx, |v, cx| {
                     if let Err(ref err) = result {

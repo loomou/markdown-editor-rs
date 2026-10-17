@@ -2,8 +2,8 @@ use super::DisplayKey;
 use super::fit::contain_fit;
 use crate::pixels::{ReadyImage, from_bgra, paint_at, snap_css};
 use gpui::{RenderImage, Window};
-use image::imageops::FilterType;
-use image::{RgbaImage, imageops};
+use image::RgbaImage;
+use image::imageops::{self, FilterType};
 use std::sync::Arc;
 
 pub fn raster_display(
@@ -66,6 +66,67 @@ pub fn paint_ready(
     );
 }
 
+/// Rasterise an SVG source for a display slot. The fit runs in device pixels
+/// so a vector source stays as sharp as the pre-rasterised bitmap path was.
+pub fn raster_display_svg(tree: &usvg::Tree, key: &DisplayKey) -> Result<ReadyImage, crate::Error> {
+    let sz = tree.size();
+    let iw = sz.width().max(1.0);
+    let ih = sz.height().max(1.0);
+    let (slot_w, slot_h) = key.raster_slot();
+    let dpr = key.raster_dpr();
+    let (fit_w, fit_h) = contain_fit(iw * dpr, ih * dpr, slot_w * dpr, slot_h * dpr);
+    let px_w = fit_w.ceil().max(1.0) as u32;
+    let px_h = fit_h.ceil().max(1.0) as u32;
+    let img = render_tree_bgra(tree, px_w, px_h)?;
+    from_bgra(img, dpr).ok_or_else(|| crate::Error::Image(md_i18n::Key::ImageRasterFailed.into()))
+}
+
+/// Rasterise an SVG source at an explicit css size and pixel density for the
+/// zoom view, mirroring `mermaid::raster_svg`.
+pub fn raster_svg_at(
+    tree: &usvg::Tree,
+    css: (f32, f32),
+    density: f32,
+) -> Result<ReadyImage, crate::Error> {
+    let density = density.max(0.25);
+    let px_w = (css.0.max(1.0) * density).ceil() as u32;
+    let px_h = (css.1.max(1.0) * density).ceil() as u32;
+    let img = render_tree_bgra(tree, px_w, px_h)?;
+    from_bgra(img, density)
+        .ok_or_else(|| crate::Error::Image(md_i18n::Key::ImageRasterFailed.into()))
+}
+
+fn render_tree_bgra(tree: &usvg::Tree, px_w: u32, px_h: u32) -> Result<RgbaImage, crate::Error> {
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(px_w, px_h)
+        .ok_or_else(|| crate::Error::Image(md_i18n::Key::ImageRasterFailed.into()))?;
+    let sz = tree.size();
+    let sx = px_w as f32 / sz.width().max(1.0);
+    let sy = px_h as f32 / sz.height().max(1.0);
+    resvg::render(
+        tree,
+        resvg::tiny_skia::Transform::from_scale(sx, sy),
+        &mut pixmap.as_mut(),
+    );
+    let mut out = RgbaImage::new(px_w, px_h);
+    for (dst, src) in out
+        .as_mut()
+        .chunks_exact_mut(4)
+        .zip(pixmap.data().chunks_exact(4))
+    {
+        let Some(pixel) =
+            resvg::tiny_skia::PremultipliedColorU8::from_rgba(src[0], src[1], src[2], src[3])
+        else {
+            continue;
+        };
+        let color = pixel.demultiply();
+        dst[0] = color.blue();
+        dst[1] = color.green();
+        dst[2] = color.red();
+        dst[3] = color.alpha();
+    }
+    Ok(out)
+}
+
 pub(super) fn native_dims(img: Arc<RenderImage>) -> Option<(Arc<RenderImage>, u32, u32)> {
     if img.frame_count() == 0 {
         return None;
@@ -78,10 +139,4 @@ pub(super) fn native_dims(img: Arc<RenderImage>) -> Option<(Arc<RenderImage>, u3
     } else {
         Some((img, width, height))
     }
-}
-
-pub(super) fn decoded_len(img: &RenderImage) -> usize {
-    (0..img.frame_count()).fold(0, |total, frame| {
-        total.saturating_add(img.as_bytes(frame).map_or(0, |bytes| bytes.len()))
-    })
 }

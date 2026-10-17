@@ -240,7 +240,7 @@ pub(super) fn collect_image_jobs(
                 if !entry.contains(&block) {
                     entry.push(block);
                 }
-            } else if let Some(source) = sched.cache.source_image(dest) {
+            } else if let Some(source) = sched.cache.source_media(dest) {
                 let entry = sched
                     .display_jobs
                     .entry(dkey)
@@ -267,7 +267,7 @@ pub(super) fn collect_popover_job(popover: &ImagePopover, sched: &mut ImageSched
         return;
     };
     sched.protect.push(plan.key.clone());
-    if let Some(source) = sched.cache.source_image(dest) {
+    if let Some(source) = sched.cache.source_media(dest) {
         sched
             .display_jobs
             .entry(plan.key.clone())

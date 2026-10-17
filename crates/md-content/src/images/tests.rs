@@ -1,5 +1,5 @@
 use super::keys::{cache_key, display_key};
-use super::raster::{decoded_len, raster_display};
+use super::raster::raster_display;
 use super::source::{
     decode_data_payload, detect_format, gif_frame_count, is_image_path, markdown_dest,
     parse_retry_after, resolve, validate_image_dimensions, validate_svg_dimensions,
@@ -7,7 +7,7 @@ use super::source::{
 };
 use super::{
     DataEncoding, ImageCache, MAX_FAILED_ENTRIES, MAX_IN_FLIGHT, Resolved, SOURCE_RETRY_BASE,
-    SOURCE_RETRY_MAX, SourceError, SourceKey, WARM_DISPLAY_EXTRA, source_retry_delay,
+    SOURCE_RETRY_MAX, SourceError, SourceKey, SourceMedia, WARM_DISPLAY_EXTRA, source_retry_delay,
 };
 use crate::images::fit::{contain_fit, width_fit};
 use gpui::{ImageFormat, RenderImage};
@@ -38,14 +38,13 @@ fn native_from_png(png: &[u8]) -> (Arc<RenderImage>, u32, u32) {
 }
 
 #[test]
-fn decoded_len_counts_every_animation_frame() {
+fn resident_bytes_counts_every_animation_frame() {
     let frames = smallvec![
         image::Frame::new(image::RgbaImage::new(2, 3)),
         image::Frame::new(image::RgbaImage::new(2, 3)),
     ];
-    let image = RenderImage::new(frames);
-    assert_eq!(image.frame_count(), 2);
-    assert_eq!(decoded_len(&image), 2 * 2 * 3 * 4);
+    let media = SourceMedia::Bitmap(Arc::new(RenderImage::new(frames)));
+    assert_eq!(media.resident_bytes(), 2 * 2 * 3 * 4);
 }
 
 #[test]
@@ -227,8 +226,8 @@ fn retryable_source_failures_unlock_after_the_backoff_window() {
     assert!(cache.failed_sources().contains("u"));
 
     let native = native_from_png(&tiny_png());
-    cache.finish_source_inner(job, Ok(native), None, usize::MAX);
-    assert!(cache.source_image("u").is_some());
+    cache.finish_source_inner(job, Ok(SourceMedia::Bitmap(native.0)), None, usize::MAX);
+    assert!(cache.source_media("u").is_some());
     assert!(
         !cache.failed_sources().contains("u"),
         "a successful retry must clear the failure projection, or the fallback text lingers"
@@ -419,7 +418,7 @@ fn recovered_sources_leave_the_failure_lru() {
         .begin_source_inner("u".into(), later)
         .expect("begin retry");
     let native = native_from_png(&tiny_png());
-    cache.finish_source_inner(job, Ok(native), None, usize::MAX);
+    cache.finish_source_inner(job, Ok(SourceMedia::Bitmap(native.0)), None, usize::MAX);
     assert_eq!(
         cache.failed_entry_count(),
         0,
@@ -462,10 +461,15 @@ fn retrying_source_survives_failure_lru_eviction() {
 
     let native = native_from_png(&tiny_png());
     assert!(
-        cache.finish_source_inner(retry_job, Ok(native), None, usize::MAX),
+        cache.finish_source_inner(
+            retry_job,
+            Ok(SourceMedia::Bitmap(native.0)),
+            None,
+            usize::MAX
+        ),
         "a completion while the retry slot is alive must be booked"
     );
-    assert!(cache.source_image("retry").is_some());
+    assert!(cache.source_media("retry").is_some());
     for n in 0..MAX_IN_FLIGHT {
         assert!(
             cache
@@ -539,7 +543,12 @@ fn display_drop_keeps_source_ready() {
     let native = native_from_png(&png);
     let mut cache = ImageCache::new();
     let job = cache.begin_source("k".into()).expect("begin");
-    assert!(cache.finish_source_inner(job, Ok(native.clone()), None, usize::MAX));
+    assert!(cache.finish_source_inner(
+        job,
+        Ok(SourceMedia::Bitmap(native.0.clone())),
+        None,
+        usize::MAX
+    ));
     assert_eq!(cache.intrinsic("k"), Some((4, 3)));
     let key = display_key("k", 4.0, 3.0, 1.0);
     let djob = cache.begin_display(key.clone()).expect("begin display");
@@ -549,7 +558,7 @@ fn display_drop_keeps_source_ready() {
     cache.drop_display_keep_source(&key);
     assert!(cache.display_ready(&key).is_none());
     assert_eq!(cache.intrinsic("k"), Some((4, 3)));
-    assert!(cache.source_image("k").is_some());
+    assert!(cache.source_media("k").is_some());
 }
 
 #[test]
@@ -567,7 +576,12 @@ fn source_lru_evicts_derived_displays_and_retries_budget_pressure() {
         source_bytes,
     );
     let job = cache.begin_source("a".into()).expect("begin");
-    assert!(cache.finish_source_inner(job, Ok(native.clone()), None, source_bytes));
+    assert!(cache.finish_source_inner(
+        job,
+        Ok(SourceMedia::Bitmap(native.0.clone())),
+        None,
+        source_bytes
+    ));
     let djob = cache.begin_display(a.clone()).expect("begin display");
     let display = raster_display(&native.0, &a).expect("display");
     assert!(cache.finish_display_inner(djob, Ok(display), None));
@@ -581,7 +595,12 @@ fn source_lru_evicts_derived_displays_and_retries_budget_pressure() {
         source_bytes,
     );
     let job = cache.begin_source("b".into()).expect("begin");
-    assert!(cache.finish_source_inner(job, Ok(native.clone()), None, source_bytes));
+    assert!(cache.finish_source_inner(
+        job,
+        Ok(SourceMedia::Bitmap(native.0.clone())),
+        None,
+        source_bytes
+    ));
     assert!(!cache.source_contains("a"));
     assert!(cache.source_contains("b"));
     assert!(cache.display_ready(&a).is_none());
@@ -597,7 +616,7 @@ fn source_lru_evicts_derived_displays_and_retries_budget_pressure() {
         source_bytes,
     );
     let job = cache.begin_source("c".into()).expect("begin");
-    assert!(cache.finish_source_inner(job, Ok(native), None, source_bytes));
+    assert!(cache.finish_source_inner(job, Ok(SourceMedia::Bitmap(native.0)), None, source_bytes));
     assert!(cache.source_contains("c"));
     assert!(cache.source_error("c").is_some());
     cache.set_working_set_inner(
@@ -626,7 +645,12 @@ fn visible_over_budget_retries_once_offscreen_space_covers_it() {
         budget,
     );
     let job = cache.begin_source("a".into()).expect("begin");
-    assert!(cache.finish_source_inner(job, Ok(native.clone()), None, budget));
+    assert!(cache.finish_source_inner(
+        job,
+        Ok(SourceMedia::Bitmap(native.0.clone())),
+        None,
+        budget
+    ));
 
     let b = display_key("b", 4.0, 3.0, 1.0);
     cache.set_working_set_inner(
@@ -637,7 +661,12 @@ fn visible_over_budget_retries_once_offscreen_space_covers_it() {
         budget,
     );
     let job = cache.begin_source("b".into()).expect("begin");
-    assert!(cache.finish_source_inner(job, Ok(native.clone()), None, budget));
+    assert!(cache.finish_source_inner(
+        job,
+        Ok(SourceMedia::Bitmap(native.0.clone())),
+        None,
+        budget
+    ));
     assert!(cache.source_error("b").is_some());
     cache.set_working_set_inner(
         [a, b.clone()],
@@ -657,7 +686,7 @@ fn visible_over_budget_retries_once_offscreen_space_covers_it() {
         "once room is made, the OverBudget slots should be cleared"
     );
     let job = cache.begin_source("b".into()).expect("begin retry");
-    assert!(cache.finish_source_inner(job, Ok(native), None, budget));
+    assert!(cache.finish_source_inner(job, Ok(SourceMedia::Bitmap(native.0)), None, budget));
     assert_eq!(cache.intrinsic("b"), Some((4, 3)));
     assert!(
         !cache.source_contains("a"),
@@ -678,7 +707,7 @@ fn image_larger_than_the_whole_budget_never_retries() {
         48,
     );
     let job = cache.begin_source("k".into()).expect("begin");
-    assert!(cache.finish_source_inner(job, Ok(native), None, 48));
+    assert!(cache.finish_source_inner(job, Ok(SourceMedia::Bitmap(native.0)), None, 48));
     assert!(cache.source_error("k").is_some());
     cache.set_working_set_inner([k], std::iter::empty(), std::iter::empty(), None, 48);
     assert!(cache.source_contains("k"));
@@ -1130,7 +1159,12 @@ fn fill_display_ready(cache: &mut ImageCache, n: usize) {
         let dest = format!("d{i}");
         let key = display_key(&dest, 4.0, 3.0, 1.0);
         let job = cache.begin_source(dest).expect("begin");
-        assert!(cache.finish_source_inner(job, Ok(native.clone()), None, usize::MAX));
+        assert!(cache.finish_source_inner(
+            job,
+            Ok(SourceMedia::Bitmap(native.0.clone())),
+            None,
+            usize::MAX
+        ));
         let djob = cache.begin_display(key.clone()).expect("begin display");
         let display = raster_display(&native.0, &key).expect("display");
         assert!(cache.finish_display_inner(djob, Ok(display), None));
@@ -1232,7 +1266,7 @@ fn set_working_set_does_not_evict_inflight_or_visible_display() {
     let inflight = display_key("inf", 4.0, 3.0, 1.0);
     let native = native_from_png(&tiny_png());
     let job = cache.begin_source("inf".into()).expect("begin");
-    assert!(cache.finish_source_inner(job, Ok(native), None, usize::MAX));
+    assert!(cache.finish_source_inner(job, Ok(SourceMedia::Bitmap(native.0)), None, usize::MAX));
     assert!(cache.begin_display(inflight.clone()).is_some());
     cache.set_working_set_inner(
         [visible.clone()],

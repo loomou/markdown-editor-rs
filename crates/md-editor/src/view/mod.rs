@@ -512,7 +512,7 @@ struct DocShapeMaps {
 }
 
 struct DisplayJob {
-    source: std::sync::Arc<gpui::RenderImage>,
+    source: images::SourceMedia,
     blocks: Vec<BlockId>,
 }
 
