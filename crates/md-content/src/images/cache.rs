@@ -357,14 +357,14 @@ impl ImageCache {
             if let SourceSlot::Ready { media } = slot
                 && let Some(image) = media.image()
             {
-                cx.drop_image(image.clone(), None);
+                crate::media::drop_image_deferred(cx, image.clone());
             }
         }
         for slot in self.display.values() {
             if let DisplaySlot::Ready(img) = slot
                 && !img.shared_with_source
             {
-                cx.drop_image(img.image.clone(), None);
+                crate::media::drop_image_deferred(cx, img.image.clone());
             }
         }
         self.source.clear();
@@ -478,7 +478,7 @@ impl ImageCache {
                 if let Some(cx) = cx.as_deref_mut()
                     && let Some(image) = media.image()
                 {
-                    cx.drop_image(image.clone(), None);
+                    crate::media::drop_image_deferred(cx, image.clone());
                 }
             }
             Some(SourceSlot::InFlight { .. }) => {
@@ -502,7 +502,7 @@ impl ImageCache {
                     if let Some(cx) = cx.as_deref_mut()
                         && !image.shared_with_source
                     {
-                        cx.drop_image(image.image, None);
+                        crate::media::drop_image_deferred(cx, image.image);
                     }
                 }
                 Some(DisplaySlot::InFlight { .. }) => {
@@ -559,7 +559,7 @@ impl ImageCache {
                     if let Some(cx) = cx.as_deref_mut()
                         && !img.shared_with_source
                     {
-                        cx.drop_image(img.image, None);
+                        crate::media::drop_image_deferred(cx, img.image);
                     }
                 }
                 Some(DisplaySlot::InFlight { .. }) => unreachable!(),
