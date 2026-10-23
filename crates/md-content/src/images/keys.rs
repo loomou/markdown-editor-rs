@@ -19,7 +19,7 @@ fn quantized_axis(slot: f32) -> u32 {
     (f64::from(slot).max(0.0) / WIDTH_QUANT).floor().max(1.0) as u32
 }
 
-pub(crate) fn quantized_slot(slot_w: f32, slot_h: f32) -> (f32, f32) {
+pub fn quantized_slot(slot_w: f32, slot_h: f32) -> (f32, f32) {
     (
         quantized_axis(slot_w) as f32 * WIDTH_QUANT as f32,
         quantized_axis(slot_h) as f32 * WIDTH_QUANT as f32,

@@ -46,7 +46,7 @@ pub fn spec_from_theme(theme: &DocumentTheme, key: MermaidKey) -> RasterSpec {
     let text = theme.type_scale.body.color.to_css_hex();
     let border = theme.paint.table_border.to_css_hex();
     RasterSpec {
-        theme_fp: key.theme_fp,
+        theme_fp: key.raster.theme_fp,
         dark: canvas.l <= 0.5,
         canvas: canvas.to_css_hex(),
         surface: theme.app.panel_bg.to_css_hex(),
@@ -61,8 +61,8 @@ pub fn spec_from_theme(theme: &DocumentTheme, key: MermaidKey) -> RasterSpec {
         series: series_colors(theme).map(|c| c.to_css_hex()),
         font_size: format!("{}px", theme.type_scale.body.size_px),
         font_family: mermaid_font_family(theme.type_scale.body.family),
-        fit_w: key.width_q,
-        fit_h: key.max_h,
+        fit_w: key.raster.width_q,
+        fit_h: key.raster.max_h,
         dpr: key.dpr(),
     }
 }

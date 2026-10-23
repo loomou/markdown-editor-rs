@@ -191,7 +191,7 @@ fn transient_server_errors_retry_after_the_backoff_window(cx: &mut TestAppContex
     let (ready, failed) = cx.update(|_, app| {
         let v = editor.read(app);
         (
-            v.images.source_image(url).is_some(),
+            v.images.source_media(url).is_some(),
             v.images.failed_sources().contains(url),
         )
     });

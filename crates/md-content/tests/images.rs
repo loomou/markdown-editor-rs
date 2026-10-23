@@ -1,3 +1,4 @@
+use base64::Engine;
 use gpui::http_client::{AsyncBody, FakeHttpClient, Response};
 use md_content::images::{self, ImageCache, Resolved, SourceError};
 
@@ -44,6 +45,44 @@ fn load_local(cx: &mut gpui::TestAppContext, dest: &str, source: &std::path::Pat
     let resolved = images::resolve(dest, Some(source)).expect("resolve");
     let future = cx.update(|app| images::load_source(resolved, false, app));
     futures::executor::block_on(future).is_ok()
+}
+
+#[gpui::test]
+fn oversized_raster_sources_keep_only_the_encoded_bytes(cx: &mut gpui::TestAppContext) {
+    let img = image::RgbaImage::from_pixel(3000, 3000, image::Rgba([1, 2, 3, 255]));
+    let mut buf = Vec::new();
+    image::DynamicImage::ImageRgba8(img)
+        .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
+        .unwrap();
+    let resolved = images::resolve(
+        &format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(&buf)
+        ),
+        None,
+    )
+    .expect("resolve");
+    let future = cx.update(|app| images::load_source(resolved, false, app));
+    let source = futures::executor::block_on(future).expect("load");
+    let (w, h) = source.dims();
+    let pixels = u64::from(w) * u64::from(h);
+    assert!(
+        pixels <= 4 * 1024 * 1024,
+        "a 9M-pixel source must report at most 4M pixels, got {pixels}"
+    );
+    assert_eq!(
+        source.resident_bytes(),
+        buf.len(),
+        "the source holds the encoded file, not the 36 MiB a decode would cost"
+    );
+    let ready = images::raster_display(&source, &images::display_key("k", 800.0, 800.0, 1.0))
+        .expect("raster");
+    assert!(
+        ready.px_w <= 800 && ready.px_h <= 800,
+        "the raster still fits the slot: {}x{}",
+        ready.px_w,
+        ready.px_h
+    );
 }
 
 #[test]
@@ -126,7 +165,19 @@ fn local_normalization_is_lexical_for_missing_paths() {
 
 #[gpui::test]
 fn clear_must_reject_an_old_source_result(cx: &mut gpui::TestAppContext) {
-    cx.update(|app| {
+    let mut png = Vec::new();
+    image::RgbaImage::from_pixel(2, 2, image::Rgba([0, 0, 255, 255]))
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    let dest = format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(&png)
+    );
+    let resolved = images::resolve(&dest, None).expect("resolve");
+    let future = cx.update(|app| images::load_source(resolved, false, app));
+    let media = futures::executor::block_on(future).expect("load");
+
+    cx.update(move |app| {
         let mut cache = ImageCache::new();
         let key = "https://example.invalid/image.png".to_string();
 
@@ -134,13 +185,7 @@ fn clear_must_reject_an_old_source_result(cx: &mut gpui::TestAppContext) {
         cache.clear(app);
         let new = cache.begin_source(key.clone()).expect("re-entry");
 
-        let frame = image::Frame::new(image::RgbaImage::from_pixel(
-            2,
-            2,
-            image::Rgba([0, 0, 255, 255]),
-        ));
-        let image = std::sync::Arc::new(gpui::RenderImage::new(vec![frame]));
-        let accepted_old = cache.finish_source(old, Ok((image, 2, 2)), app);
+        let accepted_old = cache.finish_source(old, Ok(media), app);
         assert!(
             !accepted_old,
             "clear must void the old job's identity, not just the map entry"
@@ -149,7 +194,7 @@ fn clear_must_reject_an_old_source_result(cx: &mut gpui::TestAppContext) {
         let accepted_new = cache.finish_source(new, Err(SourceError::Fatal(failure())), app);
         assert!(accepted_new, "the new job's failure must be booked");
         assert!(
-            cache.source_image(&key).is_none(),
+            cache.source_media(&key).is_none(),
             "after the old result was refused, the source must not be Ready"
         );
     });
