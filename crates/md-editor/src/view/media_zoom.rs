@@ -26,7 +26,7 @@ const DENSITY_EPS: f32 = 0.05;
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ZoomKey {
     Mermaid(mermaid::MermaidSvgKey),
-    ImageSvg(String),
+    Image(String),
 }
 
 pub(crate) struct ZoomRaster {
@@ -58,6 +58,23 @@ pub(crate) fn zoom_target_density(
     }
     let budget = (mermaid::MAX_RASTER_PIXELS as f32 / (css.0 * css.1).max(1.0)).sqrt();
     Some(need.min(budget).max(0.25))
+}
+
+/// The css size a source occupies before the overlay fits it to the viewport.
+/// A raster source is measured in device pixels, so its logical size divides
+/// the document density out; a vector source already declares css units.
+fn zoom_css(source: &images::SourceMedia, dpr: f32) -> (f32, f32) {
+    let dpr = dpr.max(0.25);
+    match source {
+        images::SourceMedia::Bitmap { width, height, .. } => (
+            (*width as f32 / dpr).max(1.0),
+            (*height as f32 / dpr).max(1.0),
+        ),
+        images::SourceMedia::Vector { tree, .. } => {
+            let sz = tree.size();
+            (sz.width().max(1.0), sz.height().max(1.0))
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -408,23 +425,18 @@ impl EditorView {
         let Some(dest) = self.doc_maps.block_image_dest.get(&z.block).cloned() else {
             return;
         };
-        let Some(images::SourceMedia::Vector { tree, .. }) = self.images.source_media(&dest) else {
+        let Some(source) = self.images.source_media(&dest) else {
             return;
         };
-        let sz = tree.size();
-        let css = (sz.width().max(1.0), sz.height().max(1.0));
+        let doc_dpr = scale.max(0.25) as f32;
+        let css = zoom_css(&source, doc_dpr);
         let doc_density = images::dpr_from_q(images::dpr_q(scale.max(0.25)));
-        let Some(target) = zoom_target_density(
-            css,
-            viewport,
-            z.user_scale,
-            scale.max(0.25) as f32,
-            doc_density,
-        ) else {
+        let Some(target) = zoom_target_density(css, viewport, z.user_scale, doc_dpr, doc_density)
+        else {
             self.drop_zoom_raster(cx);
             return;
         };
-        let zoom_key = ZoomKey::ImageSvg(dest);
+        let zoom_key = ZoomKey::Image(dest);
         if let Some(zr) = &self.zoom_raster
             && zr.key == zoom_key
             && zr.density >= target - DENSITY_EPS
@@ -444,14 +456,14 @@ impl EditorView {
                 cx.background_executor().timer(ZOOM_RASTER_DEBOUNCE).await;
                 let result = cx
                     .background_executor()
-                    .spawn(async move { images::raster_svg_at(&tree, css, target) })
+                    .spawn(async move { images::raster_at(&source, css, target) })
                     .await;
                 let _ = this.update(cx, |v, cx| {
                     let same = v.media_zoom.as_ref().is_some_and(|z| {
                         v.doc_maps
                             .block_image_dest
                             .get(&z.block)
-                            .is_some_and(|d| ZoomKey::ImageSvg(d.clone()) == zoom_key)
+                            .is_some_and(|d| ZoomKey::Image(d.clone()) == zoom_key)
                     });
                     if !same {
                         return;
@@ -467,7 +479,7 @@ impl EditorView {
                             }
                             cx.notify();
                         }
-                        Err(err) => tracing::warn!(error = %err, "svg zoom raster"),
+                        Err(err) => tracing::warn!(error = %err, "image zoom raster"),
                     }
                 });
             }),
@@ -573,19 +585,8 @@ impl EditorView {
             }
             BlockKind::Image => {
                 let dest = self.doc_maps.block_image_dest.get(&z.block)?;
-                match self.images.source_media(dest)? {
-                    images::SourceMedia::Bitmap(img) => {
-                        let sz = img.size(0);
-                        let dpr = scale.max(0.25) as f32;
-                        let w = (sz.width.0.max(0) as f32 / dpr).max(1.0);
-                        let h = (sz.height.0.max(0) as f32 / dpr).max(1.0);
-                        Some((w, h))
-                    }
-                    images::SourceMedia::Vector { tree, .. } => {
-                        let sz = tree.size();
-                        Some((sz.width().max(1.0), sz.height().max(1.0)))
-                    }
-                }
+                let source = self.images.source_media(dest)?;
+                Some(zoom_css(&source, scale.max(0.25) as f32))
             }
             _ => None,
         }
@@ -618,41 +619,29 @@ impl EditorView {
             }
             BlockKind::Image => {
                 let dest = self.doc_maps.block_image_dest.get(&z.block)?;
-                match self.images.source_media(dest)? {
-                    images::SourceMedia::Bitmap(img) => {
-                        let sz = img.size(0);
-                        let dpr = scale.max(0.25) as f32;
-                        let w = (sz.width.0.max(0) as f32 / dpr).max(1.0);
-                        let h = (sz.height.0.max(0) as f32 / dpr).max(1.0);
-                        Some((img, (w, h)))
-                    }
-                    images::SourceMedia::Vector { tree, .. } => {
-                        let zoom_key = ZoomKey::ImageSvg(dest.clone());
-                        if let Some(zr) = &self.zoom_raster
-                            && zr.key == zoom_key
-                        {
-                            return Some((zr.image.image.clone(), zr.image.css_size()));
-                        }
-                        let dpr = scale.max(0.25);
-                        let sz = tree.size();
-                        let max_w = self
-                            .state
-                            .theme
-                            .decoration
-                            .image_max_width
-                            .min(z.slot_w)
-                            .max(1.0) as f32;
-                        let (w, h) =
-                            images::width_fit(sz.width().max(1.0), sz.height().max(1.0), max_w);
-                        let (qw, qh) = images::quantized_slot(
-                            images::snap_css(w, dpr as f32),
-                            images::snap_css(h, dpr as f32),
-                        );
-                        let dkey = images::display_key(dest, qw, qh, dpr);
-                        let ready = self.images.ready_snapshot().get(&dkey)?.clone();
-                        Some((ready.image.clone(), ready.css_size()))
-                    }
+                let source = self.images.source_media(dest)?;
+                if let Some(zr) = &self.zoom_raster
+                    && zr.key == ZoomKey::Image(dest.clone())
+                {
+                    return Some((zr.image.image.clone(), zr.image.css_size()));
                 }
+                let dpr = scale.max(0.25);
+                let css = zoom_css(&source, dpr as f32);
+                let max_w = self
+                    .state
+                    .theme
+                    .decoration
+                    .image_max_width
+                    .min(z.slot_w)
+                    .max(1.0) as f32;
+                let (w, h) = images::width_fit(css.0, css.1, max_w);
+                let (qw, qh) = images::quantized_slot(
+                    images::snap_css(w, dpr as f32),
+                    images::snap_css(h, dpr as f32),
+                );
+                let dkey = images::display_key(dest, qw, qh, dpr);
+                let ready = self.images.ready_snapshot().get(&dkey)?.clone();
+                Some((ready.image.clone(), ready.css_size()))
             }
             _ => None,
         }

@@ -10,6 +10,36 @@ const MAX_IN_FLIGHT: usize = 4;
 const MAX_ENTRIES: usize = 48;
 const MAX_BYTES: usize = 96 * 1024 * 1024;
 
+const RASTER_SCREENS: usize = 8;
+const MIN_BYTES: usize = 48 * 1024 * 1024;
+const VIEWPORT_ENTRIES: usize = 48;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Budget {
+    pub bytes: usize,
+    pub entries: usize,
+}
+
+impl Budget {
+    pub fn for_viewport(width: f64, height: f64, dpr: f64) -> Self {
+        let dpr = dpr.max(0.25);
+        let screen = (width.max(1.0) * height.max(1.0) * dpr * dpr * 4.0) as usize;
+        Budget {
+            bytes: screen.saturating_mul(RASTER_SCREENS).max(MIN_BYTES),
+            entries: VIEWPORT_ENTRIES,
+        }
+    }
+}
+
+impl Default for Budget {
+    fn default() -> Self {
+        Budget {
+            bytes: MAX_BYTES,
+            entries: MAX_ENTRIES,
+        }
+    }
+}
+
 const WARM_IN_FLIGHT: usize = 1;
 
 const WARM_EXTRA_ENTRIES: usize = 8;
@@ -57,36 +87,43 @@ pub fn fail_label(err: &crate::Error) -> String {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub struct MermaidKey {
-    pub block: BlockId,
-    pub generation: u32,
-    pub revision: u64,
+pub struct MermaidRasterKey {
+    pub source: u64,
     pub theme_fp: u64,
     pub width_q: u32,
     pub max_h: u32,
     pub dpr_q: u16,
 }
 
-impl MermaidKey {
+impl MermaidRasterKey {
     pub fn dpr(self) -> f32 {
         crate::pixels::dpr_from_q(self.dpr_q)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct MermaidKey {
+    pub block: BlockId,
+    pub generation: u32,
+    pub raster: MermaidRasterKey,
+}
+
+impl MermaidKey {
+    pub fn dpr(self) -> f32 {
+        self.raster.dpr()
     }
 
     pub fn svg_key(self) -> MermaidSvgKey {
         MermaidSvgKey {
-            block: self.block,
-            generation: self.generation,
-            revision: self.revision,
-            theme_fp: self.theme_fp,
+            source: self.raster.source,
+            theme_fp: self.raster.theme_fp,
         }
     }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct MermaidSvgKey {
-    pub block: BlockId,
-    pub generation: u32,
-    pub revision: u64,
+    pub source: u64,
     pub theme_fp: u64,
 }
 
@@ -118,7 +155,7 @@ enum Slot {
     Failed(crate::Error),
 }
 
-type CurrentMermaid = (MermaidKey, (f32, f32));
+type CurrentMermaid = (MermaidRasterKey, (f32, f32));
 type MermaidIdentity = (BlockId, u32);
 
 const MAX_SVG_ENTRIES: usize = 16;
@@ -126,11 +163,12 @@ const MAX_SVG_ENTRIES: usize = 16;
 const MAX_FITTED_ENTRIES: usize = 1024;
 
 pub struct MermaidCache {
-    map: HashMap<MermaidKey, Slot>,
-    lru: VecDeque<MermaidKey>,
-    latest: HashMap<MermaidIdentity, MermaidKey>,
-    hot: HashSet<MermaidKey>,
-    warm: HashSet<MermaidKey>,
+    budget: Budget,
+    map: HashMap<MermaidRasterKey, Slot>,
+    lru: VecDeque<MermaidRasterKey>,
+    latest: HashMap<MermaidIdentity, MermaidRasterKey>,
+    hot: HashSet<MermaidRasterKey>,
+    warm: HashSet<MermaidRasterKey>,
     bytes: usize,
     inflight: usize,
     theme_fp: u64,
@@ -151,7 +189,8 @@ pub fn key_for(
     theme_fp: u64,
 ) -> Option<MermaidKey> {
     let nid = doc.live_id(block)?;
-    let node = doc.arena.get(nid)?;
+    doc.arena.get(nid)?;
+    let source = doc.text_of(block).map(hash_source).unwrap_or_default();
     let width = content_width.min(max_w).max(1.0);
     let width_q = ((width / WIDTH_QUANT).round() * WIDTH_QUANT).max(WIDTH_QUANT) as u32;
     let max_h = max_h.round().max(1.0) as u32;
@@ -159,12 +198,21 @@ pub fn key_for(
     Some(MermaidKey {
         block,
         generation: nid.generation.get(),
-        revision: node.content_revision,
-        theme_fp,
-        width_q,
-        max_h,
-        dpr_q,
+        raster: MermaidRasterKey {
+            source,
+            theme_fp,
+            width_q,
+            max_h,
+            dpr_q,
+        },
     })
+}
+
+fn hash_source(source: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn fit_rect(slot_w: f32, slot_h: f32, image_w: f32, image_h: f32) -> Option<(f32, f32, f32, f32)> {

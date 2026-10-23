@@ -3,8 +3,9 @@ use super::svg::{
     MAX_RASTER_PIXELS, first_viewbox, pad_svg_viewbox, raster_dpr, raster_scale, strip_init,
 };
 use super::{
-    FAIL_LABEL_CAP, MAX_ENTRIES, MAX_FITTED_ENTRIES, MAX_IN_FLIGHT, MermaidCache, MermaidKey,
-    RasterSpec, WARM_EXTRA_ENTRIES, fail_label, fit_rect,
+    Budget, FAIL_LABEL_CAP, MAX_ENTRIES, MAX_FITTED_ENTRIES, MAX_IN_FLIGHT, MIN_BYTES,
+    MermaidCache, MermaidKey, MermaidRasterKey, RasterSpec, VIEWPORT_ENTRIES, WARM_EXTRA_ENTRIES,
+    fail_label, fit_rect,
 };
 use crate::mermaid::raster::raster;
 use crate::mermaid::theme::{spec_from_theme, theme_fingerprint};
@@ -47,6 +48,20 @@ fn first_viewbox_ignores_nested_marker_attributes() {
     assert_eq!(pad_svg_viewbox(svg, 2.0), svg);
 }
 
+fn key_with(block: u32, source: u64, width_q: u32, max_h: u32) -> MermaidKey {
+    MermaidKey {
+        block,
+        generation: 1,
+        raster: MermaidRasterKey {
+            source,
+            theme_fp: 1,
+            width_q,
+            max_h,
+            dpr_q: 4,
+        },
+    }
+}
+
 fn spec_fit(w: u32, h: u32) -> RasterSpec {
     spec_for(md_theme::DocumentTheme::formal(), w, h)
 }
@@ -55,11 +70,13 @@ fn spec_for(theme: md_theme::DocumentTheme, w: u32, h: u32) -> RasterSpec {
     let key = MermaidKey {
         block: 0,
         generation: 1,
-        revision: 1,
-        theme_fp: theme_fingerprint(&theme),
-        width_q: w,
-        max_h: h,
-        dpr_q: 4,
+        raster: MermaidRasterKey {
+            source: 1,
+            theme_fp: theme_fingerprint(&theme),
+            width_q: w,
+            max_h: h,
+            dpr_q: 4,
+        },
     };
     spec_from_theme(&theme, key)
 }
@@ -76,11 +93,13 @@ fn spec_splits_canvas_surface_cluster_and_line() {
             MermaidKey {
                 block: 0,
                 generation: 1,
-                revision: 1,
-                theme_fp: theme_fingerprint(&theme),
-                width_q: 804,
-                max_h: 420,
-                dpr_q: 4,
+                raster: MermaidRasterKey {
+                    source: 1,
+                    theme_fp: theme_fingerprint(&theme),
+                    width_q: 804,
+                    max_h: 420,
+                    dpr_q: 4,
+                },
             },
         );
         assert_ne!(
@@ -322,15 +341,7 @@ fn raster_leaves_the_diagram_background_transparent() {
 fn failed_diagram_slots_obey_the_entry_limit() {
     let mut cache = MermaidCache::new();
     for block in 0..(MAX_ENTRIES as u32 + 8) {
-        let key = MermaidKey {
-            block,
-            generation: 1,
-            revision: 1,
-            theme_fp: 1,
-            width_q: 800,
-            max_h: 600,
-            dpr_q: 4,
-        };
+        let key = key_with(block, u64::from(block) + 1, 800, 600);
         assert!(cache.begin(key));
         cache.finish_inner(
             key,
@@ -348,15 +359,7 @@ fn ready_image(width: u32, height: u32, dpr: f32) -> crate::pixels::ReadyImage {
 #[test]
 fn image_falls_back_to_the_previous_ready_diagram_and_updates_fitted_size() {
     let mut cache = MermaidCache::new();
-    let first = MermaidKey {
-        block: 7,
-        generation: 1,
-        revision: 1,
-        theme_fp: 1,
-        width_q: 800,
-        max_h: 600,
-        dpr_q: 4,
-    };
+    let first = key_with(7, 1, 800, 600);
     assert!(cache.begin(first));
     let first_image = ready_image(80, 40, 1.0);
     cache.finish_inner(first, Ok(first_image), None);
@@ -366,7 +369,10 @@ fn image_falls_back_to_the_previous_ready_diagram_and_updates_fitted_size() {
     );
 
     let second = MermaidKey {
-        revision: 2,
+        raster: MermaidRasterKey {
+            source: 2,
+            ..first.raster
+        },
         ..first
     };
     assert!(cache.begin(second));
@@ -393,23 +399,21 @@ fn image_falls_back_to_the_previous_ready_diagram_and_updates_fitted_size() {
 #[test]
 fn evicting_an_old_key_does_not_remove_the_current_key_for_its_block() {
     let mut cache = MermaidCache::new();
-    let old = MermaidKey {
-        block: 11,
-        generation: 1,
-        revision: 1,
-        theme_fp: 1,
-        width_q: 800,
-        max_h: 600,
-        dpr_q: 4,
-    };
+    let old = key_with(11, 1, 800, 600);
     assert!(cache.begin(old));
     cache.finish_inner(old, Ok(ready_image(20, 20, 1.0)), None);
-    let current = MermaidKey { revision: 2, ..old };
+    let current = MermaidKey {
+        raster: MermaidRasterKey {
+            source: 2,
+            ..old.raster
+        },
+        ..old
+    };
     assert!(cache.begin(current));
     cache.finish_inner(current, Ok(ready_image(30, 30, 1.0)), None);
 
     for block in 100..(100 + MAX_ENTRIES as u32 - 1) {
-        let key = MermaidKey { block, ..old };
+        let key = key_with(block, u64::from(block), 800, 600);
         assert!(cache.begin(key));
         cache.finish_inner(key, Ok(ready_image(4, 4, 1.0)), None);
     }
@@ -455,15 +459,7 @@ fn fail_label_passes_short_messages_through_verbatim() {
 }
 
 fn mermaid_key(block: u32) -> MermaidKey {
-    MermaidKey {
-        block,
-        generation: 1,
-        revision: 1,
-        theme_fp: 1,
-        width_q: 800,
-        max_h: 600,
-        dpr_q: 4,
-    }
+    key_with(block, u64::from(block) + 1, 800, 600)
 }
 
 fn fill_mermaid_ready(cache: &mut MermaidCache, n: u32) {
@@ -555,9 +551,14 @@ fn fitted_sizes_survive_bitmap_eviction() {
 fn fitted_sizes_obey_their_own_entry_limit() {
     let mut cache = MermaidCache::new();
     for generation in 1..(MAX_FITTED_ENTRIES as u32 + 16) {
+        let base = mermaid_key(5);
         let key = MermaidKey {
             generation,
-            ..mermaid_key(5)
+            raster: MermaidRasterKey {
+                source: u64::from(generation),
+                ..base.raster
+            },
+            ..base
         };
         assert!(cache.begin(key));
         cache.finish_inner(key, Ok(ready_image(4, 4, 1.0)), None);
@@ -684,4 +685,67 @@ fn prefetch_leaves_room_for_the_visible_diagram() {
         !cache.begin(mermaid_key(999)),
         "once the on-screen quota is full, a further diagram waits"
     );
+}
+
+#[test]
+fn identical_sources_share_a_single_raster() {
+    let mut cache = MermaidCache::new();
+    let first = key_with(1, 7, 800, 600);
+    let second = key_with(2, 7, 800, 600);
+    assert!(cache.begin(first));
+    cache.finish_inner(first, Ok(ready_image(10, 10, 1.0)), None);
+    assert!(
+        !cache.begin(second),
+        "a second block with the same source and slot must reuse the raster"
+    );
+    assert_eq!(cache.entry_count(), 1);
+    assert_eq!(
+        cache.image(&second).map(|img| img.css_size()),
+        Some((10.0, 10.0))
+    );
+    assert!(cache.contains(&first) && cache.contains(&second));
+}
+
+#[test]
+fn the_same_source_at_another_width_keeps_its_own_raster() {
+    let mut cache = MermaidCache::new();
+    let narrow = key_with(1, 7, 800, 600);
+    let wide = key_with(1, 7, 864, 600);
+    assert!(cache.begin(narrow));
+    cache.finish_inner(narrow, Ok(ready_image(10, 10, 1.0)), None);
+    assert!(cache.begin(wide));
+    cache.finish_inner(wide, Ok(ready_image(20, 20, 1.0)), None);
+    assert_eq!(cache.entry_count(), 2);
+}
+
+#[test]
+fn a_smaller_budget_evicts_down_to_it() {
+    let mut cache = MermaidCache::new();
+    let big = 2 * 1024 * 1024;
+    for i in 0..6u64 {
+        let key = key_with(i as u32, i + 1, 800, 600);
+        assert!(cache.begin(key));
+        let mut img = ready_image(4, 4, 1.0);
+        img.bytes = big;
+        cache.finish_inner(key, Ok(img), None);
+    }
+    assert_eq!(cache.entry_count(), 6);
+    cache.set_budget_inner(
+        Budget {
+            bytes: 4 * 1024 * 1024,
+            entries: 16,
+        },
+        None,
+    );
+    assert!(cache.byte_count() <= 4 * 1024 * 1024);
+    assert_eq!(cache.entry_count(), 2);
+}
+
+#[test]
+fn a_viewport_budget_scales_with_the_window() {
+    let small = Budget::for_viewport(400.0, 350.0, 1.0);
+    let large = Budget::for_viewport(1920.0, 1080.0, 1.0);
+    assert_eq!(small.bytes, MIN_BYTES);
+    assert!(large.bytes > small.bytes);
+    assert_eq!(small.entries, VIEWPORT_ENTRIES);
 }

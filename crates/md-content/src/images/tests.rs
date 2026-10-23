@@ -1,23 +1,21 @@
 use super::keys::{cache_key, display_key};
-use super::raster::raster_display;
+use super::raster::{raster_at, raster_display};
 use super::source::{
     decode_data_payload, detect_format, gif_frame_count, is_image_path, markdown_dest,
-    parse_retry_after, resolve, validate_image_dimensions, validate_svg_dimensions,
+    parse_retry_after, parse_source, resolve, validate_image_dimensions, validate_svg_dimensions,
     webp_frame_count,
 };
 use super::{
-    DataEncoding, ImageCache, MAX_FAILED_ENTRIES, MAX_IN_FLIGHT, MAX_RASTER_PIXELS, Resolved,
-    SOURCE_RETRY_BASE, SOURCE_RETRY_MAX, SourceError, SourceKey, SourceMedia, WARM_DISPLAY_EXTRA,
-    source_retry_delay,
+    Budget, DataEncoding, ImageCache, MAX_DISPLAY_BYTES, MAX_FAILED_ENTRIES, MAX_IN_FLIGHT,
+    MAX_RASTER_PIXELS, MAX_SOURCE_BYTES, MIN_DISPLAY_BYTES, Resolved, SOURCE_RETRY_BASE,
+    SOURCE_RETRY_MAX, SourceError, SourceKey, SourceMedia, WARM_DISPLAY_EXTRA, source_retry_delay,
 };
 use crate::images::fit::{contain_fit, width_fit};
-use crate::pixels::cap_bitmap;
-use gpui::{ImageFormat, RenderImage};
+use crate::pixels::{cap_rgba, capped_dims, snap_css};
+use gpui::ImageFormat;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use image::RgbImage;
-use smallvec::smallvec;
 use std::io::Cursor;
 use std::time::{Duration, Instant};
 
@@ -34,47 +32,137 @@ fn png_with_size(width: u32, height: u32) -> Vec<u8> {
     buf
 }
 
-fn native_from_png(png: &[u8]) -> (Arc<RenderImage>, u32, u32) {
-    let ready = crate::pixels::decode_png(png, 1.0).expect("png");
-    (ready.image, ready.px_w, ready.px_h)
+fn bitmap_from_png(png: &[u8]) -> SourceMedia {
+    parse_source(ImageFormat::Png, png.to_vec()).expect("png source")
+}
+
+/// Splice an APP1 EXIF block holding a single Orientation tag right after the
+/// JPEG's start-of-image marker.
+fn with_exif_orientation(jpeg: Vec<u8>, orientation: u16) -> Vec<u8> {
+    let mut out = Vec::with_capacity(jpeg.len() + 34);
+    out.extend_from_slice(&jpeg[..2]);
+    out.extend_from_slice(&[0xFF, 0xE1, 0x00, 0x22]);
+    out.extend_from_slice(b"Exif\0\0");
+    out.extend_from_slice(&[0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00]);
+    out.extend_from_slice(&[0x01, 0x00]);
+    out.extend_from_slice(&[0x12, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00]);
+    out.extend_from_slice(&orientation.to_le_bytes());
+    out.extend_from_slice(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    out.extend_from_slice(&jpeg[2..]);
+    out
 }
 
 #[test]
-fn resident_bytes_counts_every_animation_frame() {
-    let frames = smallvec![
-        image::Frame::new(image::RgbaImage::new(2, 3)),
-        image::Frame::new(image::RgbaImage::new(2, 3)),
-    ];
-    let media = SourceMedia::Bitmap(Arc::new(RenderImage::new(frames)));
-    assert_eq!(media.resident_bytes(), 2 * 2 * 3 * 4);
-}
-
-#[test]
-fn cap_bitmap_downscales_an_oversized_source_once() {
-    let img = image::RgbaImage::from_pixel(3000, 3000, image::Rgba([10, 20, 30, 255]));
-    let big = Arc::new(RenderImage::new(smallvec![image::Frame::new(img)]));
-    let capped = cap_bitmap(Arc::clone(&big), MAX_RASTER_PIXELS);
-    assert!(
-        !Arc::ptr_eq(&big, &capped),
-        "an oversized source is rebuilt"
+fn a_rotated_jpeg_is_measured_and_decoded_upright() {
+    let img = image::RgbaImage::from_fn(64, 32, |x, _| {
+        if x < 32 {
+            image::Rgba([255, 0, 0, 255])
+        } else {
+            image::Rgba([0, 0, 255, 255])
+        }
+    });
+    let mut jpeg = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new(&mut jpeg)
+        .encode_image(&image::DynamicImage::ImageRgba8(img))
+        .expect("jpeg");
+    let media =
+        parse_source(ImageFormat::Jpeg, with_exif_orientation(jpeg, 6)).expect("jpeg source");
+    assert_eq!(
+        media.dims(),
+        (32, 64),
+        "orientation 6 turns the picture a quarter turn, so the box it reserves swaps"
     );
-    let sz = capped.size(0);
-    let pixels = (sz.width.0 as u64) * (sz.height.0 as u64);
+    let ready = raster_at(&media, (32.0, 64.0), 1.0).expect("raster");
+    assert_eq!(
+        (ready.px_w, ready.px_h),
+        (32, 64),
+        "the decoded raster must match the size the layout reserved"
+    );
+    let pixels = ready.image.as_bytes(0).expect("pixels");
+    let at = |x: usize, y: usize| {
+        let i = (y * 32 + x) * 4;
+        (pixels[i], pixels[i + 2])
+    };
+    let (top_blue, top_red) = at(25, 5);
+    assert!(
+        top_red > 200 && top_blue < 60,
+        "the left half must land on top: b={top_blue} r={top_red}"
+    );
+    let (bottom_blue, bottom_red) = at(25, 58);
+    assert!(
+        bottom_blue > 200 && bottom_red < 60,
+        "the right half must land at the bottom: b={bottom_blue} r={bottom_red}"
+    );
+}
+
+#[test]
+fn resident_bytes_counts_the_encoded_source_only() {
+    let png = png_with_size(64, 48);
+    let media = bitmap_from_png(&png);
+    assert_eq!(
+        media.resident_bytes(),
+        png.len(),
+        "a source keeps its encoded bytes, not the 64*48*4 bytes a decode produces"
+    );
+    assert!(media.resident_bytes() < 64 * 48 * 4);
+}
+
+#[test]
+fn a_large_canvas_source_keeps_only_its_encoded_bytes() {
+    let png = png_with_size(1400, 1400);
+    let media = bitmap_from_png(&png);
+    assert_eq!(media.dims(), (1400, 1400));
+    assert_eq!(media.resident_bytes(), png.len());
+    assert!(
+        media.resident_bytes() * 100 < 1400 * 1400 * 4,
+        "a 7.8 MiB decode must not stay resident: {} bytes",
+        media.resident_bytes()
+    );
+    let key = display_key("big", 400.0, 400.0, 2.0);
+    let (slot_w, slot_h) = key.raster_slot();
+    let ready = raster_display(&media, &key).expect("raster");
+    assert_eq!(
+        (ready.px_w, ready.px_h),
+        (
+            (snap_css(slot_w, 2.0) * 2.0).ceil() as u32,
+            (snap_css(slot_h, 2.0) * 2.0).ceil() as u32
+        )
+    );
+}
+
+#[test]
+fn raster_at_decodes_the_source_at_the_requested_density() {
+    let media = bitmap_from_png(&png_with_size(400, 300));
+    let ready = raster_at(&media, (200.0, 150.0), 3.0).expect("raster");
+    assert_eq!((ready.px_w, ready.px_h), (600, 450));
+    assert!((ready.dpr - 3.0).abs() < 1e-6);
+}
+
+#[test]
+fn capped_dims_shrinks_an_oversized_source_once() {
+    let (w, h) = capped_dims(3000, 3000, MAX_RASTER_PIXELS);
+    let pixels = u64::from(w) * u64::from(h);
     assert!(pixels <= MAX_RASTER_PIXELS, "{pixels} pixels exceed budget");
-    let rw = sz.width.0 as f32 / 3000.0;
-    let rh = sz.height.0 as f32 / 3000.0;
+    let rw = w as f32 / 3000.0;
+    let rh = h as f32 / 3000.0;
     assert!((rw - rh).abs() < 0.01, "aspect {rw}x{rh} must be preserved");
 }
 
 #[test]
-fn cap_bitmap_shares_small_sources() {
-    let img = image::RgbaImage::from_pixel(1000, 800, image::Rgba([1, 2, 3, 255]));
-    let small = Arc::new(RenderImage::new(smallvec![image::Frame::new(img)]));
-    let capped = cap_bitmap(Arc::clone(&small), MAX_RASTER_PIXELS);
-    assert!(
-        Arc::ptr_eq(&small, &capped),
-        "a source within the budget must not be copied or rebuilt"
-    );
+fn capped_dims_leaves_sources_within_the_budget_alone() {
+    assert_eq!(capped_dims(1000, 800, MAX_RASTER_PIXELS), (1000, 800));
+}
+
+#[test]
+fn cap_rgba_rebuilds_only_an_oversized_buffer() {
+    let small = image::RgbaImage::from_pixel(1000, 800, image::Rgba([1, 2, 3, 255]));
+    let capped = cap_rgba(small, MAX_RASTER_PIXELS);
+    assert_eq!(capped.dimensions(), (1000, 800));
+
+    let big = image::RgbaImage::from_pixel(3000, 3000, image::Rgba([10, 20, 30, 255]));
+    let capped = cap_rgba(big, MAX_RASTER_PIXELS);
+    let pixels = u64::from(capped.width()) * u64::from(capped.height());
+    assert!(pixels <= MAX_RASTER_PIXELS, "{pixels} pixels exceed budget");
 }
 
 #[test]
@@ -228,6 +316,30 @@ fn markdown_dest_is_relative_to_the_markdown_parent() {
 }
 
 #[test]
+fn a_source_that_fails_to_decode_retires_instead_of_looping() {
+    let mut cache = ImageCache::new();
+    let key = display_key("broken", 400.0, 300.0, 1.0);
+    let job = cache.begin_source("broken".into()).expect("begin");
+    assert!(cache.finish_source_inner(job, Ok(bitmap_from_png(&tiny_png())), None, usize::MAX));
+    let djob = cache.begin_display(key.clone()).expect("begin display");
+    assert!(
+        !cache.finish_display_inner(
+            djob,
+            Err(crate::Error::Image(md_i18n::Key::ImageBadPixels.into())),
+            None
+        ),
+        "a failed raster is not a booked display entry"
+    );
+    assert!(
+        cache.source_media("broken").is_none(),
+        "a source whose decode failed must not stay Ready, or every frame schedules the same raster again"
+    );
+    assert!(cache.source_contains("broken"));
+    assert!(cache.failed_sources().contains("broken"));
+    assert!(!cache.display_contains(&key));
+}
+
+#[test]
 fn source_begin_twice_does_not_start_two_fetches() {
     let mut cache = ImageCache::new();
     assert!(cache.begin_source("k".into()).is_some());
@@ -255,8 +367,8 @@ fn retryable_source_failures_unlock_after_the_backoff_window() {
         .expect("begin retry");
     assert!(cache.failed_sources().contains("u"));
 
-    let native = native_from_png(&tiny_png());
-    cache.finish_source_inner(job, Ok(SourceMedia::Bitmap(native.0)), None, usize::MAX);
+    let media = bitmap_from_png(&tiny_png());
+    cache.finish_source_inner(job, Ok(media), None, usize::MAX);
     assert!(cache.source_media("u").is_some());
     assert!(
         !cache.failed_sources().contains("u"),
@@ -447,8 +559,8 @@ fn recovered_sources_leave_the_failure_lru() {
     let job = cache
         .begin_source_inner("u".into(), later)
         .expect("begin retry");
-    let native = native_from_png(&tiny_png());
-    cache.finish_source_inner(job, Ok(SourceMedia::Bitmap(native.0)), None, usize::MAX);
+    let media = bitmap_from_png(&tiny_png());
+    cache.finish_source_inner(job, Ok(media), None, usize::MAX);
     assert_eq!(
         cache.failed_entry_count(),
         0,
@@ -489,14 +601,9 @@ fn retrying_source_survives_failure_lru_eviction() {
         "after evicting one cold failure key, the failure LRU lands exactly on its cap"
     );
 
-    let native = native_from_png(&tiny_png());
+    let media = bitmap_from_png(&tiny_png());
     assert!(
-        cache.finish_source_inner(
-            retry_job,
-            Ok(SourceMedia::Bitmap(native.0)),
-            None,
-            usize::MAX
-        ),
+        cache.finish_source_inner(retry_job, Ok(media), None, usize::MAX),
         "a completion while the retry slot is alive must be booked"
     );
     assert!(cache.source_media("retry").is_some());
@@ -570,19 +677,14 @@ fn evicted_then_re_entered_key_rejects_the_old_jobs_result() {
 #[test]
 fn display_drop_keeps_source_ready() {
     let png = tiny_png();
-    let native = native_from_png(&png);
+    let media = bitmap_from_png(&png);
     let mut cache = ImageCache::new();
     let job = cache.begin_source("k".into()).expect("begin");
-    assert!(cache.finish_source_inner(
-        job,
-        Ok(SourceMedia::Bitmap(native.0.clone())),
-        None,
-        usize::MAX
-    ));
+    assert!(cache.finish_source_inner(job, Ok(media.clone()), None, usize::MAX));
     assert_eq!(cache.intrinsic("k"), Some((4, 3)));
     let key = display_key("k", 4.0, 3.0, 1.0);
     let djob = cache.begin_display(key.clone()).expect("begin display");
-    let ready = raster_display(&native.0, &key).expect("raster");
+    let ready = raster_display(&media, &key).expect("raster");
     assert!(cache.finish_display_inner(djob, Ok(ready), None));
     assert!(cache.display_ready(&key).is_some());
     cache.drop_display_keep_source(&key);
@@ -593,8 +695,8 @@ fn display_drop_keeps_source_ready() {
 
 #[test]
 fn source_lru_evicts_derived_displays_and_retries_budget_pressure() {
-    let native = native_from_png(&tiny_png());
-    let source_bytes = native.0.as_bytes(0).expect("pixels").len();
+    let media = bitmap_from_png(&tiny_png());
+    let source_bytes = media.resident_bytes();
     let mut cache = ImageCache::new();
 
     let a = display_key("a", 4.0, 3.0, 1.0);
@@ -606,14 +708,9 @@ fn source_lru_evicts_derived_displays_and_retries_budget_pressure() {
         source_bytes,
     );
     let job = cache.begin_source("a".into()).expect("begin");
-    assert!(cache.finish_source_inner(
-        job,
-        Ok(SourceMedia::Bitmap(native.0.clone())),
-        None,
-        source_bytes
-    ));
+    assert!(cache.finish_source_inner(job, Ok(media.clone()), None, source_bytes));
     let djob = cache.begin_display(a.clone()).expect("begin display");
-    let display = raster_display(&native.0, &a).expect("display");
+    let display = raster_display(&media, &a).expect("display");
     assert!(cache.finish_display_inner(djob, Ok(display), None));
 
     let b = display_key("b", 4.0, 3.0, 1.0);
@@ -625,12 +722,7 @@ fn source_lru_evicts_derived_displays_and_retries_budget_pressure() {
         source_bytes,
     );
     let job = cache.begin_source("b".into()).expect("begin");
-    assert!(cache.finish_source_inner(
-        job,
-        Ok(SourceMedia::Bitmap(native.0.clone())),
-        None,
-        source_bytes
-    ));
+    assert!(cache.finish_source_inner(job, Ok(media.clone()), None, source_bytes));
     assert!(!cache.source_contains("a"));
     assert!(cache.source_contains("b"));
     assert!(cache.display_ready(&a).is_none());
@@ -646,7 +738,7 @@ fn source_lru_evicts_derived_displays_and_retries_budget_pressure() {
         source_bytes,
     );
     let job = cache.begin_source("c".into()).expect("begin");
-    assert!(cache.finish_source_inner(job, Ok(SourceMedia::Bitmap(native.0)), None, source_bytes));
+    assert!(cache.finish_source_inner(job, Ok(media), None, source_bytes));
     assert!(cache.source_contains("c"));
     assert!(cache.source_error("c").is_some());
     cache.set_working_set_inner(
@@ -661,8 +753,8 @@ fn source_lru_evicts_derived_displays_and_retries_budget_pressure() {
 
 #[test]
 fn visible_over_budget_retries_once_offscreen_space_covers_it() {
-    let native = native_from_png(&tiny_png());
-    let n = native.0.as_bytes(0).expect("pixels").len();
+    let media = bitmap_from_png(&tiny_png());
+    let n = media.resident_bytes();
     let budget = n + n / 2;
     let mut cache = ImageCache::new();
 
@@ -675,12 +767,7 @@ fn visible_over_budget_retries_once_offscreen_space_covers_it() {
         budget,
     );
     let job = cache.begin_source("a".into()).expect("begin");
-    assert!(cache.finish_source_inner(
-        job,
-        Ok(SourceMedia::Bitmap(native.0.clone())),
-        None,
-        budget
-    ));
+    assert!(cache.finish_source_inner(job, Ok(media.clone()), None, budget));
 
     let b = display_key("b", 4.0, 3.0, 1.0);
     cache.set_working_set_inner(
@@ -691,12 +778,7 @@ fn visible_over_budget_retries_once_offscreen_space_covers_it() {
         budget,
     );
     let job = cache.begin_source("b".into()).expect("begin");
-    assert!(cache.finish_source_inner(
-        job,
-        Ok(SourceMedia::Bitmap(native.0.clone())),
-        None,
-        budget
-    ));
+    assert!(cache.finish_source_inner(job, Ok(media.clone()), None, budget));
     assert!(cache.source_error("b").is_some());
     cache.set_working_set_inner(
         [a, b.clone()],
@@ -716,7 +798,7 @@ fn visible_over_budget_retries_once_offscreen_space_covers_it() {
         "once room is made, the OverBudget slots should be cleared"
     );
     let job = cache.begin_source("b".into()).expect("begin retry");
-    assert!(cache.finish_source_inner(job, Ok(SourceMedia::Bitmap(native.0)), None, budget));
+    assert!(cache.finish_source_inner(job, Ok(media), None, budget));
     assert_eq!(cache.intrinsic("b"), Some((4, 3)));
     assert!(
         !cache.source_contains("a"),
@@ -726,7 +808,8 @@ fn visible_over_budget_retries_once_offscreen_space_covers_it() {
 
 #[test]
 fn image_larger_than_the_whole_budget_never_retries() {
-    let native = native_from_png(&png_with_size(6, 5));
+    let media = bitmap_from_png(&png_with_size(6, 5));
+    let budget = media.resident_bytes().saturating_sub(1);
     let mut cache = ImageCache::new();
     let k = display_key("k", 6.0, 5.0, 1.0);
     cache.set_working_set_inner(
@@ -734,21 +817,21 @@ fn image_larger_than_the_whole_budget_never_retries() {
         std::iter::empty(),
         std::iter::empty(),
         None,
-        48,
+        budget,
     );
     let job = cache.begin_source("k".into()).expect("begin");
-    assert!(cache.finish_source_inner(job, Ok(SourceMedia::Bitmap(native.0)), None, 48));
+    assert!(cache.finish_source_inner(job, Ok(media), None, budget));
     assert!(cache.source_error("k").is_some());
-    cache.set_working_set_inner([k], std::iter::empty(), std::iter::empty(), None, 48);
+    cache.set_working_set_inner([k], std::iter::empty(), std::iter::empty(), None, budget);
     assert!(cache.source_contains("k"));
 }
 
 #[test]
 fn raster_downscales_from_source_pixels() {
     let png = png_with_size(400, 300);
-    let native = native_from_png(&png);
+    let media = bitmap_from_png(&png);
     let key = display_key("k", 256.0, 192.0, 1.0);
-    let ready = raster_display(&native.0, &key).expect("raster");
+    let ready = raster_display(&media, &key).expect("raster");
     assert_eq!((ready.px_w, ready.px_h), (256, 192));
     assert!((ready.px_w as f32 / ready.px_h as f32 - 4.0 / 3.0).abs() < 1e-5);
     assert!(ready.bytes > 0);
@@ -1210,19 +1293,14 @@ fn format_labels_do_not_override_the_bytes() {
 }
 
 fn fill_display_ready(cache: &mut ImageCache, n: usize) {
-    let native = native_from_png(&tiny_png());
+    let media = bitmap_from_png(&tiny_png());
     for i in 0..n {
         let dest = format!("d{i}");
         let key = display_key(&dest, 4.0, 3.0, 1.0);
         let job = cache.begin_source(dest).expect("begin");
-        assert!(cache.finish_source_inner(
-            job,
-            Ok(SourceMedia::Bitmap(native.0.clone())),
-            None,
-            usize::MAX
-        ));
+        assert!(cache.finish_source_inner(job, Ok(media.clone()), None, usize::MAX));
         let djob = cache.begin_display(key.clone()).expect("begin display");
-        let display = raster_display(&native.0, &key).expect("display");
+        let display = raster_display(&media, &key).expect("display");
         assert!(cache.finish_display_inner(djob, Ok(display), None));
     }
 }
@@ -1251,11 +1329,7 @@ fn set_working_set_trims_offscreen_display_to_the_warm_window() {
 
 #[test]
 fn warm_sources_outlive_cold_ones() {
-    let each = native_from_png(&tiny_png())
-        .0
-        .as_bytes(0)
-        .expect("pixels")
-        .len();
+    let each = bitmap_from_png(&tiny_png()).resident_bytes();
     let mut cache = ImageCache::new();
     fill_display_ready(&mut cache, 24);
     let warm = ["d0".to_string(), "d1".to_string(), "d2".to_string()];
@@ -1320,9 +1394,9 @@ fn set_working_set_does_not_evict_inflight_or_visible_display() {
     fill_display_ready(&mut cache, 20);
     let visible = display_key("d19", 4.0, 3.0, 1.0);
     let inflight = display_key("inf", 4.0, 3.0, 1.0);
-    let native = native_from_png(&tiny_png());
+    let media = bitmap_from_png(&tiny_png());
     let job = cache.begin_source("inf".into()).expect("begin");
-    assert!(cache.finish_source_inner(job, Ok(SourceMedia::Bitmap(native.0)), None, usize::MAX));
+    assert!(cache.finish_source_inner(job, Ok(media), None, usize::MAX));
     assert!(cache.begin_display(inflight.clone()).is_some());
     cache.set_working_set_inner(
         [visible.clone()],
@@ -1364,4 +1438,28 @@ fn prefetch_leaves_room_for_the_visible_source() {
         "a path that skips the working set is treated as on-screen"
     );
     assert!(cache.begin_source("another".into()).is_none());
+}
+
+#[test]
+fn a_viewport_budget_trims_the_display_window() {
+    let budget = Budget::for_viewport(804.0, 620.0, 1.25);
+    assert_eq!(budget.display_entries, 48);
+    assert!(budget.display_bytes < MAX_DISPLAY_BYTES);
+    assert!(budget.source_bytes < MAX_SOURCE_BYTES);
+
+    let mut cache = ImageCache::new();
+    fill_display_ready(&mut cache, 60);
+    cache.set_budget_inner(budget, None);
+    assert!(cache.display_entry_count() <= 48);
+}
+
+#[test]
+fn a_viewport_budget_grows_with_the_window() {
+    let small = Budget::for_viewport(400.0, 350.0, 1.0);
+    let large = Budget::for_viewport(1920.0, 1080.0, 1.0);
+    let huge = Budget::for_viewport(3840.0, 2160.0, 2.0);
+    assert_eq!(small.display_bytes, MIN_DISPLAY_BYTES);
+    assert!(large.display_bytes > small.display_bytes);
+    assert!(huge.source_bytes > small.source_bytes);
+    assert!(huge.display_bytes > large.display_bytes);
 }

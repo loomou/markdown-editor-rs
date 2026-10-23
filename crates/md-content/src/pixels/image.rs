@@ -4,35 +4,31 @@ use image::imageops::{self, FilterType};
 use smallvec::smallvec;
 use std::sync::Arc;
 
-/// Downscale a decoded bitmap whose pixel count exceeds `max_pixels`, keeping
-/// the aspect ratio. Frame bytes are channel-order agnostic under a triangle
-/// filter, so the BGRA frames gpui produced can be resized in place.
-pub fn cap_bitmap(image: Arc<RenderImage>, max_pixels: u64) -> Arc<RenderImage> {
-    let sz = image.size(0);
-    let width = sz.width.0.max(0) as u32;
-    let height = sz.height.0.max(0) as u32;
+/// The pixel size a bitmap is decoded at once `max_pixels` is enforced. Both
+/// the loader (which never decodes) and the raster path (which does) go
+/// through here, so the reported intrinsic size always matches the pixels a
+/// decode will actually produce.
+pub fn capped_dims(width: u32, height: u32, max_pixels: u64) -> (u32, u32) {
     if width == 0 || height == 0 || u64::from(width) * u64::from(height) <= max_pixels {
-        return image;
+        return (width, height);
     }
     let scale = (max_pixels as f32 / (width as f32 * height as f32).max(1.0)).sqrt();
-    let new_w = ((width as f32 * scale).floor() as u32).max(1);
-    let new_h = ((height as f32 * scale).floor() as u32).max(1);
-    let mut frames = smallvec![];
-    for frame in 0..image.frame_count() {
-        let Some(bytes) = image.as_bytes(frame) else {
-            return image;
-        };
-        let Some(source) = RgbaImage::from_raw(width, height, bytes.to_vec()) else {
-            return image;
-        };
-        frames.push(image::Frame::new(imageops::resize(
-            &source,
-            new_w,
-            new_h,
-            FilterType::Triangle,
-        )));
+    (
+        ((width as f32 * scale).floor() as u32).max(1),
+        ((height as f32 * scale).floor() as u32).max(1),
+    )
+}
+
+/// Downscale a decoded bitmap whose pixel count exceeds `max_pixels`, keeping
+/// the aspect ratio. The buffer is channel-order agnostic under a triangle
+/// filter, so BGRA bytes can be resized in place.
+pub fn cap_rgba(image: RgbaImage, max_pixels: u64) -> RgbaImage {
+    let (width, height) = image.dimensions();
+    let (new_w, new_h) = capped_dims(width, height, max_pixels);
+    if (new_w, new_h) == (width, height) {
+        return image;
     }
-    Arc::new(RenderImage::new(frames))
+    imageops::resize(&image, new_w, new_h, FilterType::Triangle)
 }
 
 #[derive(Clone)]
@@ -42,7 +38,6 @@ pub struct ReadyImage {
     pub dpr: f32,
     pub px_w: u32,
     pub px_h: u32,
-    pub shared_with_source: bool,
 }
 
 impl ReadyImage {
@@ -70,7 +65,6 @@ pub fn from_bgra(img: RgbaImage, dpr: f32) -> Option<ReadyImage> {
         dpr,
         px_w,
         px_h,
-        shared_with_source: false,
     })
 }
 

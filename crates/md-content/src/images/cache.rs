@@ -1,7 +1,7 @@
 use super::{
-    DisplayKey, DisplaySlot, DisplayToken, ImageCache, MAX_DISPLAY_BYTES, MAX_DISPLAY_ENTRIES,
-    MAX_FAILED_ENTRIES, MAX_IN_FLIGHT, MAX_SOURCE_BYTES, SourceError, SourceKey, SourceMedia,
-    SourceSlot, SourceToken, WARM_DISPLAY_EXTRA, WARM_SOURCE_IN_FLIGHT, source_retry_delay,
+    Budget, DisplayKey, DisplaySlot, DisplayToken, ImageCache, MAX_FAILED_ENTRIES, MAX_IN_FLIGHT,
+    SourceError, SourceKey, SourceMedia, SourceSlot, SourceToken, WARM_DISPLAY_EXTRA,
+    WARM_SOURCE_IN_FLIGHT, source_retry_delay,
 };
 use crate::pixels::ReadyImage;
 use gpui::App;
@@ -12,6 +12,7 @@ use std::time::Instant;
 impl ImageCache {
     pub fn new() -> Self {
         ImageCache {
+            budget: Budget::default(),
             source: HashMap::new(),
             source_lru: VecDeque::new(),
             source_visible: HashSet::new(),
@@ -30,6 +31,23 @@ impl ImageCache {
             ready: Rc::new(HashMap::new()),
             failed_src: Rc::new(HashSet::new()),
         }
+    }
+
+    pub fn set_budget(&mut self, budget: Budget, cx: &mut App) {
+        self.set_budget_inner(budget, Some(cx));
+    }
+
+    pub(super) fn set_budget_inner(&mut self, budget: Budget, mut cx: Option<&mut App>) {
+        if self.budget == budget {
+            return;
+        }
+        self.budget = budget;
+        self.evict_display(
+            cx.as_deref_mut(),
+            budget.display_entries,
+            budget.display_bytes,
+        );
+        self.evict_source(0, budget.source_bytes, cx);
     }
 
     pub fn sizes_snapshot(&self) -> Rc<HashMap<SourceKey, (u32, u32)>> {
@@ -104,7 +122,8 @@ impl ImageCache {
         result: Result<SourceMedia, SourceError>,
         cx: &mut App,
     ) -> bool {
-        self.finish_source_inner(token, result, Some(cx), MAX_SOURCE_BYTES)
+        let budget = self.budget.source_bytes;
+        self.finish_source_inner(token, result, Some(cx), budget)
     }
 
     pub(super) fn finish_source_inner(
@@ -259,15 +278,29 @@ impl ImageCache {
                     .insert(key.clone(), DisplaySlot::Ready(img.clone()));
                 self.record_display_ready(key.clone(), img);
                 self.touch_display(key);
-                self.evict_display(cx, MAX_DISPLAY_ENTRIES, MAX_DISPLAY_BYTES);
+                let entries = self.budget.display_entries;
+                let bytes = self.budget.display_bytes;
+                self.evict_display(cx, entries, bytes);
                 true
             }
-            Err(_err) => {
+            Err(err) => {
                 self.display.remove(&key);
                 self.display_lru.retain(|candidate| candidate != &key);
+                self.fail_decoded_source(&key, err);
                 false
             }
         }
+    }
+
+    /// A source can pass the header guard and still fail to decode, because the
+    /// decode now happens per raster instead of once at load. Retiring the
+    /// source keeps the block on its fallback instead of re-decoding a body
+    /// that will never decode, once per frame.
+    fn fail_decoded_source(&mut self, key: &DisplayKey, err: crate::Error) {
+        let source = SourceKey::new(key.dest.clone());
+        self.remove_source(&source, None);
+        self.source.insert(source.clone(), SourceSlot::Failed(err));
+        self.mark_source_failed(source);
     }
 
     pub fn set_working_set(
@@ -277,7 +310,8 @@ impl ImageCache {
         warm_sources: impl IntoIterator<Item = String>,
         cx: &mut App,
     ) {
-        self.set_working_set_inner(hot, hot_sources, warm_sources, Some(cx), MAX_SOURCE_BYTES);
+        let budget = self.budget.source_bytes;
+        self.set_working_set_inner(hot, hot_sources, warm_sources, Some(cx), budget);
     }
 
     pub(super) fn set_working_set_inner(
@@ -348,22 +382,13 @@ impl ImageCache {
             .len()
             .saturating_add(self.warm_display_count())
             .saturating_add(WARM_DISPLAY_EXTRA)
-            .min(MAX_DISPLAY_ENTRIES);
-        self.evict_display(cx, warm_entries, MAX_DISPLAY_BYTES);
+            .min(self.budget.display_entries);
+        self.evict_display(cx, warm_entries, self.budget.display_bytes);
     }
 
     pub fn clear(&mut self, cx: &mut App) {
-        for slot in self.source.values() {
-            if let SourceSlot::Ready { media } = slot
-                && let Some(image) = media.image()
-            {
-                crate::media::drop_image_deferred(cx, image.clone());
-            }
-        }
         for slot in self.display.values() {
-            if let DisplaySlot::Ready(img) = slot
-                && !img.shared_with_source
-            {
+            if let DisplaySlot::Ready(img) = slot {
                 crate::media::drop_image_deferred(cx, img.image.clone());
             }
         }
@@ -475,11 +500,6 @@ impl ImageCache {
         match self.source.remove(key) {
             Some(SourceSlot::Ready { media }) => {
                 self.source_bytes = self.source_bytes.saturating_sub(media.resident_bytes());
-                if let Some(cx) = cx.as_deref_mut()
-                    && let Some(image) = media.image()
-                {
-                    crate::media::drop_image_deferred(cx, image.clone());
-                }
             }
             Some(SourceSlot::InFlight { .. }) => {
                 self.source_inflight = self.source_inflight.saturating_sub(1);
@@ -499,9 +519,7 @@ impl ImageCache {
                 Some(DisplaySlot::Ready(image)) => {
                     self.display_bytes = self.display_bytes.saturating_sub(image.bytes);
                     self.clear_display_projection(&display);
-                    if let Some(cx) = cx.as_deref_mut()
-                        && !image.shared_with_source
-                    {
+                    if let Some(cx) = cx.as_deref_mut() {
                         crate::media::drop_image_deferred(cx, image.image);
                     }
                 }
@@ -556,9 +574,7 @@ impl ImageCache {
                 Some(DisplaySlot::Ready(img)) => {
                     self.display_bytes = self.display_bytes.saturating_sub(img.bytes);
                     self.clear_display_projection(&victim);
-                    if let Some(cx) = cx.as_deref_mut()
-                        && !img.shared_with_source
-                    {
+                    if let Some(cx) = cx.as_deref_mut() {
                         crate::media::drop_image_deferred(cx, img.image);
                     }
                 }

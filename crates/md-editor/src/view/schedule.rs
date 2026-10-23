@@ -9,6 +9,19 @@ use md_core::block::{BlockId, BlockKind};
 use std::collections::HashMap;
 
 impl EditorView {
+    pub(super) fn set_media_budget(
+        &mut self,
+        viewport: (Px, Px),
+        dpr: f64,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let (width, height) = viewport;
+        self.images
+            .set_budget(images::Budget::for_viewport(width, height, dpr), cx);
+        self.mermaid
+            .set_budget(mermaid::Budget::for_viewport(width, height, dpr), cx);
+    }
+
     fn warm_mermaid_blocks(&self, top: Px, viewport_h: Px) -> Vec<(BlockId, Px)> {
         let Some(eng) = self.state.incremental.as_ref() else {
             return Vec::new();
@@ -309,16 +322,7 @@ impl EditorView {
                 let raster_key = key.clone();
                 let result = cx
                     .background_executor()
-                    .spawn(async move {
-                        match &source {
-                            images::SourceMedia::Bitmap(image) => {
-                                images::raster_display(image, &raster_key)
-                            }
-                            images::SourceMedia::Vector { tree, .. } => {
-                                images::raster_display_svg(tree, &raster_key)
-                            }
-                        }
-                    })
+                    .spawn(async move { images::raster_display(&source, &raster_key) })
                     .await;
                 let _ = this.update(cx, |v, cx| {
                     if let Err(ref err) = result {

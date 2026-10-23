@@ -22,7 +22,7 @@ fn a_wide_canvas_svg_stays_a_tree_not_a_prerasterised_bitmap(cx: &mut gpui::Test
     let source = futures::executor::block_on(future).expect("load");
     assert_eq!(source.dims(), (1299, 1299));
     assert!(
-        source.image().is_none(),
+        matches!(&source, images::SourceMedia::Vector { .. }),
         "an svg source must keep the tree, not a prerasterised bitmap"
     );
     assert!(
@@ -33,11 +33,11 @@ fn a_wide_canvas_svg_stays_a_tree_not_a_prerasterised_bitmap(cx: &mut gpui::Test
 }
 
 fn raster_vector(media: &images::SourceMedia) -> images::ReadyImage {
-    let images::SourceMedia::Vector { tree, .. } = media else {
+    let images::SourceMedia::Vector { .. } = media else {
         panic!("expected a vector source");
     };
     let (w, h) = media.dims();
-    images::raster_svg_at(tree, (w as f32, h as f32), 1.0).unwrap()
+    images::raster_at(media, (w as f32, h as f32), 1.0).unwrap()
 }
 
 #[gpui::test]
@@ -77,7 +77,8 @@ fn png_source_stays_bgra(cx: &mut gpui::TestAppContext) {
     .unwrap();
     let future = cx.update(|app| images::load_source(resolved, false, app));
     let source = futures::executor::block_on(future).unwrap();
-    let pixel = &source.image().unwrap().as_bytes(0).unwrap()[..4];
+    let ready = images::raster_display(&source, &images::display_key("k", 2.0, 2.0, 1.0)).unwrap();
+    let pixel = &ready.image.as_bytes(0).unwrap()[..4];
     assert_eq!(pixel, &[0, 0, 255, 255], "the PNG BGRA convention holds");
 }
 
