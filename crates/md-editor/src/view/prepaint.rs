@@ -1,4 +1,4 @@
-use super::draw::{is_scroll_well, pick_well_piece, well_scroll_xy};
+use super::draw::{clip_to_well, is_scroll_well, pick_well_piece, well_scroll_xy};
 use super::scrollbar::{
     park_block_top_margin, park_block_top_scroll, search_reveal_scroll, select_autoscroll_can_move,
     select_autoscroll_delta,
@@ -998,10 +998,27 @@ impl EditorElement {
                 (eng.materialized_count(), eng.last_exact_count())
             });
 
+        let caret = {
+            let v = self.state.read(cx);
+            frame.caret_device.and_then(|r| {
+                let Some((t, _, _)) = pick_well_piece(&frame.texts, v.state.cursor.block) else {
+                    return Some(r);
+                };
+                let s = v.well_scroll.get(&t.block).copied().unwrap_or_default();
+                clip_to_well(
+                    r,
+                    t.content_origin_device,
+                    t.content_width,
+                    t.view_height,
+                    s,
+                )
+            })
+        };
+
         let mut d = diag.borrow_mut();
         d.fps = fps;
         d.frame_ms = frame_ms;
-        d.caret = frame.caret_device;
+        d.caret = caret;
         d.materialized = store_n;
         d.last_exact = last_n;
     }

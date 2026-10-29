@@ -277,3 +277,34 @@ fn page_down_inside_a_well_keeps_the_caret_in_the_code_block(cx: &mut TestAppCon
         "page down must keep the caret in the code block it started in"
     );
 }
+
+#[gpui::test]
+fn the_ime_bounds_of_a_caret_in_a_scrolled_well_stay_in_the_card(cx: &mut TestAppContext) {
+    let md = long_code_md();
+    let (editor, cx) = editor_with_doc(&md, cx);
+    focus_editor(&editor, cx);
+    let first = draw(&editor, cx);
+    let piece = code_piece(&first.frame.snapshot);
+    wheel_over_well(&piece, cx);
+    let _ = draw(&editor, cx);
+    cx.update(|_, app| {
+        editor.update(app, |v, _| {
+            let block = v.state.doc.text_leaves()[0];
+            v.state.cursor = Cursor { block, offset: 410 };
+            v.follow_caret = false;
+        });
+    });
+    let _ = draw(&editor, cx);
+    let caret = cx.update(|_, app| {
+        let v = editor.read(app);
+        let d = v.state.diag.borrow();
+        d.caret
+    });
+    let caret = caret.expect("a caret inside the code block");
+    let top = piece.content_origin_device.1;
+    let bottom = top + piece.view_height;
+    assert!(
+        caret.1 >= top - 0.5 && caret.1 + caret.3 <= bottom + 0.5,
+        "the ime bounds {caret:?} must sit inside the card {top}..{bottom}"
+    );
+}

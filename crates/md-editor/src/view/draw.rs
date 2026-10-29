@@ -272,6 +272,20 @@ pub(super) fn well_view_h(t: &md_render::snapshot::TextPiece) -> Px {
     t.view_height
 }
 
+pub(super) fn clip_to_well(
+    r: (Px, Px, Px, Px),
+    origin: (Px, Px),
+    view_w: Px,
+    view_h: Px,
+    s: WellScroll,
+) -> Option<(Px, Px, Px, Px)> {
+    let x0 = (r.0 - s.x).max(origin.0);
+    let y0 = (r.1 - s.y).max(origin.1);
+    let x1 = (r.0 - s.x + r.2).min(origin.0 + view_w);
+    let y1 = (r.1 - s.y + r.3).min(origin.1 + view_h);
+    (x1 > x0 && y1 > y0).then_some((x0, y0, x1 - x0, y1 - y0))
+}
+
 pub(super) fn well_content_size(
     kind: BlockKind,
     edit_source: bool,

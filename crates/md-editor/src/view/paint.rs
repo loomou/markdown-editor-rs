@@ -1,8 +1,8 @@
 use super::draw::{
-    ColResizeGuide, ReorderChrome, gpui_align, is_scroll_well, is_well_carrier, paint_artifact,
-    paint_clone_cell_borders, paint_col_resize_guide, paint_diag_overlay, paint_fail_box,
-    paint_gutter_label, paint_table_reorder, paint_well_head, pick_well_piece, well_head_geom,
-    well_lang_for, well_view_h,
+    ColResizeGuide, ReorderChrome, clip_to_well, gpui_align, is_scroll_well, is_well_carrier,
+    paint_artifact, paint_clone_cell_borders, paint_col_resize_guide, paint_diag_overlay,
+    paint_fail_box, paint_gutter_label, paint_table_reorder, paint_well_head, pick_well_piece,
+    well_head_geom, well_lang_for, well_view_h,
 };
 use super::popover::{PopoverPaint, paint_math_popover, paint_popover};
 use super::scrollbar::{select_autoscroll_can_move, select_autoscroll_delta};
@@ -925,15 +925,7 @@ pub(super) fn overlay_in_well(
         return Some(r);
     };
     let s = scrolls.get(&w.id).copied().unwrap_or_default();
-    let x0 = (r.0 - s.x).max(w.x);
-    let y0 = (r.1 - s.y).max(w.y);
-    let x1 = (r.0 - s.x + r.2).min(w.x + w.view_w);
-    let y1 = (r.1 - s.y + r.3).min(w.y + w.view_h);
-    if x1 <= x0 || y1 <= y0 {
-        None
-    } else {
-        Some((x0, y0, x1 - x0, y1 - y0))
-    }
+    clip_to_well(r, (w.x, w.y), w.view_w, w.view_h, s)
 }
 
 fn paint_well_bar(
