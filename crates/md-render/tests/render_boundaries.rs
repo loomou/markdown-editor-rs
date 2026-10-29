@@ -541,7 +541,7 @@ fn block_edit_consumers_use_one_coordinate_space(cx: &mut TestAppContext) {
             "search must not highlight twice"
         );
         assert_eq!(
-            frame.search_device[0].1, source.content_origin_device.1,
+            frame.search_device[0].rect.1, source.content_origin_device.1,
             "search offsets map to the editable source artifact"
         );
         let needle_at = "![needle](https://example.com/a-long-image-name.png)"
@@ -556,12 +556,12 @@ fn block_edit_consumers_use_one_coordinate_space(cx: &mut TestAppContext) {
             source.content_width,
         );
         assert_eq!(
-            frame.search_device[0].0,
+            frame.search_device[0].rect.0,
             source.content_origin_device.0 + start_x,
             "highlight starts on the matched source glyphs"
         );
         assert_eq!(
-            frame.search_device[0].2,
+            frame.search_device[0].rect.2,
             end_x - start_x,
             "highlight spans exactly the query glyphs"
         );
@@ -675,7 +675,7 @@ fn wrapped_aligned_cell_selection_starts_at_each_rows_ink(cx: &mut TestAppContex
                         cell.align,
                         cell.content_width,
                     );
-                assert_eq!(rect.0, expected, "row {row}, separator {separator}");
+                assert_eq!(rect.rect.0, expected, "row {row}, separator {separator}");
                 if row > 0 && expected > cell.content_origin_device.0 {
                     saw_shifted_followup = true;
                 }
@@ -743,19 +743,19 @@ fn caret_selection_and_search_agree_on_one_word(cx: &mut TestAppContext) {
         "the fixture contains that word exactly once"
     );
     assert_eq!(
-        caret.0, selection[0].0,
+        caret.0, selection[0].rect.0,
         "the caret should stand on the selection's left edge"
     );
     assert_eq!(
-        caret.0, search[0].0,
+        caret.0, search[0].rect.0,
         "the caret should stand on the match's left edge"
     );
     assert_eq!(
-        selection[0].2, search[0].2,
+        selection[0].rect.2, search[0].rect.2,
         "the selection and the match should be equally wide"
     );
     assert!(
-        selection[0].2 > 0.0 && selection[0].3 > 0.0,
+        selection[0].rect.2 > 0.0 && selection[0].rect.3 > 0.0,
         "the selection must really have area, not a stack of zeros"
     );
     assert!(caret.3 > 0.0, "the caret should really have height");

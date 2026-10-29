@@ -4,13 +4,13 @@ use gpui::Entity;
 use gpui::TestAppContext;
 use gpui::VisualTestContext;
 use gpui::{EntityInputHandler, point, px, size};
-use md_render::snapshot::DeviceRect;
+use md_render::snapshot::OwnedRect;
 
 fn revealed_search_rects(
     editor: &Entity<EditorView>,
     cx: &mut VisualTestContext,
     query: &str,
-) -> (Vec<DeviceRect>, Vec<DeviceRect>) {
+) -> (Vec<OwnedRect>, Vec<OwnedRect>) {
     place_caret(editor, cx, 0, 1);
     cx.update(|_, app| {
         editor.update(app, |v, _| v.set_search_query(query));
@@ -44,7 +44,7 @@ fn active_hit_on_a_revealed_block_gets_the_active_color(cx: &mut TestAppContext)
         rest.is_empty(),
         "the only match is the current one, so the plain color set should be empty"
     );
-    let (x, y, w, h) = active[0];
+    let (x, y, w, h) = active[0].rect;
     assert!(
         w > 0.0 && h > 0.0,
         "the active rectangle must really have area, not a stack of zeros"

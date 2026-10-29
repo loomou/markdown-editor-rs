@@ -55,7 +55,7 @@ fn draw_caret_moves_forward_and_selection_has_geometry(cx: &mut TestAppContext) 
     let second_x = second_snapshot.caret_device.expect("caret").0;
     assert!(second_x > first_x);
     assert_eq!(second_snapshot.selection_device.len(), 1);
-    let (x, y, w, h) = second_snapshot.selection_device[0];
+    let (x, y, w, h) = second_snapshot.selection_device[0].rect;
     assert!(x.is_finite() && y.is_finite() && w > 0.0 && h > 0.0);
 }
 
@@ -97,7 +97,7 @@ fn caret_uses_ink_box_while_selection_keeps_the_line_box(cx: &mut TestAppContext
             state: editor.clone(),
         },
     );
-    let sel = second.1.frame.snapshot.selection_device[0];
+    let sel = second.1.frame.snapshot.selection_device[0].rect;
     assert!(
         (sel.3 - row).abs() < 1.0,
         "selection should keep the line box, got {} want {row}",
@@ -277,8 +277,11 @@ fn wrapped_inline_code_does_not_paint_the_line_slack(cx: &mut TestAppContext) {
     let first_row_sel_right = sel_snap
         .selection_device
         .iter()
-        .filter(|(x, y, w, h)| *w > 0.0 && *x + *w > ox && *y < oy + row_h && *y + *h > oy)
-        .map(|(x, _, w, _)| *x + *w)
+        .filter(|r| {
+            let (x, y, w, h) = r.rect;
+            w > 0.0 && x + w > ox && y < oy + row_h && y + h > oy
+        })
+        .map(|r| r.rect.0 + r.rect.2)
         .fold(ox, f64::max);
     assert!(
         first_row_sel_right < col_right - 8.0,
@@ -389,7 +392,7 @@ fn table_aligned_caret_and_selection_follow_painted_text(cx: &mut TestAppContext
         (center_x - center_ink).abs() < 1.5,
         "center caret {center_x} should sit on the painted text {center_ink} (cox {center_cox})"
     );
-    let (sx, _, sw, _) = center_snap.selection_device[0];
+    let (sx, _, sw, _) = center_snap.selection_device[0].rect;
     assert!(
         (sx - center_ink).abs() < 1.5,
         "center selection {sx} should start on the painted text {center_ink}"
@@ -578,7 +581,7 @@ fn a_plate_below_a_clamped_code_well_stays_in_its_own_row(cx: &mut TestAppContex
 
     for y in [0.0, 108.0] {
         let scrolls = HashMap::from([(well.block, WellScroll { x: 0.0, y })]);
-        let painted = overlay_in_well(plate.rect, Some(plate.block), &wells, &snap.texts, &scrolls);
+        let painted = overlay_in_well(plate.rect, plate.block, &wells, &scrolls);
         assert_eq!(
             painted,
             Some(plate.rect),

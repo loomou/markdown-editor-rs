@@ -2,12 +2,12 @@ use super::geometry::VisibleGeom;
 use super::request::Pass;
 use super::rows::{PlacedText, row_bands};
 use crate::search::{SearchMatch, find_in_display};
-use crate::snapshot::DeviceRect;
+use crate::snapshot::OwnedRect;
 use md_core::doc::Doc;
 
 pub(super) struct SearchHighlights {
-    pub(super) rest: Vec<DeviceRect>,
-    pub(super) active: Vec<DeviceRect>,
+    pub(super) rest: Vec<OwnedRect>,
+    pub(super) active: Vec<OwnedRect>,
 }
 
 pub(super) fn search_highlights_device(
@@ -90,11 +90,14 @@ fn push_bands(
         } else {
             &mut out.rest
         };
-        target.push((
-            ox + band.start_x,
-            oy + p.art.row_top(band.row),
-            band.width(),
-            p.art.row_height(band.row),
+        target.push(OwnedRect::new(
+            p.block,
+            (
+                ox + band.start_x,
+                oy + p.art.row_top(band.row),
+                band.width(),
+                p.art.row_height(band.row),
+            ),
         ));
     }
 }
