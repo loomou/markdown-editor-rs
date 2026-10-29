@@ -4,7 +4,7 @@ use super::inline_code::inline_code_plates_device;
 use super::request::{FrameContext, FrameRequest, Pass};
 use super::search_rects::search_highlights_device;
 use super::selection::{caret_logical_y, selection_rects_logical};
-use crate::snapshot::{Frame, LayoutSnapshot, SnapshotRevs, next_geometry_revision};
+use crate::snapshot::{Frame, LayoutSnapshot, OwnedRect, SnapshotRevs, next_geometry_revision};
 use md_core::Px;
 use md_core::block::BlockId;
 use md_core::doc::Cursor;
@@ -68,7 +68,10 @@ pub fn from_assembly(
             selection_rects_logical(cx.doc, &assembly, &geom.spans, cx.shaper, cx.env, from, to)
         {
             let y = snap.snap(rect.origin_y - scroll) + rect.row_y;
-            selection_device.push((rect.x, y, rect.width, rect.height.max(0.0)));
+            selection_device.push(OwnedRect::new(
+                rect.block,
+                (rect.x, y, rect.width, rect.height.max(0.0)),
+            ));
         }
     }
 

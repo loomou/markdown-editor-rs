@@ -157,8 +157,7 @@ impl EditorElement {
 
         if let Some(r) = f.caret_device
             && st.caret_on
-            && let Some(r) =
-                overlay_in_well(r, Some(caret_block), &well_hits, &f.texts, &well_scroll)
+            && let Some(r) = overlay_in_well(r, caret_block, &well_hits, &well_scroll)
         {
             window.paint_quad(gpui::fill(ctx.bounds(r), paint.caret.hsla()));
         }
@@ -577,9 +576,7 @@ fn paint_under_text(f: &Frame, wells: &[WellHit], ctx: &PaintCtx<'_>, window: &m
         ..
     } = *ctx;
     for plate in &f.inline_code_device {
-        if let Some(r) =
-            overlay_in_well(plate.rect, Some(plate.block), wells, &f.texts, well_scroll)
-        {
+        if let Some(r) = overlay_in_well(plate.rect, plate.block, wells, well_scroll) {
             window.paint_quad(
                 gpui::fill(ctx.bounds(r), theme.inline.inline_code_fill.hsla())
                     .corner_radii(px(theme.inline.inline_code_radius)),
@@ -588,25 +585,25 @@ fn paint_under_text(f: &Frame, wells: &[WellHit], ctx: &PaintCtx<'_>, window: &m
     }
 
     for r in &f.search_device {
-        if let Some(r) = overlay_in_well(*r, None, wells, &f.texts, well_scroll) {
+        if let Some(r) = overlay_in_well(r.rect, r.block, wells, well_scroll) {
             window.paint_quad(gpui::fill(ctx.bounds(r), paint.search_match.hsla()));
         }
     }
 
     for r in &f.search_active_device {
-        if let Some(r) = overlay_in_well(*r, None, wells, &f.texts, well_scroll) {
+        if let Some(r) = overlay_in_well(r.rect, r.block, wells, well_scroll) {
             window.paint_quad(gpui::fill(ctx.bounds(r), paint.search_match_active.hsla()));
         }
     }
 
     for r in &f.selection_device {
-        if let Some(r) = overlay_in_well(*r, None, wells, &f.texts, well_scroll) {
+        if let Some(r) = overlay_in_well(r.rect, r.block, wells, well_scroll) {
             window.paint_quad(gpui::fill(ctx.bounds(r), paint.selection.hsla()));
         }
     }
 
     for r in &f.ime_device {
-        if let Some(r) = overlay_in_well(*r, Some(caret_block), wells, &f.texts, well_scroll) {
+        if let Some(r) = overlay_in_well(*r, caret_block, wells, well_scroll) {
             window.paint_quad(gpui::fill(ctx.bounds(r), paint.ime.hsla()));
         }
     }
@@ -920,62 +917,23 @@ pub(super) fn collect_well_hits(
 
 pub(super) fn overlay_in_well(
     r: DeviceRect,
-    owner: Option<BlockId>,
+    block: BlockId,
     wells: &[WellHit],
-    texts: &[md_render::snapshot::TextPiece],
     scrolls: &HashMap<BlockId, WellScroll>,
 ) -> Option<DeviceRect> {
-    let well = match owner {
-        Some(id) => wells.iter().find(|w| w.id == id),
-        None => {
-            if let Some(w) = wells
-                .iter()
-                .find(|w| origin_in(r, w.x, w.y, w.view_w, w.view_h))
-            {
-                Some(w)
-            } else if texts.iter().any(|t| {
-                !is_scroll_well(t.kind, t.edit_source)
-                    && origin_in(
-                        r,
-                        t.content_origin_device.0,
-                        t.content_origin_device.1,
-                        t.content_width,
-                        t.view_height,
-                    )
-            }) {
-                None
-            } else {
-                wells.iter().find(|w| {
-                    origin_in(
-                        r,
-                        w.x,
-                        w.y,
-                        w.view_w.max(w.content_w),
-                        w.view_h.max(w.content_h),
-                    )
-                })
-            }
-        }
+    let Some(w) = wells.iter().find(|w| w.id == block) else {
+        return Some(r);
     };
-    match well {
-        Some(w) => {
-            let s = scrolls.get(&w.id).copied().unwrap_or_default();
-            let x0 = (r.0 - s.x).max(w.x);
-            let y0 = (r.1 - s.y).max(w.y);
-            let x1 = (r.0 - s.x + r.2).min(w.x + w.view_w);
-            let y1 = (r.1 - s.y + r.3).min(w.y + w.view_h);
-            if x1 <= x0 || y1 <= y0 {
-                None
-            } else {
-                Some((x0, y0, x1 - x0, y1 - y0))
-            }
-        }
-        None => Some(r),
+    let s = scrolls.get(&w.id).copied().unwrap_or_default();
+    let x0 = (r.0 - s.x).max(w.x);
+    let y0 = (r.1 - s.y).max(w.y);
+    let x1 = (r.0 - s.x + r.2).min(w.x + w.view_w);
+    let y1 = (r.1 - s.y + r.3).min(w.y + w.view_h);
+    if x1 <= x0 || y1 <= y0 {
+        None
+    } else {
+        Some((x0, y0, x1 - x0, y1 - y0))
     }
-}
-
-fn origin_in(r: (Px, Px, Px, Px), x: Px, y: Px, w: Px, h: Px) -> bool {
-    r.0 >= x && r.0 < x + w && r.1 >= y && r.1 < y + h
 }
 
 fn paint_well_bar(
@@ -1053,7 +1011,7 @@ mod well_overlay_tests {
         let wells = [code_well()];
         let plate = (85.0, 669.6, 418.8, 22.8);
         for s in [0.0, 108.0] {
-            let got = overlay_in_well(plate, Some(PARA), &wells, &[], &scrolled(s));
+            let got = overlay_in_well(plate, PARA, &wells, &scrolled(s));
             assert_eq!(
                 got,
                 Some(plate),
@@ -1065,52 +1023,37 @@ mod well_overlay_tests {
     #[test]
     fn a_plate_inside_its_own_well_follows_the_scroll() {
         let wells = [code_well()];
-        let got = overlay_in_well(
-            (85.0, 400.0, 100.0, 22.8),
-            Some(WELL),
-            &wells,
-            &[],
-            &scrolled(108.0),
-        );
+        let got = overlay_in_well((85.0, 400.0, 100.0, 22.8), WELL, &wells, &scrolled(108.0));
         assert_rect(got, (85.0, 292.0, 100.0, 22.8));
     }
 
     #[test]
     fn a_plate_straddling_the_well_bottom_is_cut_there() {
         let wells = [code_well()];
-        let got = overlay_in_well(
-            (85.0, 620.0, 100.0, 22.8),
-            Some(WELL),
-            &wells,
-            &[],
-            &scrolled(0.0),
-        );
+        let got = overlay_in_well((85.0, 620.0, 100.0, 22.8), WELL, &wells, &scrolled(0.0));
         assert_rect(got, (85.0, 620.0, 100.0, 5.0));
     }
 
     #[test]
     fn a_plate_scrolled_out_of_its_well_paints_nothing() {
         let wells = [code_well()];
-        let got = overlay_in_well(
-            (85.0, 690.0, 100.0, 22.8),
-            Some(WELL),
-            &wells,
-            &[],
-            &scrolled(0.0),
-        );
+        let got = overlay_in_well((85.0, 690.0, 100.0, 22.8), WELL, &wells, &scrolled(0.0));
         assert_eq!(got, None);
     }
 
     #[test]
-    fn an_ownerless_rect_still_falls_back_to_the_well_geometry() {
-        let wells = [code_well()];
-        let got = overlay_in_well(
-            (85.0, 300.0, 100.0, 22.8),
-            None,
-            &wells,
-            &[],
-            &scrolled(108.0),
+    fn a_row_that_only_the_well_owns_is_clipped_even_where_a_later_block_overlaps() {
+        let wells = [WellHit {
+            y: 107.0,
+            view_h: 420.0,
+            content_h: 2880.0,
+            ..code_well()
+        }];
+        let stray = (70.0, 587.0, 84.0, 24.0);
+        let got = overlay_in_well(stray, WELL, &wells, &scrolled(0.0));
+        assert_eq!(
+            got, None,
+            "the row belongs to the well, so a paragraph that happens to share its band must not save it"
         );
-        assert_rect(got, (85.0, 205.0, 100.0, 9.8));
     }
 }

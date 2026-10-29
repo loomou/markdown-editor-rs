@@ -31,3 +31,4 @@ mod typing;
 mod unsaved;
 mod viewport;
 mod well_head;
+mod well_overlay;

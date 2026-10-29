@@ -230,13 +230,13 @@ fn a_selection_across_a_justified_row_reaches_the_right_margin(cx: &mut TestAppC
             continue;
         }
         assert!(
-            (rect.2 - inner).abs() < 1.0,
+            (rect.rect.2 - inner).abs() < 1.0,
             "row {row} of the selection is {}px wide in a {inner}px measure",
-            rect.2
+            rect.rect.2
         );
     }
     assert!(
-        rects.last().expect("a selection rect").2 < inner - 1.0,
+        rects.last().expect("a selection rect").rect.2 < inner - 1.0,
         "the last row of the selection was stretched to the measure"
     );
 }

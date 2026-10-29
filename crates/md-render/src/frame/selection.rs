@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 
 #[derive(Clone, Copy)]
 pub(super) struct TextRect {
+    pub(super) block: BlockId,
     pub(super) x: Px,
     pub(super) origin_y: Px,
     pub(super) row_y: Px,
@@ -59,6 +60,7 @@ fn selection_rects_in_leaf(
     let top0 = span_top + assembly.tree.style_of(node).top_border_padding();
     for band in row_bands(shaper, &art, a..b, node.inline_align(), inner) {
         out.push(TextRect {
+            block,
             x: base_x + band.start_x,
             origin_y: top0,
             row_y: art.row_top(band.row),

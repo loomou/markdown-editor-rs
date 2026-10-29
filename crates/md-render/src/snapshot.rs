@@ -11,6 +11,18 @@ use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
 pub type DeviceRect = (Px, Px, Px, Px);
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct OwnedRect {
+    pub block: BlockId,
+    pub rect: DeviceRect,
+}
+
+impl OwnedRect {
+    pub fn new(block: BlockId, rect: DeviceRect) -> Self {
+        Self { block, rect }
+    }
+}
+
 static GEOMETRY_REV: AtomicU64 = AtomicU64::new(1);
 
 pub(crate) fn next_geometry_revision() -> u64 {
@@ -119,10 +131,10 @@ pub struct LayoutSnapshot {
     pub cells: Vec<CellPiece>,
     pub caret_device: Option<DeviceRect>,
     pub caret_logical_y: Option<Px>,
-    pub selection_device: Vec<DeviceRect>,
+    pub selection_device: Vec<OwnedRect>,
     pub inline_code_device: Vec<InlineCodePlate>,
-    pub search_device: Vec<DeviceRect>,
-    pub search_active_device: Vec<DeviceRect>,
+    pub search_device: Vec<OwnedRect>,
+    pub search_active_device: Vec<OwnedRect>,
     pub ime_device: Vec<DeviceRect>,
     pub spans: BTreeMap<LayoutBoxId, AtomSpan>,
     pub content_atoms_painted: u64,

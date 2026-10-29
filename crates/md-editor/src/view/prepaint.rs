@@ -442,18 +442,22 @@ impl EditorElement {
                     .doc
                     .kind(cursor.block)
                     .unwrap_or(BlockKind::Paragraph);
-                let lh = shaper.row_advance_for(kind);
-                let vh = viewport.1;
-                let want = if ly < scroll {
-                    Some(ly - lh)
-                } else if ly + lh > scroll + vh {
-                    Some(ly + lh * 2.0 - vh)
-                } else {
-                    None
-                };
-                if let Some(s) = want {
-                    scroll = s.clamp(0.0, (engine.total_height() - vh).max(0.0));
-                    v.state.scroll = scroll;
+                let well =
+                    is_scroll_well(kind, false) && v.state.doc.block_edit() != Some(cursor.block);
+                if !well {
+                    let lh = shaper.row_advance_for(kind);
+                    let vh = viewport.1;
+                    let want = if ly < scroll {
+                        Some(ly - lh)
+                    } else if ly + lh > scroll + vh {
+                        Some(ly + lh * 2.0 - vh)
+                    } else {
+                        None
+                    };
+                    if let Some(s) = want {
+                        scroll = s.clamp(0.0, (engine.total_height() - vh).max(0.0));
+                        v.state.scroll = scroll;
+                    }
                 }
             }
             if let Some((blk, _)) = marked.as_ref() {
@@ -687,6 +691,14 @@ impl EditorElement {
                 return;
             }
             v.follow_caret = false;
+            let ly = match pick_well_piece(&frame.texts, cursor.block) {
+                Some((t, _, _)) => {
+                    let s = v.well_scroll.get(&t.block).copied().unwrap_or_default();
+                    let top = t.content_origin_device.1 + frame.scroll;
+                    top + (ly - top - s.y).clamp(0.0, t.view_height)
+                }
+                None => ly,
+            };
             let top = v.state.scroll;
             let want = if ly < top {
                 Some(ly - lh)
@@ -786,6 +798,27 @@ impl EditorElement {
                 return;
             };
             v.search.reveal = None;
+            let (y0, y1) = match pick_well_piece(&frame.texts, from.block) {
+                Some((t, _, well_ch)) => {
+                    let top = t.content_origin_device.1 + frame.scroll;
+                    let mut s = v.well_scroll.get(&t.block).copied().unwrap_or_default();
+                    let (rel0, rel1) = (y0 - top, y1 - top);
+                    if rel0 < s.y {
+                        s.y = rel0;
+                    } else if rel1 > s.y + t.view_height {
+                        s.y = rel1 - t.view_height;
+                    }
+                    s.y = s.y.clamp(0.0, (well_ch - t.view_height).max(0.0));
+                    if v.well_scroll.get(&t.block).copied() != Some(s) {
+                        v.well_scroll.insert(t.block, s);
+                        mark_stale(v, cx);
+                    }
+                    let band0 = top + (rel0 - s.y).clamp(0.0, t.view_height);
+                    let band1 = top + (rel1 - s.y).clamp(0.0, t.view_height);
+                    (band0, band1.max(band0 + lh * 0.5))
+                }
+                None => (y0, y1),
+            };
             if let Some(s) = search_reveal_scroll(
                 y0,
                 y1,
@@ -1060,9 +1093,28 @@ impl EditorView {
         let vh = gear.viewport.1;
         let bottom = (frame.total_height - vh).max(0.0);
         let Some((x, y)) = page.anchor else {
-            let Some((x, y, _, _)) = frame.caret_device else {
+            let Some((x, y, _, ch)) = frame.caret_device else {
                 return false;
             };
+            if let Some((t, _, well_ch)) = pick_well_piece(&frame.texts, self.state.cursor.block) {
+                let mut s = self.well_scroll.get(&t.block).copied().unwrap_or_default();
+                let step = (vh - lh).max(lh) * dir as Px;
+                let next = (s.y + step).clamp(0.0, (well_ch - t.view_height).max(0.0));
+                if (next - s.y).abs() > f64::EPSILON {
+                    let screen = (x - s.x, y - s.y + ch * 0.5);
+                    s.y = next;
+                    self.well_scroll.insert(t.block, s);
+                    let Some(c) =
+                        hit_test(&frame.snapshot, gear.paint_rev, screen, gear.shaper, |id| {
+                            well_scroll_xy(&self.well_scroll, id)
+                        })
+                    else {
+                        return false;
+                    };
+                    self.place_cursor(c, page.motion);
+                    return true;
+                }
+            }
             let next = (self.state.scroll + (vh - lh).max(lh) * dir as Px).clamp(0.0, bottom);
             if next == self.state.scroll {
                 let edge = if dir < 0 { lh * 0.5 } else { vh - lh * 0.5 };
