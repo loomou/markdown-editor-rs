@@ -31,6 +31,8 @@ fn frame_case(shape: Shape, size: usize) -> FrameCase {
         env: environment(),
         path: None,
         job_bytes: None,
+        resident_bytes: None,
+        dwell_ms: 0,
     }
 }
 
