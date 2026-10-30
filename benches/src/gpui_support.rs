@@ -1,16 +1,16 @@
 use crate::corpus::{
-    self, BLOCK_COUNTS, BLOCK_SEED, GIANT_IMAGE, MEDIA_IMAGES, MEDIA_LARGE, MEDIA_MERMAID,
-    RENDER_FRAME_BLOCK_COUNTS, Shape, generate, generate_blocks, human, human_blocks,
+    self, generate, generate_blocks, human, human_blocks, Shape, BLOCK_COUNTS, BLOCK_SEED,
+    GIANT_IMAGE, MEDIA_IMAGES, MEDIA_LARGE, MEDIA_MERMAID, RENDER_FRAME_BLOCK_COUNTS,
 };
 use crate::harness::{caret, doc, doc_with_path, document_theme, environment, leaf_end};
 use gpui::{
-    BenchAppContext, Context, Entity, IntoElement, Render, Styled as _, Window, div, px, size,
+    div, px, size, BenchAppContext, Context, Entity, IntoElement, Render, Styled as _, Window,
 };
 use md_content::shaper::{GpuiShaper, ShapeMedia};
-use md_core::Px;
 use md_core::block::BlockId;
 use md_core::doc::Doc;
 use md_core::document::Command;
+use md_core::Px;
 use md_editor::Shell;
 use md_layout::box_tree::LayoutBoxId;
 use md_layout::island::FallbackSolver;
@@ -54,6 +54,15 @@ pub struct FrameCase {
     /// Job budget this case must be measured under. `None` keeps the editor's
     /// default, so a case can compare one document at more than one ceiling.
     pub job_bytes: Option<usize>,
+    /// Resident ceiling this case must be measured under. `None` follows the
+    /// viewport, which is what a real window does. A case that sets it asks
+    /// what happens when the caches cannot hold everything the document has
+    /// shown, which is the only situation a warm cache can help with.
+    pub resident_bytes: Option<usize>,
+    /// Frames rendered after each wrap without scrolling. A cooling candidate
+    /// needs to stay off screen for the grace, and a pass that wraps every
+    /// fourteen frames never gives it that long.
+    pub dwell_ms: u64,
 }
 
 impl FrameCase {
@@ -99,6 +108,8 @@ pub fn cases() -> Vec<FrameCase> {
                 env: environment(),
                 path: None,
                 job_bytes: None,
+                resident_bytes: None,
+                dwell_ms: 0,
             });
         }
     }
@@ -131,6 +142,8 @@ pub fn cases_for_blocks(counts: &[usize]) -> Vec<FrameCase> {
             env: environment(),
             path: None,
             job_bytes: None,
+            resident_bytes: None,
+            dwell_ms: 0,
         });
     }
     out
@@ -158,6 +171,8 @@ fn media_case(label: &str, text: String, path: PathBuf) -> FrameCase {
         env: environment(),
         path: Some(path),
         job_bytes: None,
+        resident_bytes: None,
+        dwell_ms: 0,
     }
 }
 
@@ -168,13 +183,37 @@ fn media_case_under(label: &str, text: String, path: PathBuf, job_bytes: usize) 
     }
 }
 
+/// A case whose caches cannot hold every image the document has shown. The
+/// ceiling is set from what the full-corpus cases actually hold, so the slice
+/// is smaller than the content rather than arbitrarily small.
+fn media_case_tight(
+    label: &str,
+    text: String,
+    path: PathBuf,
+    resident_bytes: usize,
+    dwell_ms: u64,
+) -> FrameCase {
+    FrameCase {
+        resident_bytes: Some(resident_bytes),
+        dwell_ms,
+        ..media_case(label, text, path)
+    }
+}
+
 pub fn media_cases() -> Vec<FrameCase> {
     let root = media_root();
-    let mut out = Vec::with_capacity(7);
+    let mut out = Vec::with_capacity(8);
     out.push(media_case(
         "media-images-12",
         corpus::media_images_doc(&MEDIA_IMAGES, true),
         root.join("images.md"),
+    ));
+    out.push(media_case_tight(
+        "media-images-12-tight",
+        corpus::media_images_doc(&MEDIA_IMAGES, true),
+        root.join("images.md"),
+        120 << 20,
+        400,
     ));
     out.push(media_case(
         "media-image-giant",
@@ -324,7 +363,7 @@ pub fn text_nodes(
 pub const EDITOR_VIEWPORT: (f32, f32) = (900.0, 600.0);
 
 pub fn mount_shell(case: &FrameCase, cx: &mut BenchAppContext<'_, '_>) -> Entity<Shell> {
-    mount_shell_doc_budget(case.fresh_doc(), case.job_bytes, cx)
+    mount_shell_doc_budget(case.fresh_doc(), case.job_bytes, case.resident_bytes, cx)
 }
 
 pub fn mount_shell_text(text: &str, cx: &mut BenchAppContext<'_, '_>) -> Entity<Shell> {
@@ -332,14 +371,24 @@ pub fn mount_shell_text(text: &str, cx: &mut BenchAppContext<'_, '_>) -> Entity<
 }
 
 pub fn mount_shell_doc(doc: Doc, cx: &mut BenchAppContext<'_, '_>) -> Entity<Shell> {
-    mount_shell_doc_budget(doc, None, cx)
+    mount_shell_doc_budget(doc, None, None, cx)
 }
 
 pub fn mount_shell_doc_budget(
     doc: Doc,
     job_bytes: Option<usize>,
+    resident_bytes: Option<usize>,
     cx: &mut BenchAppContext<'_, '_>,
 ) -> Entity<Shell> {
+    // `MD_BENCH_RESIDENT=<MiB>` wins over the case so one build can sweep the
+    // ceiling: the value that matters is where the content stops fitting, and
+    // that is not known before the first run.
+    let resident_bytes = std::env::var("MD_BENCH_RESIDENT")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .map(|mib| mib << 20)
+        .or(resident_bytes);
+    md_content::media::set_resident_override(resident_bytes);
     let mut window = cx.add_empty_window();
     let shell = window.update(|window, cx| {
         window.resize(size(px(EDITOR_VIEWPORT.0), px(EDITOR_VIEWPORT.1)));

@@ -81,6 +81,22 @@ pub struct Pass {
     pub steady: Sample,
     pub wraps: usize,
     pub step: f64,
+    pub dwell_ms: u64,
+}
+
+/// Keep painting without scrolling. A frame that does not scroll still runs the
+/// schedule, which is what lets an entry that has been off screen for the grace
+/// become a cooling candidate; a pass that only ever scrolls never gives one
+/// that long.
+fn dwell(shell: &Entity<Shell>, cx: &mut BenchAppContext<'_, '_>, millis: u64) {
+    if millis == 0 {
+        return;
+    }
+    let until = std::time::Instant::now() + std::time::Duration::from_millis(millis);
+    while std::time::Instant::now() < until {
+        cx.update_entity(shell, |_shell, cx| cx.notify());
+        cx.run_until_idle();
+    }
 }
 
 pub fn run_pass(
@@ -88,6 +104,7 @@ pub fn run_pass(
     cx: &mut BenchAppContext<'_, '_>,
     label: &str,
     steps: usize,
+    dwell_ms: u64,
 ) -> Pass {
     for _ in 0..WARMUP_FRAMES {
         cx.run_until_idle();
@@ -129,6 +146,7 @@ pub fn run_pass(
             wraps += 1;
             cx.update_entity(shell, |shell, cx| shell.bench_scroll_to(0.0, cx));
             cx.run_until_idle();
+            dwell(shell, cx, dwell_ms);
         }
     }
 
@@ -163,14 +181,15 @@ pub fn run_pass(
         steady,
         wraps,
         step,
+        dwell_ms,
     }
 }
 
 pub fn account_text(a: &md_content::media::Account) -> String {
     format!(
         "display={}/{} source={}/{} mermaid={}/{} math={}/{} zoom={} total={} \
-         warm={}/{} warm-skipped={} resident={}/{} refused={} gpu-pending={} gpu-waited={} \
-         gpu-direct={}",
+         warm={}/{} warm-skipped={} warm-dropped={} jobs=display{} thaw{} cool{} resident={}/{} \
+         refused={} gpu-pending={} gpu-waited={} gpu-direct={}",
         mem::format_bytes(a.display_bytes),
         a.display_entries,
         mem::format_bytes(a.source_bytes),
@@ -184,6 +203,10 @@ pub fn account_text(a: &md_content::media::Account) -> String {
         mem::format_bytes(a.warm_bytes),
         a.warm_entries,
         a.warm_refused,
+        a.warm_discarded,
+        a.started[md_content::media::JobKind::Display.index()],
+        a.started[md_content::media::JobKind::Thaw.index()],
+        a.started[md_content::media::JobKind::Cool.index()],
         mem::format_bytes(a.resident_bytes),
         mem::format_bytes(a.resident_limit),
         a.refused(),
@@ -230,9 +253,10 @@ pub fn summarize(label: &str, p: &Pass) {
         "n/a".to_owned()
     };
     eprintln!(
-        "[media-scroll {label}] summary step_px={:.0} wraps={} | peak@step{}: ws={} private-ws={} pagefile={} rust-heap={} job-peak={} | steady: ws={} private-ws={} pagefile={} rust-heap={} shapes={} shape-bytes={} materialized={} job-peak={} | media: {}",
+        "[media-scroll {label}] summary step_px={:.0} wraps={} dwell_ms={} | peak@step{}: ws={} private-ws={} pagefile={} rust-heap={} job-peak={} | steady: ws={} private-ws={} pagefile={} rust-heap={} shapes={} shape-bytes={} materialized={} job-peak={} | media: {}",
         p.step,
         p.wraps,
+        p.dwell_ms,
         p.peak_step,
         mem::format_bytes(p.peak_ws),
         private,

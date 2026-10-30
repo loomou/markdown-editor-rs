@@ -46,6 +46,7 @@ impl EditorView {
             account.refused_math = refused[media::JobKind::Math.index()];
             account.refused_cool = refused[media::JobKind::Cool.index()];
             account.refused_thaw = refused[media::JobKind::Thaw.index()];
+            account.started = coordinator.started();
             account.clamped = coordinator.clamped();
         }
         if let Some(usage) = cx.try_global::<media::MediaUsage>() {

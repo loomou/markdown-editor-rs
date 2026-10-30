@@ -30,6 +30,7 @@ impl ImageCache {
             cooling: HashMap::new(),
             left_screen: HashMap::new(),
             cool_refused: HashSet::new(),
+            cool_discarded: 0,
             sizes_gen: 0,
             sizes: Rc::new(HashMap::new()),
             ready: Rc::new(HashMap::new()),
@@ -577,6 +578,7 @@ impl ImageCache {
             warm_bytes,
             warm_entries,
             warm_refused: self.cool_refused.len(),
+            warm_discarded: self.cool_discarded,
             ..crate::media::Account::default()
         }
     }
@@ -613,7 +615,12 @@ impl ImageCache {
             .count()
     }
 
-    pub(super) fn evict_display(&mut self, mut cx: Option<&mut App>, max_entries: usize, max_bytes: usize) {
+    pub(super) fn evict_display(
+        &mut self,
+        mut cx: Option<&mut App>,
+        max_entries: usize,
+        max_bytes: usize,
+    ) {
         loop {
             let pressured = cx.as_deref().is_some_and(crate::media::over_resident);
             let held = self.display_bytes.saturating_add(self.warm_bytes);

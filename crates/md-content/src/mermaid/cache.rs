@@ -7,8 +7,8 @@ use gpui::App;
 use md_core::block::BlockId;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
-use std::time::Instant;
 use std::sync::Arc;
+use std::time::Instant;
 
 impl MermaidCache {
     pub fn new() -> Self {
@@ -25,6 +25,7 @@ impl MermaidCache {
             cooling: HashSet::new(),
             left_screen: HashMap::new(),
             cool_refused: HashSet::new(),
+            cool_discarded: 0,
             theme_fp: 0,
             svgs: HashMap::new(),
             svg_order: VecDeque::new(),
@@ -330,6 +331,7 @@ impl MermaidCache {
             warm_bytes,
             warm_entries,
             warm_refused: self.cool_refused.len(),
+            warm_discarded: self.cool_discarded,
             ..crate::media::Account::default()
         }
     }

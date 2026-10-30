@@ -7,8 +7,8 @@ mod warm;
 
 pub use usage::MediaUsage;
 pub use warm::{
-    COOL_GRACE, COOL_MIN_GAIN_PERCENT, DEFAULT_WARM_CODEC, WarmCodec, WarmImage, decode, decode_raw,
-    encode, encode_raw, estimate_decode_job, estimate_encode_job,
+    COOL_GRACE, COOL_MIN_GAIN_PERCENT, DEFAULT_WARM_CODEC, WarmCodec, WarmImage, decode,
+    decode_raw, encode, encode_raw, estimate_decode_job, estimate_encode_job,
 };
 
 pub(crate) fn drop_image_deferred(cx: &mut App, image: Arc<RenderImage>) {
@@ -138,6 +138,9 @@ struct Ledger {
     resident_peak: AtomicUsize,
     next_lease_id: AtomicUsize,
     refused: [AtomicUsize; 7],
+    /// Jobs that were admitted, by kind. Refusals alone cannot tell a cache
+    /// that stopped needing work from one that could never afford it.
+    started: [AtomicUsize; 7],
     clamped: AtomicUsize,
 }
 
@@ -160,6 +163,7 @@ impl Ledger {
                 AtomicUsize::new(0),
                 AtomicUsize::new(0),
             ],
+            started: std::array::from_fn(|_| AtomicUsize::new(0)),
             clamped: AtomicUsize::new(0),
         }
     }
@@ -267,6 +271,10 @@ impl MediaCoordinator {
         self.ledger.clamped.load(Ordering::Acquire)
     }
 
+    pub fn started(&self) -> [usize; 7] {
+        std::array::from_fn(|index| self.ledger.started[index].load(Ordering::Acquire))
+    }
+
     pub fn try_reserve(&self, bytes: usize) -> Option<BytePermit> {
         let ledger = &self.ledger;
         let bytes = if bytes > ledger.job_limit {
@@ -317,7 +325,10 @@ impl MediaCoordinator {
             });
         };
         match coordinator.try_reserve(bytes) {
-            Some(permit) => Some(permit),
+            Some(permit) => {
+                coordinator.ledger.started[kind.index()].fetch_add(1, Ordering::AcqRel);
+                Some(permit)
+            }
             None => {
                 coordinator.ledger.refused[kind.index()].fetch_add(1, Ordering::AcqRel);
                 None
@@ -348,6 +359,9 @@ impl MediaCoordinator {
             for counter in &coordinator.ledger.refused {
                 counter.store(0, Ordering::Release);
             }
+            for counter in &coordinator.ledger.started {
+                counter.store(0, Ordering::Release);
+            }
             coordinator.ledger.clamped.store(0, Ordering::Release);
         }
     }
@@ -368,6 +382,39 @@ pub fn set_cooling(enabled: bool) {
 
 pub fn cooling_enabled() -> bool {
     COOLING.load(Ordering::Acquire)
+}
+
+/// How long an entry has to stay off screen before it may be compressed. The
+/// default is a starting point, not a calibrated value: telling a short scroll
+/// apart from a real departure needs runs at more than one grace, and a const
+/// cannot be swept.
+static COOL_GRACE_MS: AtomicUsize = AtomicUsize::new(usize::MAX);
+
+#[cfg(feature = "bench-support")]
+pub fn set_cool_grace(grace: std::time::Duration) {
+    COOL_GRACE_MS.store(grace.as_millis() as usize, Ordering::Release);
+}
+
+pub fn cool_grace() -> std::time::Duration {
+    match COOL_GRACE_MS.load(Ordering::Acquire) {
+        usize::MAX => COOL_GRACE,
+        millis => std::time::Duration::from_millis(millis as u64),
+    }
+}
+
+/// Ceiling a bench forces instead of the one the viewport implies. Zero means
+/// "follow the viewport", so a case that does not set it is measured exactly
+/// the way a real window is.
+static RESIDENT_OVERRIDE: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(feature = "bench-support")]
+pub fn set_resident_override(bytes: Option<usize>) {
+    RESIDENT_OVERRIDE.store(bytes.unwrap_or(0), Ordering::Release);
+}
+
+pub fn resident_override() -> Option<usize> {
+    let bytes = RESIDENT_OVERRIDE.load(Ordering::Acquire);
+    (bytes != 0).then_some(bytes)
 }
 
 pub fn over_resident(cx: &App) -> bool {
@@ -404,10 +451,7 @@ impl BytePermit {
                 .fetch_sub(resident, Ordering::AcqRel);
         }
         Arc::new(ByteLease {
-            id: self
-                .ledger
-                .next_lease_id
-                .fetch_add(1, Ordering::AcqRel) as u64,
+            id: self.ledger.next_lease_id.fetch_add(1, Ordering::AcqRel) as u64,
             bytes: resident,
             ledger: Arc::clone(&self.ledger),
         })
@@ -481,6 +525,10 @@ pub struct Account {
     /// are not encoded again, so this is also the count of encodes that were
     /// spent to learn that.
     pub warm_refused: usize,
+    /// Encodes that finished after the entry had already come back on screen
+    /// or been dropped, so the result was thrown away. This is the direct
+    /// evidence that a grace is too short.
+    pub warm_discarded: usize,
     pub resident_bytes: usize,
     pub resident_limit: usize,
     pub refused_source: usize,
@@ -490,6 +538,9 @@ pub struct Account {
     pub refused_math: usize,
     pub refused_cool: usize,
     pub refused_thaw: usize,
+    /// Jobs that were admitted, by kind, in `JobKind` order. Paired with
+    /// `refused`, this says whether a cache asked for work and got it.
+    pub started: [usize; 7],
     pub clamped: usize,
     pub gpu_pending: usize,
     pub gpu_released_after_wait: usize,
@@ -536,6 +587,10 @@ impl Account {
         self.warm_bytes = self.warm_bytes.saturating_add(other.warm_bytes);
         self.warm_entries = self.warm_entries.saturating_add(other.warm_entries);
         self.warm_refused = self.warm_refused.saturating_add(other.warm_refused);
+        self.warm_discarded = self.warm_discarded.saturating_add(other.warm_discarded);
+        for (mine, theirs) in self.started.iter_mut().zip(other.started) {
+            *mine = mine.saturating_add(theirs);
+        }
     }
 }
 
@@ -544,8 +599,8 @@ impl std::fmt::Display for Account {
         write!(
             f,
             "media={} display={}/{} source={}/{} mermaid={}/{} math={}/{} zoom={} \
-             warm={}/{} resident={}/{} refused={} clamped={} gpu-pending={} gpu-waited={} \
-             gpu-direct={}",
+             warm={}/{} warm-dropped={} resident={}/{} refused={} started={}/{}/{} clamped={} \
+             gpu-pending={} gpu-waited={} gpu-direct={}",
             self.media_bytes(),
             self.display_bytes,
             self.display_entries,
@@ -558,9 +613,13 @@ impl std::fmt::Display for Account {
             self.zoom_bytes,
             self.warm_bytes,
             self.warm_entries,
+            self.warm_discarded,
             self.resident_bytes,
             self.resident_limit,
             self.refused(),
+            self.started[JobKind::Display.index()],
+            self.started[JobKind::Thaw.index()],
+            self.started[JobKind::Cool.index()],
             self.clamped,
             self.gpu_pending,
             self.gpu_released_after_wait,
@@ -571,9 +630,7 @@ impl std::fmt::Display for Account {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        Account, JobKind, MediaCoordinator, split_resident, drop_image_deferred,
-    };
+    use super::{Account, JobKind, MediaCoordinator, drop_image_deferred, split_resident};
     use gpui::TestAppContext;
     use image::Frame;
     use smallvec::smallvec;

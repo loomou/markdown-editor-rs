@@ -199,8 +199,7 @@ mod tests {
         let baseline = Arc::strong_count(&image);
         cx.update(|cx| {
             MediaUsage::install(cx);
-            cx.global_mut::<MediaUsage>()
-                .note_frame_for_test(1, &[42]);
+            cx.global_mut::<MediaUsage>().note_frame_for_test(1, &[42]);
 
             MediaUsage::release(cx, Some(42), image.clone());
             assert_eq!(
@@ -230,8 +229,7 @@ mod tests {
             MediaUsage::install(cx);
             let image = image();
             let baseline = Arc::strong_count(&image);
-            cx.global_mut::<MediaUsage>()
-                .note_frame_for_test(1, &[7]);
+            cx.global_mut::<MediaUsage>().note_frame_for_test(1, &[7]);
 
             MediaUsage::release(cx, Some(7), image.clone());
             assert_eq!(cx.global::<MediaUsage>().pending(), 1);
@@ -256,8 +254,7 @@ mod tests {
         let baseline = Arc::strong_count(&image);
         cx.update(|cx| {
             MediaUsage::install(cx);
-            cx.global_mut::<MediaUsage>()
-                .note_frame_for_test(1, &[1]);
+            cx.global_mut::<MediaUsage>().note_frame_for_test(1, &[1]);
 
             MediaUsage::release(cx, Some(99), image.clone());
             assert_eq!(cx.global::<MediaUsage>().pending(), 0);
@@ -279,8 +276,7 @@ mod tests {
     fn a_release_without_an_allocation_is_never_queued(cx: &mut TestAppContext) {
         cx.update(|cx| {
             MediaUsage::install(cx);
-            cx.global_mut::<MediaUsage>()
-                .note_frame_for_test(1, &[5]);
+            cx.global_mut::<MediaUsage>().note_frame_for_test(1, &[5]);
             let image = image();
             MediaUsage::release(cx, None, image);
             assert_eq!(cx.global::<MediaUsage>().pending(), 0);

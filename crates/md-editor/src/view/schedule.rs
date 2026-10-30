@@ -18,7 +18,7 @@ impl EditorView {
         let (width, height) = viewport;
         let dpr = dpr.max(0.25);
         let screen = (width.max(1.0) * height.max(1.0) * dpr * dpr * 4.0) as usize;
-        let total = media::resident_ceiling(screen);
+        let total = media::resident_override().unwrap_or_else(|| media::resident_ceiling(screen));
         media::MediaCoordinator::set_resident_limit(cx, total);
         let split = media::split_resident(total);
         let entries = images::Budget::for_viewport(width, height, dpr);
@@ -167,9 +167,7 @@ impl EditorView {
             cx.spawn(async move |this, cx| {
                 let (result, permit) = cx
                     .background_executor()
-                    .spawn(async move {
-                        (mermaid::raster_with_svg(&src, &spec), permit)
-                    })
+                    .spawn(async move { (mermaid::raster_with_svg(&src, &spec), permit) })
                     .await;
                 let _ = this.update(cx, |v, cx| {
                     let result = match result {
@@ -520,7 +518,8 @@ impl EditorView {
             let DisplayJob { source, blocks } = job;
             if let Some((token, warm)) = self.images.begin_thaw(&key) {
                 let estimate = media::estimate_decode_job(warm.px_w, warm.px_h);
-                let Some(permit) = media::MediaCoordinator::admit(cx, media::JobKind::Thaw, estimate)
+                let Some(permit) =
+                    media::MediaCoordinator::admit(cx, media::JobKind::Thaw, estimate)
                 else {
                     self.images.cancel_thaw(token);
                     continue;
@@ -566,9 +565,7 @@ impl EditorView {
                 let raster_key = key.clone();
                 let (result, permit) = cx
                     .background_executor()
-                    .spawn(async move {
-                        (images::raster_display(&source, &raster_key), permit)
-                    })
+                    .spawn(async move { (images::raster_display(&source, &raster_key), permit) })
                     .await;
                 let _ = this.update(cx, |v, cx| {
                     let result = super::media_budget::deliver(result, permit);

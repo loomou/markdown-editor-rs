@@ -73,8 +73,6 @@ impl Default for Budget {
 const SOURCE_RETRY_BASE: Duration = Duration::from_secs(4);
 const SOURCE_RETRY_MAX: Duration = Duration::from_secs(64);
 
-const WARM_GRACE: Duration = crate::media::COOL_GRACE;
-
 const WARM_MIN_GAIN_PERCENT: usize = crate::media::COOL_MIN_GAIN_PERCENT;
 
 fn source_retry_delay(attempt: u32) -> Duration {
@@ -273,7 +271,9 @@ enum SourceSlot {
 }
 
 enum DisplaySlot {
-    InFlight { seq: u64 },
+    InFlight {
+        seq: u64,
+    },
     Ready(ReadyImage),
     /// Pixels replaced by their compressed form because the entry left the
     /// screen. The entry still exists: a re-visit inflates it instead of
@@ -326,6 +326,7 @@ pub struct ImageCache {
     cooling: HashMap<DisplayKey, u64>,
     left_screen: HashMap<DisplayKey, Instant>,
     cool_refused: HashSet<DisplayKey>,
+    cool_discarded: usize,
     sizes_gen: u64,
     sizes: Rc<HashMap<SourceKey, (u32, u32)>>,
     ready: Rc<HashMap<DisplayKey, ReadyImage>>,

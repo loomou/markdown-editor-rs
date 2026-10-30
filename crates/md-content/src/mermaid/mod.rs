@@ -48,9 +48,9 @@ const VIEWBOX_PAD: f32 = 2.0;
 
 mod cache;
 mod raster;
-mod warm;
 mod svg;
 mod theme;
+mod warm;
 
 #[cfg(test)]
 mod tests;
@@ -185,6 +185,7 @@ pub struct MermaidCache {
     cooling: HashSet<MermaidRasterKey>,
     left_screen: HashMap<MermaidRasterKey, Instant>,
     cool_refused: HashSet<MermaidRasterKey>,
+    cool_discarded: usize,
     theme_fp: u64,
     svgs: HashMap<MermaidSvgKey, std::sync::Arc<merman::svg::ResvgCompatibleSvg>>,
     svg_order: VecDeque<MermaidSvgKey>,

@@ -8,8 +8,7 @@ use super::source::{
 use super::{
     Budget, DataEncoding, ImageCache, MAX_DISPLAY_BYTES, MAX_FAILED_ENTRIES, MAX_IN_FLIGHT,
     MAX_RASTER_PIXELS, MAX_SOURCE_BYTES, MIN_DISPLAY_BYTES, Resolved, SOURCE_RETRY_BASE,
-    SOURCE_RETRY_MAX, SourceError, SourceKey, SourceMedia, WARM_DISPLAY_EXTRA, WARM_GRACE,
-    source_retry_delay,
+    SOURCE_RETRY_MAX, SourceError, SourceKey, SourceMedia, WARM_DISPLAY_EXTRA, source_retry_delay,
 };
 use crate::images::fit::{contain_fit, width_fit};
 use crate::media::estimate_bitmap_peak;
@@ -1740,7 +1739,7 @@ fn an_entry_that_stays_off_screen_is_offered_for_compression(cx: &mut gpui::Test
             cache.coolable_at(Instant::now(), false).is_empty(),
             "an entry that has just left the screen is not worth an encode yet"
         );
-        let later = Instant::now() + WARM_GRACE + Duration::from_millis(1);
+        let later = Instant::now() + crate::media::cool_grace() + Duration::from_millis(1);
         assert_eq!(cache.coolable_at(later, false), vec![key.clone()]);
 
         cache.set_working_set([key], std::iter::empty(), std::iter::empty(), cx);
@@ -1752,9 +1751,7 @@ fn an_entry_that_stays_off_screen_is_offered_for_compression(cx: &mut gpui::Test
 }
 
 #[gpui::test]
-fn compressing_an_off_screen_entry_replaces_its_pixels_with_bytes(
-    cx: &mut gpui::TestAppContext,
-) {
+fn compressing_an_off_screen_entry_replaces_its_pixels_with_bytes(cx: &mut gpui::TestAppContext) {
     cx.update(|cx| {
         crate::media::MediaCoordinator::install_with(cx, 1 << 20, 1 << 20);
         let mut cache = ImageCache::new();
@@ -1776,7 +1773,10 @@ fn compressing_an_off_screen_entry_replaces_its_pixels_with_bytes(
 
         let (token, image) = cache.begin_cool(&key).expect("cool");
         let warm = warm_copy(cx, &image);
-        assert!(warm.resident_bytes() < image.bytes, "the fixture must compress");
+        assert!(
+            warm.resident_bytes() < image.bytes,
+            "the fixture must compress"
+        );
         drop(image);
         assert!(cache.finish_cool(token, warm.clone(), cx));
 
@@ -1834,7 +1834,7 @@ fn a_compression_that_barely_shrank_is_refused_and_not_retried(cx: &mut gpui::Te
         );
         assert_eq!(cache.account().display_bytes, 1024);
         assert_eq!(cache.account().warm_bytes, 0);
-        let later = Instant::now() + WARM_GRACE + Duration::from_millis(1);
+        let later = Instant::now() + crate::media::cool_grace() + Duration::from_millis(1);
         assert!(
             cache.coolable_at(later, false).is_empty(),
             "a refused entry must not be re-encoded on every update"
@@ -1872,6 +1872,11 @@ fn an_entry_that_came_back_while_cooling_keeps_its_pixels(cx: &mut gpui::TestApp
         );
         assert!(cache.display_ready(&key).is_some());
         assert_eq!(cache.account().warm_bytes, 0);
+        assert_eq!(
+            cache.account().warm_discarded,
+            1,
+            "the encode that lost the race is the count that says the grace is too short"
+        );
     });
 }
 
@@ -1897,7 +1902,7 @@ fn a_warm_entry_inflates_back_into_pixels(cx: &mut gpui::TestAppContext) {
         );
         let (token, image) = cache.begin_cool(&key).expect("cool");
         let warm = warm_copy(cx, &image);
-        assert!(cache.finish_cool(token, warm.clone(), cx));
+        assert!(cache.finish_cool(token, warm, cx));
 
         let (token, stored) = cache.begin_thaw(&key).expect("thaw");
         assert!(

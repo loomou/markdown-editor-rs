@@ -1,6 +1,4 @@
-use super::{
-    CoolToken, DisplayKey, DisplaySlot, DisplayToken, ImageCache, WARM_GRACE, WARM_MIN_GAIN_PERCENT,
-};
+use super::{CoolToken, DisplayKey, DisplaySlot, DisplayToken, ImageCache, WARM_MIN_GAIN_PERCENT};
 use crate::media::{MediaUsage, WarmImage};
 use gpui::App;
 use std::time::Instant;
@@ -33,7 +31,7 @@ impl ImageCache {
         let grace = if pressured {
             std::time::Duration::ZERO
         } else {
-            WARM_GRACE
+            crate::media::cool_grace()
         };
         let mut out = Vec::new();
         for (key, slot) in &self.display {
@@ -92,7 +90,13 @@ impl ImageCache {
             Some(DisplaySlot::Ready(image)) if !self.display_visible.contains(&token.key) => {
                 image.clone()
             }
-            _ => return false,
+            _ => {
+                // The entry came back on screen, or was dropped, while the
+                // encode ran. The bytes spent are the cost of the grace being
+                // shorter than the visit.
+                self.cool_discarded = self.cool_discarded.saturating_add(1);
+                return false;
+            }
         };
         if warm.resident_bytes().saturating_mul(100)
             > ready.bytes.saturating_mul(WARM_MIN_GAIN_PERCENT)
@@ -199,9 +203,7 @@ impl ImageCache {
         let entries = self
             .display
             .values()
-            .filter(|slot| {
-                matches!(slot, DisplaySlot::Warm(_) | DisplaySlot::Thawing { .. })
-            })
+            .filter(|slot| matches!(slot, DisplaySlot::Warm(_) | DisplaySlot::Thawing { .. }))
             .count();
         (self.warm_bytes, entries)
     }

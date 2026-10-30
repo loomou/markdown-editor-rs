@@ -182,12 +182,7 @@ pub fn decode(warm: &WarmImage) -> Option<ReadyImage> {
     from_bgra(img, warm.dpr)
 }
 
-pub fn decode_raw(
-    bytes: &[u8],
-    px_w: u32,
-    px_h: u32,
-    codec: WarmCodec,
-) -> Option<Vec<u8>> {
+pub fn decode_raw(bytes: &[u8], px_w: u32, px_h: u32, codec: WarmCodec) -> Option<Vec<u8>> {
     if px_w == 0 || px_h == 0 {
         return None;
     }

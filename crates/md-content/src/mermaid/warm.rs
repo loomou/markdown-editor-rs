@@ -1,6 +1,6 @@
 use super::{MermaidCache, MermaidKey, MermaidRasterKey, Slot};
+use crate::media::{COOL_MIN_GAIN_PERCENT, MediaUsage, WarmImage};
 use crate::pixels::ReadyImage;
-use crate::media::{COOL_GRACE, COOL_MIN_GAIN_PERCENT, MediaUsage, WarmImage};
 use gpui::App;
 use std::time::Instant;
 
@@ -29,7 +29,7 @@ impl MermaidCache {
         let grace = if pressured {
             std::time::Duration::ZERO
         } else {
-            COOL_GRACE
+            crate::media::cool_grace()
         };
         let mut out = Vec::new();
         for (raster, slot) in &self.map {
@@ -96,7 +96,10 @@ impl MermaidCache {
         }
         let ready = match self.map.get(&key.raster) {
             Some(Slot::Ready(image)) if !self.hot.contains(&key.raster) => image.clone(),
-            _ => return false,
+            _ => {
+                self.cool_discarded = self.cool_discarded.saturating_add(1);
+                return false;
+            }
         };
         if warm.resident_bytes().saturating_mul(100)
             > ready.bytes.saturating_mul(COOL_MIN_GAIN_PERCENT)

@@ -607,11 +607,7 @@ impl EditorView {
         }
     }
 
-    fn zoom_paint_image(
-        &self,
-        z: &MediaZoom,
-        scale: f64,
-    ) -> Option<ZoomPaint> {
+    fn zoom_paint_image(&self, z: &MediaZoom, scale: f64) -> Option<ZoomPaint> {
         match z.kind {
             BlockKind::Mermaid => {
                 let theme = &self.state.theme;
