@@ -202,7 +202,7 @@ fn media_case_tight(
 
 pub fn media_cases() -> Vec<FrameCase> {
     let root = media_root();
-    let mut out = Vec::with_capacity(8);
+    let mut out = Vec::with_capacity(9);
     out.push(media_case(
         "media-images-12",
         corpus::media_images_doc(&MEDIA_IMAGES, true),
@@ -235,6 +235,13 @@ pub fn media_cases() -> Vec<FrameCase> {
         "media-mermaid-12",
         corpus::media_mermaid_doc(&MEDIA_MERMAID),
         root.join("mermaid.md"),
+    ));
+    out.push(media_case_tight(
+        "media-mermaid-24-tight",
+        corpus::media_mermaid_long_doc(),
+        root.join("mermaid.md"),
+        170 << 20,
+        400,
     ));
     out.push(media_case(
         "media-mermaid-repeat",

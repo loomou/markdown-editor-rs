@@ -1051,6 +1051,31 @@ pub const MEDIA_MERMAID: [&str; 12] = [
     "timeline\n  title Media work\n  2026-10 : decode\n  2026-11 : raster\n  2026-12 : budget",
 ];
 
+/// A second set of diagrams, one of each syntax kind the set above already
+/// proves renders. The raster cache is keyed on the source hash, so repeating a
+/// diagram does not add an entry: a document that has to hold more diagrams
+/// than the slice allows needs more sources, not more copies.
+pub const MEDIA_MERMAID_EXTRA: [&str; 12] = [
+    "flowchart TD\n  A[Open] --> B[Parse]\n  B --> C[Compose]\n  C --> D[Layout]\n  D --> E[Snapshot]\n  E --> F[Paint]\n  F --> G{More?}\n  G -->|yes| D\n  G -->|no| H[Idle]",
+    "flowchart LR\n  A[Input] --> B{Kind}\n  B -->|text| C[Shape]\n  B -->|cell| D[Grid]\n  B -->|media| E[Load]\n  C --> F[Scene]\n  D --> F\n  E --> F",
+    "sequenceDiagram\n  participant P as Paint\n  participant U as Usage\n  participant Q as Queue\n  P->>U: note frame\n  U->>Q: release?\n  Q-->>U: pending\n  P->>U: commit\n  U->>Q: sweep\n  Q-->>P: dropped\n  U-->>P: kept",
+    "classDiagram\n  class Budget { +job +resident +split() }\n  class Permit { +bytes +lease() }\n  class Lease { +id +release() }\n  Budget --> Permit\n  Permit --> Lease",
+    "stateDiagram-v2\n  [*] --> Warm\n  Warm --> Thawing: visible\n  Thawing --> Ready: inflated\n  Thawing --> Warm: cancelled\n  Ready --> Warm: left screen\n  Ready --> [*]: evicted",
+    "erDiagram\n  WINDOW ||--o{ FRAME : paints\n  FRAME ||--o{ USAGE : notes\n  USAGE ||--o{ ALLOC : holds\n  ALLOC ||--o| LEASE : charges",
+    "gantt\n  title Migration\n  dateFormat YYYY-MM-DD\n  section Read\n  Survey :r1, 2026-02-01, 6d\n  Prototype :r2, after r1, 9d\n  section Write\n  Port :w1, after r2, 12d\n  Verify :w2, after w1, 5d",
+    "pie title Job budget\n  \"source\" : 22\n  \"display\" : 41\n  \"zoom\" : 9\n  \"mermaid\" : 18\n  \"math\" : 6",
+    "gitGraph\n  commit id: \"e1\"\n  branch warm\n  commit id: \"f2\"\n  commit id: \"g3\"\n  checkout main\n  commit id: \"h4\"\n  merge warm\n  commit id: \"i5\"",
+    "journey\n  title Open a document\n  section Read\n    Resolve: 4: App\n    Decode: 2: Cache\n  section Show\n    Raster: 3: App\n    Paint: 5: App",
+    "mindmap\n  root((budget))\n    jobs\n      source\n      display\n      thaw\n    resident\n      hot\n      warm\n      leases",
+    "timeline\n  title Cache states\n  Hot : pixels\n  Warm : bytes\n  Thawing : decode\n  Ready : pixels",
+];
+
+pub fn media_mermaid_long_doc() -> String {
+    let mut all: Vec<&str> = MEDIA_MERMAID.iter().copied().collect();
+    all.extend(MEDIA_MERMAID_EXTRA);
+    media_mermaid_doc(&all)
+}
+
 pub fn media_images_doc(specs: &[MediaImage], per_image_text: bool) -> String {
     let mut out = String::with_capacity(specs.len() * 256);
     for (index, spec) in specs.iter().enumerate() {

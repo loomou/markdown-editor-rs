@@ -188,8 +188,8 @@ pub fn run_pass(
 pub fn account_text(a: &md_content::media::Account) -> String {
     format!(
         "display={}/{} source={}/{} mermaid={}/{} math={}/{} zoom={} total={} \
-         warm={}/{} warm-skipped={} warm-dropped={} jobs=display{} thaw{} cool{} resident={}/{} \
-         refused={} gpu-pending={} gpu-waited={} gpu-direct={}",
+         warm={}/{} warm-skipped={} warm-dropped={} jobs=display{} mermaid{} thaw{} cool{} \
+         resident={}/{} refused={} gpu-pending={} gpu-waited={} gpu-direct={}",
         mem::format_bytes(a.display_bytes),
         a.display_entries,
         mem::format_bytes(a.source_bytes),
@@ -205,6 +205,7 @@ pub fn account_text(a: &md_content::media::Account) -> String {
         a.warm_refused,
         a.warm_discarded,
         a.started[md_content::media::JobKind::Display.index()],
+        a.started[md_content::media::JobKind::Mermaid.index()],
         a.started[md_content::media::JobKind::Thaw.index()],
         a.started[md_content::media::JobKind::Cool.index()],
         mem::format_bytes(a.resident_bytes),
