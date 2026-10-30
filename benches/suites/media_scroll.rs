@@ -14,6 +14,12 @@ fn media_scroll(case: &FrameCase, cx: &mut BenchAppContext<'_, '_>) {
     if std::env::var("MD_BENCH_COOLING").as_deref() == Ok("0") {
         md_content::media::set_cooling(false);
     }
+    if let Some(screens) = std::env::var("MD_BENCH_KEEP_SCREENS")
+        .ok()
+        .and_then(|value| value.parse::<f64>().ok())
+    {
+        md_render::incremental::set_keep_screens(screens);
+    }
     if let Some(millis) = std::env::var("MD_BENCH_COOL_GRACE")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())

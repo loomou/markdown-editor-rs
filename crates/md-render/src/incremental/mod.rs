@@ -10,6 +10,11 @@ mod store;
 mod tests;
 
 pub use anchor::ScrollAnchor;
-pub use engine::{DeferredSettlement, IncrementalEngine, MAX_ITERATIONS, PublishedFrame};
+#[cfg(feature = "bench-support")]
+pub use engine::set_keep_screens;
+pub use engine::{
+    DEFAULT_KEEP_SCREENS, DeferredSettlement, IncrementalEngine, MAX_ITERATIONS, PublishedFrame,
+    keep_screens,
+};
 pub use estimate::Estimator;
 pub use store::{EvictionPolicy, MaterializedStore};
