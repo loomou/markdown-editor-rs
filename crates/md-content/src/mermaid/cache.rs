@@ -7,6 +7,7 @@ use gpui::App;
 use md_core::block::BlockId;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
+use std::time::Instant;
 use std::sync::Arc;
 
 impl MermaidCache {
@@ -19,7 +20,11 @@ impl MermaidCache {
             hot: HashSet::new(),
             warm: HashSet::new(),
             bytes: 0,
+            warm_bytes: 0,
             inflight: 0,
+            cooling: HashSet::new(),
+            left_screen: HashMap::new(),
+            cool_refused: HashSet::new(),
             theme_fp: 0,
             svgs: HashMap::new(),
             svg_order: VecDeque::new(),
@@ -57,14 +62,21 @@ impl MermaidCache {
         }
     }
 
+    /// Whether the cache has *pixels* for this diagram. A warm entry counts as
+    /// known but not as paintable, so the scheduler still starts a job for it —
+    /// the job inflates instead of rasterising.
     pub fn contains(&self, key: &MermaidKey) -> bool {
-        self.map.contains_key(&key.raster)
+        matches!(
+            self.map.get(&key.raster),
+            Some(Slot::InFlight) | Some(Slot::Ready(_)) | Some(Slot::Failed(_))
+        )
     }
 
     pub fn image(&self, key: &MermaidKey) -> Option<ReadyImage> {
         match self.map.get(&key.raster) {
             Some(Slot::Ready(img)) => Some(img.clone()),
             Some(Slot::Failed(_)) => None,
+            Some(Slot::Warm(_)) | Some(Slot::Thawing(_)) => None,
             Some(Slot::InFlight) | None => {
                 self.current
                     .get(&(key.block, key.generation))
@@ -144,6 +156,7 @@ impl MermaidCache {
         let warm_entries = working
             .saturating_add(WARM_EXTRA_ENTRIES)
             .min(self.budget.entries);
+        self.note_working_set(Instant::now());
         let bytes = self.budget.bytes;
         self.evict(cx, warm_entries, bytes);
     }
@@ -209,7 +222,11 @@ impl MermaidCache {
         self.hot.clear();
         self.warm.clear();
         self.bytes = 0;
+        self.warm_bytes = 0;
         self.inflight = 0;
+        self.cooling.clear();
+        self.left_screen.clear();
+        self.cool_refused.clear();
         self.svgs.clear();
         self.svg_order.clear();
         self.current = Rc::new(HashMap::new());
@@ -221,14 +238,18 @@ impl MermaidCache {
         Rc::clone(&self.fitted)
     }
 
-    fn touch(&mut self, key: MermaidRasterKey) {
+    pub(super) fn touch(&mut self, key: MermaidRasterKey) {
         self.lru.retain(|k| *k != key);
         self.lru.push_back(key);
     }
 
     fn pick_victim(&self) -> Option<MermaidRasterKey> {
         let evictable = |k: &MermaidRasterKey| {
-            !self.hot.contains(k) && !matches!(self.map.get(k), Some(Slot::InFlight))
+            !self.hot.contains(k)
+                && !matches!(
+                    self.map.get(k),
+                    Some(Slot::InFlight) | Some(Slot::Thawing(_))
+                )
         };
         self.lru
             .iter()
@@ -240,7 +261,8 @@ impl MermaidCache {
     fn evict(&mut self, mut cx: Option<&mut App>, max_entries: usize, max_bytes: usize) {
         loop {
             let pressured = cx.as_deref().is_some_and(crate::media::over_resident);
-            if self.map.len() <= max_entries && self.bytes <= max_bytes && !pressured {
+            let held = self.bytes.saturating_add(self.warm_bytes);
+            if self.map.len() <= max_entries && held <= max_bytes && !pressured {
                 break;
             }
             let Some(victim) = self.pick_victim() else {
@@ -254,12 +276,20 @@ impl MermaidCache {
                         crate::media::MediaUsage::release_ready(cx, img);
                     }
                 }
+                Some(Slot::Warm(warm)) => {
+                    self.warm_bytes = self.warm_bytes.saturating_sub(warm.resident_bytes());
+                }
                 Some(Slot::Failed(_)) => {}
-                Some(Slot::InFlight) => unreachable!(),
+                Some(Slot::InFlight | Slot::Thawing(_)) => {
+                    unreachable!("a job in flight is not a victim")
+                }
                 None => {}
             }
             Rc::make_mut(&mut self.current).retain(|_, (current, _)| current != &victim);
             self.latest.retain(|_, current| current != &victim);
+            self.left_screen.remove(&victim);
+            self.cooling.remove(&victim);
+            self.cool_refused.remove(&victim);
         }
     }
 
@@ -293,9 +323,13 @@ impl MermaidCache {
     }
 
     pub fn account(&self) -> crate::media::Account {
+        let (warm_bytes, warm_entries) = self.warm_account();
         crate::media::Account {
             mermaid_bytes: self.bytes,
             mermaid_entries: self.map.len(),
+            warm_bytes,
+            warm_entries,
+            warm_refused: self.cool_refused.len(),
             ..crate::media::Account::default()
         }
     }

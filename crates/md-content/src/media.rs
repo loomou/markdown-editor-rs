@@ -1,10 +1,15 @@
 use gpui::{App, RenderImage};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 mod usage;
+mod warm;
 
 pub use usage::MediaUsage;
+pub use warm::{
+    COOL_GRACE, COOL_MIN_GAIN_PERCENT, DEFAULT_WARM_CODEC, WarmCodec, WarmImage, decode, decode_raw,
+    encode, encode_raw, estimate_decode_job, estimate_encode_job,
+};
 
 pub(crate) fn drop_image_deferred(cx: &mut App, image: Arc<RenderImage>) {
     cx.defer(move |cx| cx.drop_image(image, None));
@@ -72,15 +77,21 @@ pub enum JobKind {
     Zoom,
     Mermaid,
     Math,
+    /// Compressing an off-screen raster into its warm representation.
+    Cool,
+    /// Inflating a warm entry back into pixels.
+    Thaw,
 }
 
 impl JobKind {
-    pub const ALL: [JobKind; 5] = [
+    pub const ALL: [JobKind; 7] = [
         JobKind::Source,
         JobKind::Display,
         JobKind::Zoom,
         JobKind::Mermaid,
         JobKind::Math,
+        JobKind::Cool,
+        JobKind::Thaw,
     ];
 
     pub fn index(self) -> usize {
@@ -90,6 +101,8 @@ impl JobKind {
             JobKind::Zoom => 2,
             JobKind::Mermaid => 3,
             JobKind::Math => 4,
+            JobKind::Cool => 5,
+            JobKind::Thaw => 6,
         }
     }
 }
@@ -124,7 +137,7 @@ struct Ledger {
     resident: AtomicUsize,
     resident_peak: AtomicUsize,
     next_lease_id: AtomicUsize,
-    refused: [AtomicUsize; 5],
+    refused: [AtomicUsize; 7],
     clamped: AtomicUsize,
 }
 
@@ -139,6 +152,8 @@ impl Ledger {
             resident_peak: AtomicUsize::new(0),
             next_lease_id: AtomicUsize::new(1),
             refused: [
+                AtomicUsize::new(0),
+                AtomicUsize::new(0),
                 AtomicUsize::new(0),
                 AtomicUsize::new(0),
                 AtomicUsize::new(0),
@@ -235,7 +250,7 @@ impl MediaCoordinator {
         }
     }
 
-    pub fn refusals(&self) -> [usize; 5] {
+    pub fn refusals(&self) -> [usize; 7] {
         let ledger = &self.ledger;
         [
             ledger.refused[0].load(Ordering::Acquire),
@@ -243,6 +258,8 @@ impl MediaCoordinator {
             ledger.refused[2].load(Ordering::Acquire),
             ledger.refused[3].load(Ordering::Acquire),
             ledger.refused[4].load(Ordering::Acquire),
+            ledger.refused[5].load(Ordering::Acquire),
+            ledger.refused[6].load(Ordering::Acquire),
         ]
     }
 
@@ -339,6 +356,20 @@ impl MediaCoordinator {
 /// True once the caches together hold more pixels than the app may keep. A
 /// cache that sees this keeps evicting past its own slice, so the overage lands
 /// on whichever cache is trimming rather than on the one that grew last.
+static COOLING: AtomicBool = AtomicBool::new(true);
+
+/// Turn the warm cache off for an A/B run. The plan asks for a switch per
+/// strategy so a measurement can attribute a change to one of them; a build
+/// that ships does not touch this.
+#[cfg(feature = "bench-support")]
+pub fn set_cooling(enabled: bool) {
+    COOLING.store(enabled, Ordering::Release);
+}
+
+pub fn cooling_enabled() -> bool {
+    COOLING.load(Ordering::Acquire)
+}
+
 pub fn over_resident(cx: &App) -> bool {
     match cx.try_global::<MediaCoordinator>() {
         Some(coordinator) => coordinator.resident() > coordinator.resident_limit(),
@@ -441,6 +472,15 @@ pub struct Account {
     pub math_bytes: usize,
     pub math_entries: usize,
     pub zoom_bytes: usize,
+    /// Compressed pixels kept for entries that are off-screen. Counted apart
+    /// from the hot accounts so a reader can see how much of the total is
+    /// content rather than width.
+    pub warm_bytes: usize,
+    pub warm_entries: usize,
+    /// Entries whose compressed form did not pay for itself. They stay hot and
+    /// are not encoded again, so this is also the count of encodes that were
+    /// spent to learn that.
+    pub warm_refused: usize,
     pub resident_bytes: usize,
     pub resident_limit: usize,
     pub refused_source: usize,
@@ -448,6 +488,8 @@ pub struct Account {
     pub refused_zoom: usize,
     pub refused_mermaid: usize,
     pub refused_math: usize,
+    pub refused_cool: usize,
+    pub refused_thaw: usize,
     pub clamped: usize,
     pub gpu_pending: usize,
     pub gpu_released_after_wait: usize,
@@ -461,6 +503,7 @@ impl Account {
             .saturating_add(self.mermaid_bytes)
             .saturating_add(self.math_bytes)
             .saturating_add(self.zoom_bytes)
+            .saturating_add(self.warm_bytes)
     }
 
     pub fn entries(&self) -> usize {
@@ -476,6 +519,8 @@ impl Account {
             .saturating_add(self.refused_zoom)
             .saturating_add(self.refused_mermaid)
             .saturating_add(self.refused_math)
+            .saturating_add(self.refused_cool)
+            .saturating_add(self.refused_thaw)
     }
 
     pub fn merge(&mut self, other: Account) {
@@ -488,6 +533,9 @@ impl Account {
         self.math_bytes = self.math_bytes.saturating_add(other.math_bytes);
         self.math_entries = self.math_entries.saturating_add(other.math_entries);
         self.zoom_bytes = self.zoom_bytes.saturating_add(other.zoom_bytes);
+        self.warm_bytes = self.warm_bytes.saturating_add(other.warm_bytes);
+        self.warm_entries = self.warm_entries.saturating_add(other.warm_entries);
+        self.warm_refused = self.warm_refused.saturating_add(other.warm_refused);
     }
 }
 
@@ -496,7 +544,8 @@ impl std::fmt::Display for Account {
         write!(
             f,
             "media={} display={}/{} source={}/{} mermaid={}/{} math={}/{} zoom={} \
-             resident={}/{} refused={} clamped={} gpu-pending={} gpu-waited={} gpu-direct={}",
+             warm={}/{} resident={}/{} refused={} clamped={} gpu-pending={} gpu-waited={} \
+             gpu-direct={}",
             self.media_bytes(),
             self.display_bytes,
             self.display_entries,
@@ -507,6 +556,8 @@ impl std::fmt::Display for Account {
             self.math_bytes,
             self.math_entries,
             self.zoom_bytes,
+            self.warm_bytes,
+            self.warm_entries,
             self.resident_bytes,
             self.resident_limit,
             self.refused(),

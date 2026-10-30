@@ -73,6 +73,10 @@ impl Default for Budget {
 const SOURCE_RETRY_BASE: Duration = Duration::from_secs(4);
 const SOURCE_RETRY_MAX: Duration = Duration::from_secs(64);
 
+const WARM_GRACE: Duration = crate::media::COOL_GRACE;
+
+const WARM_MIN_GAIN_PERCENT: usize = crate::media::COOL_MIN_GAIN_PERCENT;
+
 fn source_retry_delay(attempt: u32) -> Duration {
     SOURCE_RETRY_BASE
         .saturating_mul(1 << attempt.min(6))
@@ -195,6 +199,7 @@ mod keys;
 mod net;
 mod raster;
 mod source;
+mod warm;
 
 #[cfg(test)]
 mod tests;
@@ -270,6 +275,16 @@ enum SourceSlot {
 enum DisplaySlot {
     InFlight { seq: u64 },
     Ready(ReadyImage),
+    /// Pixels replaced by their compressed form because the entry left the
+    /// screen. The entry still exists: a re-visit inflates it instead of
+    /// decoding the source and rasterising it again.
+    Warm(crate::media::WarmImage),
+    /// An inflation job is running for this key, so nothing may start a second
+    /// one or a raster behind its back.
+    Thawing {
+        seq: u64,
+        warm: crate::media::WarmImage,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -280,6 +295,14 @@ pub struct SourceToken {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DisplayToken {
+    pub key: DisplayKey,
+    seq: u64,
+}
+
+/// Names one compression job so a result that arrives after the entry has been
+/// painted, replaced or dropped cannot install itself.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CoolToken {
     pub key: DisplayKey,
     seq: u64,
 }
@@ -298,7 +321,11 @@ pub struct ImageCache {
     display_lru: VecDeque<DisplayKey>,
     display_visible: HashSet<DisplayKey>,
     display_bytes: usize,
+    warm_bytes: usize,
     display_inflight: usize,
+    cooling: HashMap<DisplayKey, u64>,
+    left_screen: HashMap<DisplayKey, Instant>,
+    cool_refused: HashSet<DisplayKey>,
     sizes_gen: u64,
     sizes: Rc<HashMap<SourceKey, (u32, u32)>>,
     ready: Rc<HashMap<DisplayKey, ReadyImage>>,

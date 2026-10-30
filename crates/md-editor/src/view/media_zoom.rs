@@ -15,6 +15,10 @@ use md_render::snapshot::TextPiece;
 use md_theme::DocumentTheme;
 use std::sync::Arc;
 
+/// What the overlay paints: the texture, the allocation it came from (so the
+/// frame record can name it), and the css box it should occupy.
+type ZoomPaint = (Arc<gpui::RenderImage>, Option<u64>, (f32, f32));
+
 const BTN: f32 = 24.0;
 const BTN_PAD: f32 = 6.0;
 const FIT_PAD: f32 = 32.0;
@@ -607,7 +611,7 @@ impl EditorView {
         &self,
         z: &MediaZoom,
         scale: f64,
-    ) -> Option<(Arc<gpui::RenderImage>, Option<u64>, (f32, f32))> {
+    ) -> Option<ZoomPaint> {
         match z.kind {
             BlockKind::Mermaid => {
                 let theme = &self.state.theme;

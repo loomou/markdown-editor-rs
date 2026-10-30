@@ -5,6 +5,7 @@ use md_core::block::BlockId;
 use md_core::document::Document;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
+use std::time::Instant;
 
 const MAX_IN_FLIGHT: usize = 4;
 const MAX_ENTRIES: usize = 48;
@@ -47,6 +48,7 @@ const VIEWBOX_PAD: f32 = 2.0;
 
 mod cache;
 mod raster;
+mod warm;
 mod svg;
 mod theme;
 
@@ -154,6 +156,12 @@ pub struct RasterSpec {
 enum Slot {
     InFlight,
     Ready(ReadyImage),
+    /// Pixels replaced by their compressed form while the diagram is off
+    /// screen. The entry still answers "do I have this diagram", it just has
+    /// no pixels to paint until it is inflated again.
+    Warm(crate::media::WarmImage),
+    /// An inflation job is running, so nothing else may start for this key.
+    Thawing(crate::media::WarmImage),
     Failed(crate::Error),
 }
 
@@ -172,7 +180,11 @@ pub struct MermaidCache {
     hot: HashSet<MermaidRasterKey>,
     warm: HashSet<MermaidRasterKey>,
     bytes: usize,
+    warm_bytes: usize,
     inflight: usize,
+    cooling: HashSet<MermaidRasterKey>,
+    left_screen: HashMap<MermaidRasterKey, Instant>,
+    cool_refused: HashSet<MermaidRasterKey>,
     theme_fp: u64,
     svgs: HashMap<MermaidSvgKey, std::sync::Arc<merman::svg::ResvgCompatibleSvg>>,
     svg_order: VecDeque<MermaidSvgKey>,

@@ -8,7 +8,8 @@ use super::source::{
 use super::{
     Budget, DataEncoding, ImageCache, MAX_DISPLAY_BYTES, MAX_FAILED_ENTRIES, MAX_IN_FLIGHT,
     MAX_RASTER_PIXELS, MAX_SOURCE_BYTES, MIN_DISPLAY_BYTES, Resolved, SOURCE_RETRY_BASE,
-    SOURCE_RETRY_MAX, SourceError, SourceKey, SourceMedia, WARM_DISPLAY_EXTRA, source_retry_delay,
+    SOURCE_RETRY_MAX, SourceError, SourceKey, SourceMedia, WARM_DISPLAY_EXTRA, WARM_GRACE,
+    source_retry_delay,
 };
 use crate::images::fit::{contain_fit, width_fit};
 use crate::media::estimate_bitmap_peak;
@@ -1692,5 +1693,378 @@ fn a_source_lease_covers_its_encoded_bytes_until_the_cache_lets_go(cx: &mut gpui
 
         cache.clear(cx);
         assert_eq!(crate::media::MediaCoordinator::app_resident(cx), 0);
+    });
+}
+
+fn warm_copy(cx: &gpui::App, image: &crate::pixels::ReadyImage) -> crate::media::WarmImage {
+    let codec = crate::media::WarmCodec::Deflate;
+    let bytes = crate::media::encode(image, codec).expect("encode");
+    let len = bytes.len();
+    let permit = crate::media::MediaCoordinator::admit(cx, crate::media::JobKind::Cool, 1 << 20)
+        .expect("admit a cool job");
+    crate::media::WarmImage::new(bytes, codec, image.px_w, image.px_h, image.dpr)
+        .with_lease(permit.into_lease(len))
+}
+
+fn ready_in(cache: &mut ImageCache, cx: &mut gpui::App, dest: &str) -> super::DisplayKey {
+    let media = bitmap_from_png(&png_with_size(16, 16));
+    let key = display_key(dest, 16.0, 16.0, 1.0);
+    let token = cache.begin_display(key.clone()).expect("begin");
+    let image = leased_display(cx, &media, &key);
+    assert!(cache.finish_display(token, Ok(image), cx));
+    key
+}
+
+#[gpui::test]
+fn an_entry_that_stays_off_screen_is_offered_for_compression(cx: &mut gpui::TestAppContext) {
+    cx.update(|cx| {
+        crate::media::MediaCoordinator::install_with(cx, 1 << 20, 1 << 20);
+        let mut cache = ImageCache::new();
+        cache.set_budget(
+            Budget {
+                display_bytes: 1 << 20,
+                display_entries: 8,
+                source_bytes: 1 << 20,
+            },
+            cx,
+        );
+        let key = ready_in(&mut cache, cx, "a");
+
+        cache.set_working_set(
+            std::iter::empty(),
+            std::iter::empty(),
+            std::iter::empty(),
+            cx,
+        );
+        assert!(
+            cache.coolable_at(Instant::now(), false).is_empty(),
+            "an entry that has just left the screen is not worth an encode yet"
+        );
+        let later = Instant::now() + WARM_GRACE + Duration::from_millis(1);
+        assert_eq!(cache.coolable_at(later, false), vec![key.clone()]);
+
+        cache.set_working_set([key], std::iter::empty(), std::iter::empty(), cx);
+        assert!(
+            cache.coolable_at(later, false).is_empty(),
+            "coming back to the screen must clear the stamp, not just pause it"
+        );
+    });
+}
+
+#[gpui::test]
+fn compressing_an_off_screen_entry_replaces_its_pixels_with_bytes(
+    cx: &mut gpui::TestAppContext,
+) {
+    cx.update(|cx| {
+        crate::media::MediaCoordinator::install_with(cx, 1 << 20, 1 << 20);
+        let mut cache = ImageCache::new();
+        cache.set_budget(
+            Budget {
+                display_bytes: 1 << 20,
+                display_entries: 8,
+                source_bytes: 1 << 20,
+            },
+            cx,
+        );
+        let key = ready_in(&mut cache, cx, "a");
+        cache.set_working_set(
+            std::iter::empty(),
+            std::iter::empty(),
+            std::iter::empty(),
+            cx,
+        );
+
+        let (token, image) = cache.begin_cool(&key).expect("cool");
+        let warm = warm_copy(cx, &image);
+        assert!(warm.resident_bytes() < image.bytes, "the fixture must compress");
+        drop(image);
+        assert!(cache.finish_cool(token, warm.clone(), cx));
+
+        assert_eq!(cache.account().display_bytes, 0);
+        assert_eq!(cache.account().warm_bytes, warm.resident_bytes());
+        assert_eq!(cache.account().warm_entries, 1);
+        assert!(
+            cache.ready_snapshot().get(&key).is_none(),
+            "a warm entry has no pixels, so nothing may paint it"
+        );
+        assert!(
+            !cache.display_contains(&key),
+            "the entry is not paintable, so a job has to be able to start for it"
+        );
+        assert_eq!(
+            crate::media::MediaCoordinator::app_resident(cx),
+            warm.resident_bytes(),
+            "the pixels' lease goes and the compressed bytes take its place"
+        );
+    });
+}
+
+#[gpui::test]
+fn a_compression_that_barely_shrank_is_refused_and_not_retried(cx: &mut gpui::TestAppContext) {
+    cx.update(|cx| {
+        crate::media::MediaCoordinator::install_with(cx, 1 << 20, 1 << 20);
+        let mut cache = ImageCache::new();
+        cache.set_budget(
+            Budget {
+                display_bytes: 1 << 20,
+                display_entries: 8,
+                source_bytes: 1 << 20,
+            },
+            cx,
+        );
+        let key = ready_in(&mut cache, cx, "a");
+        cache.set_working_set(
+            std::iter::empty(),
+            std::iter::empty(),
+            std::iter::empty(),
+            cx,
+        );
+
+        let (token, image) = cache.begin_cool(&key).expect("cool");
+        let no_gain = crate::media::WarmImage::new(
+            vec![0; image.bytes],
+            crate::media::WarmCodec::Deflate,
+            image.px_w,
+            image.px_h,
+            image.dpr,
+        );
+        assert!(
+            !cache.finish_cool(token, no_gain, cx),
+            "a payload that is not smaller than the pixels is not worth keeping"
+        );
+        assert_eq!(cache.account().display_bytes, 1024);
+        assert_eq!(cache.account().warm_bytes, 0);
+        let later = Instant::now() + WARM_GRACE + Duration::from_millis(1);
+        assert!(
+            cache.coolable_at(later, false).is_empty(),
+            "a refused entry must not be re-encoded on every update"
+        );
+    });
+}
+
+#[gpui::test]
+fn an_entry_that_came_back_while_cooling_keeps_its_pixels(cx: &mut gpui::TestAppContext) {
+    cx.update(|cx| {
+        crate::media::MediaCoordinator::install_with(cx, 1 << 20, 1 << 20);
+        let mut cache = ImageCache::new();
+        cache.set_budget(
+            Budget {
+                display_bytes: 1 << 20,
+                display_entries: 8,
+                source_bytes: 1 << 20,
+            },
+            cx,
+        );
+        let key = ready_in(&mut cache, cx, "a");
+        cache.set_working_set(
+            std::iter::empty(),
+            std::iter::empty(),
+            std::iter::empty(),
+            cx,
+        );
+
+        let (token, image) = cache.begin_cool(&key).expect("cool");
+        let warm = warm_copy(cx, &image);
+        cache.set_working_set([key.clone()], std::iter::empty(), std::iter::empty(), cx);
+        assert!(
+            !cache.finish_cool(token, warm, cx),
+            "an entry that is on screen again must not be swapped for its compressed form"
+        );
+        assert!(cache.display_ready(&key).is_some());
+        assert_eq!(cache.account().warm_bytes, 0);
+    });
+}
+
+#[gpui::test]
+fn a_warm_entry_inflates_back_into_pixels(cx: &mut gpui::TestAppContext) {
+    cx.update(|cx| {
+        crate::media::MediaCoordinator::install_with(cx, 1 << 20, 1 << 20);
+        let mut cache = ImageCache::new();
+        cache.set_budget(
+            Budget {
+                display_bytes: 1 << 20,
+                display_entries: 8,
+                source_bytes: 1 << 20,
+            },
+            cx,
+        );
+        let key = ready_in(&mut cache, cx, "a");
+        cache.set_working_set(
+            std::iter::empty(),
+            std::iter::empty(),
+            std::iter::empty(),
+            cx,
+        );
+        let (token, image) = cache.begin_cool(&key).expect("cool");
+        let warm = warm_copy(cx, &image);
+        assert!(cache.finish_cool(token, warm.clone(), cx));
+
+        let (token, stored) = cache.begin_thaw(&key).expect("thaw");
+        assert!(
+            !cache.display_contains(&key),
+            "an entry being inflated has no pixels to paint either"
+        );
+        let restored = crate::media::decode(&stored).expect("inflate");
+        assert!(cache.finish_thaw(token, Some(restored), cx));
+
+        assert_eq!(cache.account().warm_bytes, 0);
+        assert_eq!(cache.account().display_bytes, 1024);
+        assert_eq!(cache.warm_entry_count(), 0);
+        assert!(cache.display_ready(&key).is_some());
+    });
+}
+
+#[gpui::test]
+fn a_thaw_that_cannot_be_admitted_leaves_the_entry_warm(cx: &mut gpui::TestAppContext) {
+    cx.update(|cx| {
+        crate::media::MediaCoordinator::install_with(cx, 1 << 20, 1 << 20);
+        let mut cache = ImageCache::new();
+        cache.set_budget(
+            Budget {
+                display_bytes: 1 << 20,
+                display_entries: 8,
+                source_bytes: 1 << 20,
+            },
+            cx,
+        );
+        let key = ready_in(&mut cache, cx, "a");
+        cache.set_working_set(
+            std::iter::empty(),
+            std::iter::empty(),
+            std::iter::empty(),
+            cx,
+        );
+        let (token, image) = cache.begin_cool(&key).expect("cool");
+        let warm = warm_copy(cx, &image);
+        assert!(cache.finish_cool(token, warm.clone(), cx));
+
+        let (token, _stored) = cache.begin_thaw(&key).expect("thaw");
+        cache.cancel_thaw(token);
+        assert_eq!(cache.account().warm_bytes, warm.resident_bytes());
+        assert_eq!(cache.warm_entry_count(), 1);
+    });
+}
+
+#[gpui::test]
+fn a_payload_that_will_not_inflate_is_dropped_so_the_next_frame_rasterises(
+    cx: &mut gpui::TestAppContext,
+) {
+    cx.update(|cx| {
+        crate::media::MediaCoordinator::install_with(cx, 1 << 20, 1 << 20);
+        let mut cache = ImageCache::new();
+        cache.set_budget(
+            Budget {
+                display_bytes: 1 << 20,
+                display_entries: 8,
+                source_bytes: 1 << 20,
+            },
+            cx,
+        );
+        let key = ready_in(&mut cache, cx, "a");
+        cache.set_working_set(
+            std::iter::empty(),
+            std::iter::empty(),
+            std::iter::empty(),
+            cx,
+        );
+        let (token, image) = cache.begin_cool(&key).expect("cool");
+        assert!(cache.finish_cool(token, warm_copy(cx, &image), cx));
+
+        let (token, _stored) = cache.begin_thaw(&key).expect("thaw");
+        assert!(!cache.finish_thaw(token, None, cx));
+        assert_eq!(cache.account().warm_bytes, 0);
+        assert_eq!(
+            cache.display_entry_count(),
+            0,
+            "a corrupt payload says nothing about the source, so the entry goes and is rebuilt"
+        );
+    });
+}
+
+#[gpui::test]
+fn shrinking_the_budget_evicts_warm_entries_and_their_bytes(cx: &mut gpui::TestAppContext) {
+    cx.update(|cx| {
+        crate::media::MediaCoordinator::install_with(cx, 1 << 20, 1 << 20);
+        let mut cache = ImageCache::new();
+        cache.set_budget(
+            Budget {
+                display_bytes: 1 << 20,
+                display_entries: 8,
+                source_bytes: 1 << 20,
+            },
+            cx,
+        );
+        let key = ready_in(&mut cache, cx, "a");
+        cache.set_working_set(
+            std::iter::empty(),
+            std::iter::empty(),
+            std::iter::empty(),
+            cx,
+        );
+        let (token, image) = cache.begin_cool(&key).expect("cool");
+        assert!(cache.finish_cool(token, warm_copy(cx, &image), cx));
+        assert_eq!(cache.warm_entry_count(), 1);
+
+        cache.set_budget(
+            Budget {
+                display_bytes: 0,
+                display_entries: 8,
+                source_bytes: 1 << 20,
+            },
+            cx,
+        );
+        assert_eq!(cache.warm_entry_count(), 0);
+        assert_eq!(cache.account().warm_bytes, 0);
+    });
+}
+
+#[gpui::test]
+fn cooling_keeps_more_entries_within_the_same_budget(cx: &mut gpui::TestAppContext) {
+    cx.update(|cx| {
+        crate::media::MediaCoordinator::install_with(cx, 1 << 24, 1 << 24);
+        let roomy = Budget {
+            display_bytes: 1 << 20,
+            display_entries: 64,
+            source_bytes: 1 << 20,
+        };
+        let tight = Budget {
+            display_bytes: 8 * 1024,
+            display_entries: 64,
+            source_bytes: 1 << 20,
+        };
+
+        let mut hot_only = ImageCache::new();
+        hot_only.set_budget(roomy, cx);
+        let mut cooled = ImageCache::new();
+        cooled.set_budget(roomy, cx);
+        for index in 0..12 {
+            let dest = format!("c{index}");
+            ready_in(&mut hot_only, cx, &dest);
+            ready_in(&mut cooled, cx, &dest);
+        }
+        let cooled_keys: Vec<super::DisplayKey> = (0..8)
+            .map(|index| display_key(&format!("c{index}"), 16.0, 16.0, 1.0))
+            .collect();
+        for key in &cooled_keys {
+            let (token, image) = cooled.begin_cool(key).expect("cool");
+            let warm = warm_copy(cx, &image);
+            assert!(cooled.finish_cool(token, warm, cx));
+        }
+
+        hot_only.set_budget(tight, cx);
+        cooled.set_budget(tight, cx);
+
+        assert_eq!(
+            hot_only.display_entry_count(),
+            8,
+            "eight 1 KiB rasters fill an 8 KiB slice"
+        );
+        assert_eq!(
+            cooled.display_entry_count(),
+            12,
+            "the same slice holds every entry once eight of them cost 24 bytes instead of 1024"
+        );
+        assert_eq!(cooled.warm_entry_count(), 8);
+        assert_eq!(cooled.account().display_bytes, 4 * 1024);
     });
 }

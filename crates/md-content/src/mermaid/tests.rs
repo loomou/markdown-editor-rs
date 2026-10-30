@@ -9,7 +9,7 @@ use super::{
 };
 use crate::mermaid::raster::raster;
 use crate::mermaid::theme::{spec_from_theme, theme_fingerprint};
-use crate::pixels::from_bgra;
+use crate::pixels::{ReadyImage, from_bgra};
 use image::RgbaImage;
 
 #[test]
@@ -744,4 +744,90 @@ fn a_viewport_budget_scales_with_the_window() {
     assert_eq!(small.bytes, MIN_BYTES);
     assert!(large.bytes > small.bytes);
     assert_eq!(small.entries, VIEWPORT_ENTRIES);
+}
+
+fn warm_of(image: &ReadyImage) -> crate::media::WarmImage {
+    let codec = crate::media::WarmCodec::Deflate;
+    let bytes = crate::media::encode(image, codec).expect("encode");
+    crate::media::WarmImage::new(bytes, codec, image.px_w, image.px_h, image.dpr)
+}
+
+#[test]
+fn a_cooled_diagram_is_known_but_not_paintable() {
+    let mut cache = MermaidCache::new();
+    fill_mermaid_ready(&mut cache, 1);
+    let key = mermaid_key(0);
+    cache.set_working_set_inner(std::iter::empty(), std::iter::empty(), None);
+
+    let (key, image) = cache.begin_cool(&key).expect("cool");
+    let warm = warm_of(&image);
+    assert!(cache.finish_cool_inner(&key, warm.clone(), None));
+
+    assert!(
+        !cache.contains(&key),
+        "a warm diagram has no pixels, so the scheduler has to start a job for it"
+    );
+    assert!(cache.image(&key).is_none());
+    assert_eq!(cache.warm_entry_count(), 1);
+    assert_eq!(cache.byte_count(), 0);
+    assert_eq!(cache.warm_bytes(), warm.resident_bytes());
+}
+
+#[test]
+fn a_warm_diagram_inflates_back_into_a_paintable_entry() {
+    let mut cache = MermaidCache::new();
+    fill_mermaid_ready(&mut cache, 1);
+    let key = mermaid_key(0);
+    cache.set_working_set_inner(std::iter::empty(), std::iter::empty(), None);
+    let (key, image) = cache.begin_cool(&key).expect("cool");
+    let warm = warm_of(&image);
+    assert!(cache.finish_cool_inner(&key, warm, None));
+
+    let stored = cache.begin_thaw(&key).expect("thaw");
+    assert!(!cache.contains(&key));
+    let restored = crate::media::decode(&stored).expect("inflate");
+    assert!(cache.finish_thaw(&key, Some(restored)));
+
+    assert!(cache.contains(&key));
+    assert!(cache.image(&key).is_some());
+    assert_eq!(cache.warm_bytes(), 0);
+    assert_eq!(cache.warm_entry_count(), 0);
+}
+
+#[test]
+fn a_thaw_that_never_started_leaves_the_diagram_warm() {
+    let mut cache = MermaidCache::new();
+    fill_mermaid_ready(&mut cache, 1);
+    let key = mermaid_key(0);
+    cache.set_working_set_inner(std::iter::empty(), std::iter::empty(), None);
+    let (key, image) = cache.begin_cool(&key).expect("cool");
+    let warm = warm_of(&image);
+    assert!(cache.finish_cool_inner(&key, warm.clone(), None));
+
+    assert!(cache.begin_thaw(&key).is_some());
+    cache.cancel_thaw(&key);
+    assert_eq!(cache.warm_bytes(), warm.resident_bytes());
+    assert_eq!(cache.warm_entry_count(), 1);
+}
+
+#[test]
+fn eviction_drops_warm_diagrams_and_their_bytes() {
+    let mut cache = MermaidCache::new();
+    fill_mermaid_ready(&mut cache, 1);
+    let key = mermaid_key(0);
+    cache.set_working_set_inner(std::iter::empty(), std::iter::empty(), None);
+    let (key, image) = cache.begin_cool(&key).expect("cool");
+    assert!(cache.finish_cool_inner(&key, warm_of(&image), None));
+    assert_eq!(cache.warm_entry_count(), 1);
+
+    cache.set_budget_inner(
+        Budget {
+            bytes: 0,
+            entries: 8,
+        },
+        None,
+    );
+    assert_eq!(cache.warm_entry_count(), 0);
+    assert_eq!(cache.warm_bytes(), 0);
+    assert_eq!(cache.entry_count(), 0);
 }

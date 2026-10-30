@@ -44,6 +44,8 @@ impl EditorView {
             account.refused_zoom = refused[media::JobKind::Zoom.index()];
             account.refused_mermaid = refused[media::JobKind::Mermaid.index()];
             account.refused_math = refused[media::JobKind::Math.index()];
+            account.refused_cool = refused[media::JobKind::Cool.index()];
+            account.refused_thaw = refused[media::JobKind::Thaw.index()];
             account.clamped = coordinator.clamped();
         }
         if let Some(usage) = cx.try_global::<media::MediaUsage>() {
