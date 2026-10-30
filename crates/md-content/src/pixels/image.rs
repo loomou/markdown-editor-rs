@@ -1,6 +1,5 @@
 use gpui::RenderImage;
 use image::RgbaImage;
-use image::imageops::{self, FilterType};
 use smallvec::smallvec;
 use std::sync::Arc;
 
@@ -17,18 +16,6 @@ pub fn capped_dims(width: u32, height: u32, max_pixels: u64) -> (u32, u32) {
         ((width as f32 * scale).floor() as u32).max(1),
         ((height as f32 * scale).floor() as u32).max(1),
     )
-}
-
-/// Downscale a decoded bitmap whose pixel count exceeds `max_pixels`, keeping
-/// the aspect ratio. The buffer is channel-order agnostic under a triangle
-/// filter, so BGRA bytes can be resized in place.
-pub fn cap_rgba(image: RgbaImage, max_pixels: u64) -> RgbaImage {
-    let (width, height) = image.dimensions();
-    let (new_w, new_h) = capped_dims(width, height, max_pixels);
-    if (new_w, new_h) == (width, height) {
-        return image;
-    }
-    imageops::resize(&image, new_w, new_h, FilterType::Triangle)
 }
 
 #[derive(Clone)]

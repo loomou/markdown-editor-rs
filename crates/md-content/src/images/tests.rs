@@ -11,7 +11,7 @@ use super::{
     SOURCE_RETRY_MAX, SourceError, SourceKey, SourceMedia, WARM_DISPLAY_EXTRA, source_retry_delay,
 };
 use crate::images::fit::{contain_fit, width_fit};
-use crate::pixels::{cap_rgba, capped_dims, snap_css};
+use crate::pixels::{capped_dims, snap_css};
 use gpui::ImageFormat;
 use std::path::PathBuf;
 
@@ -154,15 +154,26 @@ fn capped_dims_leaves_sources_within_the_budget_alone() {
 }
 
 #[test]
-fn cap_rgba_rebuilds_only_an_oversized_buffer() {
-    let small = image::RgbaImage::from_pixel(1000, 800, image::Rgba([1, 2, 3, 255]));
-    let capped = cap_rgba(small, MAX_RASTER_PIXELS);
-    assert_eq!(capped.dimensions(), (1000, 800));
-
-    let big = image::RgbaImage::from_pixel(3000, 3000, image::Rgba([10, 20, 30, 255]));
-    let capped = cap_rgba(big, MAX_RASTER_PIXELS);
-    let pixels = u64::from(capped.width()) * u64::from(capped.height());
-    assert!(pixels <= MAX_RASTER_PIXELS, "{pixels} pixels exceed budget");
+fn an_oversized_target_keeps_its_css_size_and_drops_density() {
+    let media = bitmap_from_png(&png_with_size(2000, 1500));
+    let css = (2000.0, 1500.0);
+    let ready = raster_at(&media, css, 4.0).expect("raster");
+    let pixels = u64::from(ready.px_w) * u64::from(ready.px_h);
+    assert!(
+        pixels <= MAX_RASTER_PIXELS,
+        "{pixels} pixels exceed the raster budget"
+    );
+    let (w, h) = ready.css_size();
+    assert!(
+        (w - css.0).abs() <= 1.0,
+        "css width {w} must stay at {}, only density may fall",
+        css.0
+    );
+    assert!(
+        (h - css.1).abs() <= 1.0,
+        "css height {h} must stay at {}, only density may fall",
+        css.1
+    );
 }
 
 #[test]

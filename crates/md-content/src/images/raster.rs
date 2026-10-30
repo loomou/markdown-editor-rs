@@ -3,7 +3,7 @@ use super::MAX_RASTER_PIXELS;
 use super::SourceMedia;
 use super::fit::contain_fit;
 use super::source::image_format;
-use crate::pixels::{ReadyImage, cap_rgba, from_bgra, paint_at, snap_css};
+use crate::pixels::{ReadyImage, capped_dims, from_bgra, paint_at, snap_css};
 use gpui::{ImageFormat, Window};
 use image::imageops::{self, FilterType};
 use image::{DynamicImage, ImageDecoder, ImageReader, RgbaImage};
@@ -22,9 +22,8 @@ pub fn raster_display(source: &SourceMedia, key: &DisplayKey) -> Result<ReadyIma
             let (slot_w, slot_h) = key.raster_slot();
             let (fw, fh) = contain_fit(*width as f32, *height as f32, slot_w, slot_h);
             let dpr = key.raster_dpr();
-            let px_w = (snap_css(fw, dpr) * dpr).ceil().max(1.0) as u32;
-            let px_h = (snap_css(fh, dpr) * dpr).ceil().max(1.0) as u32;
-            raster_bitmap_at(bytes, *format, px_w, px_h, dpr)
+            let css = (snap_css(fw, dpr), snap_css(fh, dpr));
+            raster_bitmap_at(bytes, *format, css, dpr)
         }
         SourceMedia::Vector { tree, .. } => raster_display_svg(tree, key),
     }
@@ -39,11 +38,7 @@ pub fn raster_at(
 ) -> Result<ReadyImage, crate::Error> {
     let density = density.max(0.25);
     match source {
-        SourceMedia::Bitmap { bytes, format, .. } => {
-            let px_w = (css.0.max(1.0) * density).ceil().max(1.0) as u32;
-            let px_h = (css.1.max(1.0) * density).ceil().max(1.0) as u32;
-            raster_bitmap_at(bytes, *format, px_w, px_h, density)
-        }
+        SourceMedia::Bitmap { bytes, format, .. } => raster_bitmap_at(bytes, *format, css, density),
         SourceMedia::Vector { tree, .. } => raster_svg_at(tree, css, density),
     }
 }
@@ -51,24 +46,35 @@ pub fn raster_at(
 fn raster_bitmap_at(
     bytes: &[u8],
     format: ImageFormat,
-    px_w: u32,
-    px_h: u32,
-    dpr: f32,
+    css: (f32, f32),
+    density: f32,
 ) -> Result<ReadyImage, crate::Error> {
+    let css_w = css.0.max(1.0);
+    let css_h = css.1.max(1.0);
+    let want_w = (css_w * density).ceil().max(1.0) as u32;
+    let want_h = (css_h * density).ceil().max(1.0) as u32;
+    let (px_w, px_h) = capped_dims(want_w, want_h, MAX_RASTER_PIXELS);
+    let effective = if px_w == want_w {
+        density
+    } else {
+        (px_w as f32 / css_w).min(px_h as f32 / css_h)
+    };
     let img = decode_bitmap(bytes, format)?;
     let img = if img.dimensions() == (px_w, px_h) {
         img
     } else {
         imageops::resize(&img, px_w, px_h, FilterType::Triangle)
     };
-    from_bgra(img, dpr).ok_or_else(|| crate::Error::Image(md_i18n::Key::ImageRasterFailed.into()))
+    from_bgra(img, effective)
+        .ok_or_else(|| crate::Error::Image(md_i18n::Key::ImageRasterFailed.into()))
 }
 
-/// Decode frame 0 of a raster source into BGRA, capped to the raster budget.
-/// Only the first frame is ever painted, so an animation pays for its first
-/// frame rather than for every frame it declares. EXIF orientation is applied
-/// here for the same reason gpui applied it at load: a rotated phone photo
-/// must not come back sideways now that decoding moved into this path.
+/// Decode frame 0 of a raster source into BGRA. Only the first frame is ever
+/// painted, so an animation pays for its first frame rather than for every
+/// frame it declares. EXIF orientation is applied here for the same reason
+/// gpui applied it at load: a rotated phone photo must not come back sideways
+/// now that decoding moved into this path. The caller has already bounded the
+/// target, so the decoded buffer is never resampled twice.
 fn decode_bitmap(bytes: &[u8], format: ImageFormat) -> Result<RgbaImage, crate::Error> {
     let format = image_format(format)
         .ok_or_else(|| crate::Error::Image(md_i18n::Key::ImageBadPath.into()))?;
@@ -85,7 +91,7 @@ fn decode_bitmap(bytes: &[u8], format: ImageFormat) -> Result<RgbaImage, crate::
     for pixel in img.as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
     }
-    Ok(cap_rgba(img, MAX_RASTER_PIXELS))
+    Ok(img)
 }
 
 pub fn paint_ready(
