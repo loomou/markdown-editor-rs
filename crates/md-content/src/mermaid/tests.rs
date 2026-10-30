@@ -242,12 +242,8 @@ fn raster_scale_keeps_small_diagram_layout_native() {
         "small diagrams must not be shrunk by contain: scale={scale} dpr={dpr}"
     );
     assert!(
-        dpr > spec.dpr + 0.5,
-        "small diagrams must pack extra pixels for the zoom popover, dpr={dpr}"
-    );
-    assert!(
-        dpr <= spec.dpr * 2.0,
-        "document diagrams pre-rasterize at most 2x: dpr={dpr}"
+        (dpr - spec.dpr).abs() < 0.02,
+        "document diagrams rasterize at the screen density and leave the zoom density to the overlay, dpr={dpr}"
     );
 }
 
@@ -316,8 +312,8 @@ fn mixed_flowchart_css_size_stays_near_native() {
     assert!(ch > 240.0 && ch < 320.0, "css_h={ch}");
     assert!(cw > 80.0 && cw < 160.0, "css_w={cw}");
     assert!(
-        ready.px_h as f32 > ch * 1.5 && ready.px_h as f32 <= ch * 2.1,
-        "the raster must use denser pixels than css: px_h={} css_h={ch}",
+        (ready.px_h as f32 - ch).abs() < 2.0,
+        "the document raster must match the css box at dpr 1 and leave the zoom density to the overlay: px_h={} css_h={ch}",
         ready.px_h
     );
 }
