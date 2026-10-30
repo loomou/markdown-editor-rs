@@ -39,6 +39,8 @@ fn frame_case(shape: Shape, size: usize) -> FrameCase {
         text,
         theme: document_theme(),
         env: environment(),
+        path: None,
+        job_bytes: None,
     }
 }
 

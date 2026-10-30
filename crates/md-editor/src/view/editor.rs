@@ -85,6 +85,7 @@ impl DocShapeMaps {
 
 impl EditorView {
     pub fn new(mut doc: Doc, theme: DocumentTheme, cx: &mut Context<'_, Self>) -> Self {
+        md_content::media::MediaCoordinator::install(cx, md_content::media::DEFAULT_JOB_BYTES);
         doc.enable_trailing_blank();
         let source_disk_state = doc
             .source_path

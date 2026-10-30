@@ -3,7 +3,7 @@ use super::jobs::{
 };
 use super::{DisplayJob, EditorView, ImagePopover, ImageSchedule, MathPopover, Viewfinder};
 use gpui::Context;
-use md_content::{images, math, mermaid};
+use md_content::{images, math, media, mermaid};
 use md_core::Px;
 use md_core::block::{BlockId, BlockKind};
 use std::collections::HashMap;
@@ -102,13 +102,20 @@ impl EditorView {
         self.mermaid.set_working_set(protect, warm, cx);
         let jobs: Vec<_> = jobs.into_iter().chain(warm_jobs).collect();
         for (key, src, spec) in jobs {
+            let Some(permit) = media::MediaCoordinator::admit(cx, mermaid::estimate_job(&spec))
+            else {
+                continue;
+            };
             if !self.mermaid.begin(key) {
                 continue;
             }
             cx.spawn(async move |this, cx| {
                 let result = cx
                     .background_executor()
-                    .spawn(async move { mermaid::raster_with_svg(&src, &spec) })
+                    .spawn(async move {
+                        let _permit = permit;
+                        mermaid::raster_with_svg(&src, &spec)
+                    })
                     .await;
                 let _ = this.update(cx, |v, cx| {
                     if let Ok((_, svg)) = &result {
@@ -167,17 +174,28 @@ impl EditorView {
             collect_math_popover_job(p, &mut jobs, &mut protect);
         }
         self.math.set_working_set(protect, std::iter::empty(), cx);
+        let metrics = self.math.metrics_snapshot();
         for (key, (src, spec, blocks)) in jobs {
             if self.math.contains(&key) {
                 continue;
             }
+            let em = math::metric(&metrics, &key.latex, key.display)
+                .flatten()
+                .unwrap_or_else(|| math::MathEm::estimate(&key.latex));
+            let bytes = math::estimate_job(em, key.font_size(), key.dpr());
+            let Some(permit) = media::MediaCoordinator::admit(cx, bytes) else {
+                continue;
+            };
             if !self.math.begin(key.clone()) {
                 continue;
             }
             cx.spawn(async move |this, cx| {
                 let result = cx
                     .background_executor()
-                    .spawn(async move { math::raster(&src, &spec) })
+                    .spawn(async move {
+                        let _permit = permit;
+                        math::raster(&src, &spec)
+                    })
                     .await;
                 let _ = this.update(cx, |v, cx| {
                     if let Err(ref err) = result {
@@ -314,15 +332,22 @@ impl EditorView {
             if self.images.display_contains(&key) {
                 continue;
             }
+            let DisplayJob { source, blocks } = job;
+            let bytes = images::estimate_display_job(&source, &key);
+            let Some(permit) = media::MediaCoordinator::admit(cx, bytes) else {
+                continue;
+            };
             let Some(display_token) = self.images.begin_display(key.clone()) else {
                 continue;
             };
-            let DisplayJob { source, blocks } = job;
             cx.spawn(async move |this, cx| {
                 let raster_key = key.clone();
                 let result = cx
                     .background_executor()
-                    .spawn(async move { images::raster_display(&source, &raster_key) })
+                    .spawn(async move {
+                        let _permit = permit;
+                        images::raster_display(&source, &raster_key)
+                    })
                     .await;
                 let _ = this.update(cx, |v, cx| {
                     if let Err(ref err) = result {

@@ -885,6 +885,37 @@ pub const GIANT_IMAGE: MediaImage = MediaImage {
     style: MediaStyle::Graphic,
 };
 
+/// Four distinct oversized sources on one page. They decode to 16 MiB each and
+/// each resize workspace is larger still, so a page holding all four is the
+/// case that tells whether concurrent decodes are bounded: one at a time keeps
+/// the peak near a single job, four at a time multiplies it.
+pub const MEDIA_LARGE: [MediaImage; 4] = [
+    MediaImage {
+        name: "large01",
+        width: 2048,
+        height: 2048,
+        style: MediaStyle::Graphic,
+    },
+    MediaImage {
+        name: "large02",
+        width: 2048,
+        height: 2048,
+        style: MediaStyle::Graphic,
+    },
+    MediaImage {
+        name: "large03",
+        width: 2048,
+        height: 2048,
+        style: MediaStyle::Graphic,
+    },
+    MediaImage {
+        name: "large04",
+        width: 2048,
+        height: 2048,
+        style: MediaStyle::Graphic,
+    },
+];
+
 pub const MEDIA_SEED: u64 = 0x5EED_11ED;
 
 pub fn media_image_specs() -> Vec<MediaImage> {

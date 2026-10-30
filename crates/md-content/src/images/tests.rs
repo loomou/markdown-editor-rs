@@ -1,5 +1,5 @@
 use super::keys::{cache_key, display_key};
-use super::raster::{raster_at, raster_display};
+use super::raster::{estimate_display_job, estimate_zoom_job, raster_at, raster_display};
 use super::source::{
     decode_data_payload, detect_format, gif_frame_count, is_image_path, markdown_dest,
     parse_retry_after, parse_source, resolve, validate_image_dimensions, validate_svg_dimensions,
@@ -11,6 +11,7 @@ use super::{
     SOURCE_RETRY_MAX, SourceError, SourceKey, SourceMedia, WARM_DISPLAY_EXTRA, source_retry_delay,
 };
 use crate::images::fit::{contain_fit, width_fit};
+use crate::media::estimate_bitmap_peak;
 use crate::pixels::{capped_dims, snap_css};
 use gpui::ImageFormat;
 use std::path::PathBuf;
@@ -1452,6 +1453,46 @@ fn prefetch_leaves_room_for_the_visible_source() {
 }
 
 #[test]
+fn the_account_reports_the_bytes_the_cache_actually_holds() {
+    let media = bitmap_from_png(&png_with_size(40, 30));
+    let source_bytes = media.resident_bytes();
+    let mut cache = ImageCache::new();
+    let key = display_key("k", 40.0, 30.0, 1.0);
+    cache.set_working_set_inner(
+        [key.clone()],
+        std::iter::empty(),
+        std::iter::empty(),
+        None,
+        48,
+    );
+    let job = cache.begin_source("k".into()).expect("begin");
+    assert!(cache.finish_source_inner(job, Ok(media.clone()), None, usize::MAX));
+
+    let account = cache.account();
+    assert_eq!(account.source_bytes, source_bytes);
+    assert_eq!(account.source_entries, 1);
+    assert_eq!(account.display_bytes, 0);
+    assert_eq!(account.display_entries, 0);
+    assert_eq!(account.media_bytes(), source_bytes);
+
+    let djob = cache.begin_display(key.clone()).expect("display");
+    let ready = raster_display(&media, &key).expect("raster");
+    let display_bytes = ready.bytes;
+    assert!(cache.finish_display_inner(djob, Ok(ready), None));
+
+    let account = cache.account();
+    assert_eq!(account.display_bytes, display_bytes);
+    assert_eq!(account.display_entries, 1);
+    assert_eq!(account.media_bytes(), source_bytes + display_bytes);
+
+    cache.drop_display_keep_source(&key);
+    let account = cache.account();
+    assert_eq!(account.display_bytes, 0);
+    assert_eq!(account.display_entries, 0);
+    assert_eq!(account.media_bytes(), source_bytes);
+}
+
+#[test]
 fn a_viewport_budget_trims_the_display_window() {
     let budget = Budget::for_viewport(804.0, 620.0, 1.25);
     assert_eq!(budget.display_entries, 48);
@@ -1473,4 +1514,58 @@ fn a_viewport_budget_grows_with_the_window() {
     assert!(large.display_bytes > small.display_bytes);
     assert!(huge.source_bytes > small.source_bytes);
     assert!(huge.display_bytes > large.display_bytes);
+}
+
+#[test]
+fn an_estimate_counts_the_pixels_the_file_decodes_to_not_the_capped_ones() {
+    let media = SourceMedia::Bitmap {
+        bytes: std::sync::Arc::new(Vec::new()),
+        format: ImageFormat::Png,
+        width: 2048,
+        height: 2048,
+        decoded: (4096, 4096),
+    };
+    assert_eq!(media.dims(), (2048, 2048));
+    assert_eq!(media.decoded_dims(), (4096, 4096));
+    let key = display_key("k", 800.0, 800.0, 2.0);
+    assert_eq!(
+        estimate_display_job(&media, &key),
+        estimate_bitmap_peak(4096, 4096, 1600, 1600),
+        "the decode allocates the file's pixels, so the estimate must start from them"
+    );
+}
+
+#[test]
+fn a_display_estimate_names_the_pixels_the_raster_allocates() {
+    let media = bitmap_from_png(&png_with_size(600, 400));
+    let key = display_key("k", 300.0, 200.0, 2.0);
+    let ready = raster_display(&media, &key).expect("raster");
+    let estimate = estimate_display_job(&media, &key);
+    assert_eq!(
+        estimate,
+        estimate_bitmap_peak(600, 400, ready.px_w, ready.px_h),
+        "the scheduler must size the job from the source and the slot, without decoding"
+    );
+    assert!(
+        estimate > ready.bytes,
+        "the peak covers the decoded source and the resize workspace as well as the output"
+    );
+}
+
+#[test]
+fn a_zoom_estimate_follows_the_target_into_the_pixel_cap() {
+    let media = bitmap_from_png(&png_with_size(2000, 1500));
+    let css = (2000.0, 1500.0);
+    let ready = raster_at(&media, css, 4.0).expect("raster");
+    let estimate = estimate_zoom_job(&media, css, 4.0);
+    assert_eq!(
+        estimate,
+        estimate_bitmap_peak(2000, 1500, ready.px_w, ready.px_h),
+        "a capped target must be what the estimate asks for, not the density the caller wanted"
+    );
+    let uncapped = estimate_bitmap_peak(2000, 1500, 8000, 6000);
+    assert!(
+        estimate < uncapped,
+        "an uncapped target would ask for {uncapped} bytes"
+    );
 }

@@ -47,4 +47,12 @@ impl Shell {
             view.state.shape_cache.byte_count(),
         )
     }
+
+    pub fn bench_media_account(&self, cx: &App) -> md_content::media::Account {
+        self.editor.read(cx).media_account()
+    }
+
+    pub fn bench_media_job_peak(&self, cx: &App) -> usize {
+        md_content::media::MediaCoordinator::app_peak(cx)
+    }
 }

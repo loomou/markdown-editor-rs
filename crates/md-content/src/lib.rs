@@ -3,7 +3,7 @@ pub mod gpui_theme;
 pub(crate) mod highlight;
 pub mod images;
 pub mod math;
-mod media;
+pub mod media;
 pub mod mermaid;
 pub(crate) mod pixels;
 pub mod shaper;

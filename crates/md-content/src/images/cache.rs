@@ -533,6 +533,16 @@ impl ImageCache {
         }
     }
 
+    pub fn account(&self) -> crate::media::Account {
+        crate::media::Account {
+            display_bytes: self.display_bytes,
+            display_entries: self.display.len(),
+            source_bytes: self.source_bytes,
+            source_entries: self.source.len(),
+            ..crate::media::Account::default()
+        }
+    }
+
     #[cfg(test)]
     pub(super) fn source_bytes(&self) -> usize {
         self.source_bytes

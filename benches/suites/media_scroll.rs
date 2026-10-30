@@ -12,6 +12,7 @@ fn media_scroll_cases() -> Vec<FrameCase> {
 #[gpui::bench(inputs = media_scroll_cases(), input_name = "case", group = "media/scroll-mem", sample_size = 10)]
 fn media_scroll(case: &FrameCase, cx: &mut BenchAppContext<'_, '_>) {
     mem::reset_peak();
+    cx.update(|app| md_content::media::MediaCoordinator::reset_peak(app));
     let shell = mount_shell(case, cx);
     let pass = run_pass(&shell, cx, &case.label, STEPS);
     summarize(&case.label, &pass);

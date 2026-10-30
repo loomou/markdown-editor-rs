@@ -19,7 +19,7 @@ mod tests;
 
 pub use crate::pixels::ReadyImage;
 pub use metrics::MathEm;
-pub use raster::{paint_ready, raster};
+pub use raster::{estimate_job, paint_ready, raster};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MathMetricSlots {

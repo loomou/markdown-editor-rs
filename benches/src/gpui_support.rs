@@ -1,5 +1,5 @@
 use crate::corpus::{
-    self, BLOCK_COUNTS, BLOCK_SEED, GIANT_IMAGE, MEDIA_IMAGES, MEDIA_MERMAID,
+    self, BLOCK_COUNTS, BLOCK_SEED, GIANT_IMAGE, MEDIA_IMAGES, MEDIA_LARGE, MEDIA_MERMAID,
     RENDER_FRAME_BLOCK_COUNTS, Shape, generate, generate_blocks, human, human_blocks,
 };
 use crate::harness::{caret, doc, doc_with_path, document_theme, environment, leaf_end};
@@ -51,6 +51,9 @@ pub struct FrameCase {
     pub theme: DocumentTheme,
     pub env: BoxLayoutEnvironment,
     pub path: Option<PathBuf>,
+    /// Job budget this case must be measured under. `None` keeps the editor's
+    /// default, so a case can compare one document at more than one ceiling.
+    pub job_bytes: Option<usize>,
 }
 
 impl FrameCase {
@@ -95,6 +98,7 @@ pub fn cases() -> Vec<FrameCase> {
                 theme: document_theme(),
                 env: environment(),
                 path: None,
+                job_bytes: None,
             });
         }
     }
@@ -126,6 +130,7 @@ pub fn cases_for_blocks(counts: &[usize]) -> Vec<FrameCase> {
             theme: document_theme(),
             env: environment(),
             path: None,
+            job_bytes: None,
         });
     }
     out
@@ -152,12 +157,20 @@ fn media_case(label: &str, text: String, path: PathBuf) -> FrameCase {
         theme: document_theme(),
         env: environment(),
         path: Some(path),
+        job_bytes: None,
+    }
+}
+
+fn media_case_under(label: &str, text: String, path: PathBuf, job_bytes: usize) -> FrameCase {
+    FrameCase {
+        job_bytes: Some(job_bytes),
+        ..media_case(label, text, path)
     }
 }
 
 pub fn media_cases() -> Vec<FrameCase> {
     let root = media_root();
-    let mut out = Vec::with_capacity(5);
+    let mut out = Vec::with_capacity(7);
     out.push(media_case(
         "media-images-12",
         corpus::media_images_doc(&MEDIA_IMAGES, true),
@@ -167,6 +180,17 @@ pub fn media_cases() -> Vec<FrameCase> {
         "media-image-giant",
         corpus::media_images_doc(&[GIANT_IMAGE], true),
         root.join("giant.md"),
+    ));
+    out.push(media_case(
+        "media-images-large-4",
+        corpus::media_images_doc(&MEDIA_LARGE, true),
+        root.join("large.md"),
+    ));
+    out.push(media_case_under(
+        "media-images-large-4-unlimited",
+        corpus::media_images_doc(&MEDIA_LARGE, true),
+        root.join("large.md"),
+        usize::MAX,
     ));
     out.push(media_case(
         "media-mermaid-12",
@@ -300,7 +324,7 @@ pub fn text_nodes(
 pub const EDITOR_VIEWPORT: (f32, f32) = (900.0, 600.0);
 
 pub fn mount_shell(case: &FrameCase, cx: &mut BenchAppContext<'_, '_>) -> Entity<Shell> {
-    mount_shell_doc(case.fresh_doc(), cx)
+    mount_shell_doc_budget(case.fresh_doc(), case.job_bytes, cx)
 }
 
 pub fn mount_shell_text(text: &str, cx: &mut BenchAppContext<'_, '_>) -> Entity<Shell> {
@@ -308,9 +332,20 @@ pub fn mount_shell_text(text: &str, cx: &mut BenchAppContext<'_, '_>) -> Entity<
 }
 
 pub fn mount_shell_doc(doc: Doc, cx: &mut BenchAppContext<'_, '_>) -> Entity<Shell> {
+    mount_shell_doc_budget(doc, None, cx)
+}
+
+pub fn mount_shell_doc_budget(
+    doc: Doc,
+    job_bytes: Option<usize>,
+    cx: &mut BenchAppContext<'_, '_>,
+) -> Entity<Shell> {
     let mut window = cx.add_empty_window();
     let shell = window.update(|window, cx| {
         window.resize(size(px(EDITOR_VIEWPORT.0), px(EDITOR_VIEWPORT.1)));
+        if let Some(limit) = job_bytes {
+            md_content::media::MediaCoordinator::install_exact(cx, limit);
+        }
         window.replace_root(cx, |_window, cx| Shell::new(doc, cx))
     });
     window.update(|window, cx| {

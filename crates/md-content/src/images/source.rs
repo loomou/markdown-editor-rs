@@ -170,6 +170,7 @@ pub(super) fn parse_source(
         format,
         width,
         height,
+        decoded: (declared_w, declared_h),
     })
 }
 

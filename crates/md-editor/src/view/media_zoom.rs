@@ -8,7 +8,7 @@ use gpui::{
     size, svg,
 };
 use md_content::gpui_theme::ThemeColorExt;
-use md_content::{images, mermaid};
+use md_content::{images, media, mermaid};
 use md_core::Px;
 use md_core::block::{BlockId, BlockKind};
 use md_render::snapshot::TextPiece;
@@ -364,6 +364,10 @@ impl EditorView {
             return;
         };
         let spec = mermaid::spec_from_theme(&theme, key);
+        let bytes = mermaid::estimate_zoom_job(css, target);
+        let Some(permit) = media::MediaCoordinator::admit(cx, bytes) else {
+            return;
+        };
         self.zoom_raster_job = Some(ZoomRasterJob {
             key: zoom_key.clone(),
             density: target,
@@ -372,6 +376,7 @@ impl EditorView {
                 let result = cx
                     .background_executor()
                     .spawn(async move {
+                        let _permit = permit;
                         let svg = match svg {
                             Some(svg) => svg,
                             None => std::sync::Arc::new(mermaid::render_sealed(&src, &spec)?),
@@ -449,6 +454,10 @@ impl EditorView {
         {
             return;
         }
+        let bytes = images::estimate_zoom_job(&source, css, target);
+        let Some(permit) = media::MediaCoordinator::admit(cx, bytes) else {
+            return;
+        };
         self.zoom_raster_job = Some(ZoomRasterJob {
             key: zoom_key.clone(),
             density: target,
@@ -456,7 +465,10 @@ impl EditorView {
                 cx.background_executor().timer(ZOOM_RASTER_DEBOUNCE).await;
                 let result = cx
                     .background_executor()
-                    .spawn(async move { images::raster_at(&source, css, target) })
+                    .spawn(async move {
+                        let _permit = permit;
+                        images::raster_at(&source, css, target)
+                    })
                     .await;
                 let _ = this.update(cx, |v, cx| {
                     let same = v.media_zoom.as_ref().is_some_and(|z| {

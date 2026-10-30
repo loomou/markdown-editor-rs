@@ -279,6 +279,14 @@ impl MathCache {
         self.map.len()
     }
 
+    pub fn account(&self) -> crate::media::Account {
+        crate::media::Account {
+            math_bytes: self.bytes,
+            math_entries: self.map.len(),
+            ..crate::media::Account::default()
+        }
+    }
+
     #[cfg(test)]
     pub(super) fn byte_count(&self) -> usize {
         self.bytes

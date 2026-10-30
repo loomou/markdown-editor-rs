@@ -288,6 +288,14 @@ impl MermaidCache {
         self.map.len()
     }
 
+    pub fn account(&self) -> crate::media::Account {
+        crate::media::Account {
+            mermaid_bytes: self.bytes,
+            mermaid_entries: self.map.len(),
+            ..crate::media::Account::default()
+        }
+    }
+
     #[cfg(test)]
     pub(super) fn byte_count(&self) -> usize {
         self.bytes

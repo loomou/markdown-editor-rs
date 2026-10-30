@@ -53,6 +53,7 @@ fn main() {
     fs::create_dir_all(&media).expect("the media corpus directory must be creatable");
     let mut images = corpus::media_image_specs();
     images.push(corpus::GIANT_IMAGE);
+    images.extend(corpus::MEDIA_LARGE);
     for spec in &images {
         let png = corpus::encode_png(&corpus::media_pixels(spec, corpus::MEDIA_SEED));
         let path = media.join(format!("{}.png", spec.name));
@@ -76,6 +77,10 @@ fn main() {
         (
             "giant.md",
             corpus::media_images_doc(&[corpus::GIANT_IMAGE], true),
+        ),
+        (
+            "large.md",
+            corpus::media_images_doc(&corpus::MEDIA_LARGE, true),
         ),
         (
             "mermaid.md",

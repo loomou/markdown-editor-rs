@@ -20,6 +20,8 @@ pub struct Sample {
     pub os_peak_pagefile: usize,
     pub heap: usize,
     pub heap_peak: usize,
+    pub media: md_content::media::Account,
+    pub job_peak: usize,
     pub scroll: Px,
     pub total: Px,
     pub materialized: usize,
@@ -30,6 +32,8 @@ pub struct Sample {
 pub fn sample(shell: &Entity<Shell>, cx: &BenchAppContext<'_, '_>, deep: bool) -> Sample {
     let (scroll, total, materialized, shapes, shape_bytes) =
         cx.read_entity(shell, |shell, app| shell.bench_frame_metrics(app));
+    let media = cx.read_entity(shell, |shell, app| shell.bench_media_account(app));
+    let job_peak = cx.read_entity(shell, |shell, app| shell.bench_media_job_peak(app));
     let counters = mem::sample();
     let private = if deep {
         mem::private_working_set()
@@ -47,6 +51,8 @@ pub fn sample(shell: &Entity<Shell>, cx: &BenchAppContext<'_, '_>, deep: bool) -
         os_peak_pagefile: counters.map_or(0, |m| m.peak_pagefile),
         heap: heap.live,
         heap_peak: heap.peak,
+        media,
+        job_peak,
         scroll,
         total,
         materialized,
@@ -70,6 +76,7 @@ pub struct Pass {
     pub peak_private: usize,
     pub peak_pagefile: usize,
     pub peak_heap: usize,
+    pub peak_job: usize,
     pub peak_step: usize,
     pub steady: Sample,
     pub wraps: usize,
@@ -93,6 +100,7 @@ pub fn run_pass(
     let mut peak_private = base.private;
     let mut peak_pagefile = base.pagefile;
     let mut peak_heap = base.heap_peak;
+    let mut peak_job = base.job_peak;
     let mut peak_step = 0usize;
     let mut wraps = 0usize;
     let mut samples: Vec<Sample> = Vec::with_capacity(steps);
@@ -112,6 +120,7 @@ pub fn run_pass(
         }
         peak_pagefile = peak_pagefile.max(s.pagefile);
         peak_heap = peak_heap.max(s.heap_peak);
+        peak_job = peak_job.max(s.job_peak);
         if index % SAMPLE_EVERY == 0 {
             eprintln!("[media-scroll {label}] step={index:>3} {}", describe(&s));
         }
@@ -134,6 +143,8 @@ pub fn run_pass(
         os_peak_pagefile: base.os_peak_pagefile,
         heap: median(&tail.iter().map(|s| s.heap).collect::<Vec<_>>()),
         heap_peak: peak_heap,
+        media: tail.last().map_or(Default::default(), |s| s.media),
+        job_peak: peak_job,
         scroll: tail.last().map_or(0.0, |s| s.scroll),
         total: base.total,
         materialized: median(&tail.iter().map(|s| s.materialized).collect::<Vec<_>>()),
@@ -147,11 +158,28 @@ pub fn run_pass(
         peak_private,
         peak_pagefile,
         peak_heap,
+        peak_job,
         peak_step,
         steady,
         wraps,
         step,
     }
+}
+
+pub fn account_text(a: &md_content::media::Account) -> String {
+    format!(
+        "display={}/{} source={}/{} mermaid={}/{} math={}/{} zoom={} total={}",
+        mem::format_bytes(a.display_bytes),
+        a.display_entries,
+        mem::format_bytes(a.source_bytes),
+        a.source_entries,
+        mem::format_bytes(a.mermaid_bytes),
+        a.mermaid_entries,
+        mem::format_bytes(a.math_bytes),
+        a.math_entries,
+        mem::format_bytes(a.zoom_bytes),
+        mem::format_bytes(a.media_bytes()),
+    )
 }
 
 pub fn describe(s: &Sample) -> String {
@@ -164,7 +192,7 @@ pub fn describe(s: &Sample) -> String {
         "n/a".to_owned()
     };
     format!(
-        "ws={} private-ws={} pagefile={} rust-heap={} shapes={} shape-bytes={} materialized={} scroll={:.0}/{:.0}",
+        "ws={} private-ws={} pagefile={} rust-heap={} shapes={} shape-bytes={} materialized={} job-peak={} media[{}] scroll={:.0}/{:.0}",
         mem::format_bytes(s.ws),
         private,
         mem::format_bytes(s.pagefile),
@@ -172,6 +200,8 @@ pub fn describe(s: &Sample) -> String {
         s.shapes,
         mem::format_bytes(s.shape_bytes),
         s.materialized,
+        mem::format_bytes(s.job_peak),
+        account_text(&s.media),
         s.scroll,
         s.total,
     )
@@ -189,7 +219,7 @@ pub fn summarize(label: &str, p: &Pass) {
         "n/a".to_owned()
     };
     eprintln!(
-        "[media-scroll {label}] summary step_px={:.0} wraps={} | peak@step{}: ws={} private-ws={} pagefile={} rust-heap={} | steady: ws={} private-ws={} pagefile={} rust-heap={} shapes={} shape-bytes={} materialized={}",
+        "[media-scroll {label}] summary step_px={:.0} wraps={} | peak@step{}: ws={} private-ws={} pagefile={} rust-heap={} job-peak={} | steady: ws={} private-ws={} pagefile={} rust-heap={} shapes={} shape-bytes={} materialized={} job-peak={} | media: {}",
         p.step,
         p.wraps,
         p.peak_step,
@@ -197,6 +227,7 @@ pub fn summarize(label: &str, p: &Pass) {
         private,
         mem::format_bytes(p.peak_pagefile),
         mem::format_bytes(p.peak_heap),
+        mem::format_bytes(p.peak_job),
         mem::format_bytes(p.steady.ws),
         steady_private,
         mem::format_bytes(p.steady.pagefile),
@@ -204,5 +235,7 @@ pub fn summarize(label: &str, p: &Pass) {
         p.steady.shapes,
         mem::format_bytes(p.steady.shape_bytes),
         p.steady.materialized,
+        mem::format_bytes(p.steady.job_peak),
+        account_text(&p.steady.media),
     );
 }

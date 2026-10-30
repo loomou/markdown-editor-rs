@@ -41,6 +41,21 @@ fn raster_vector(media: &images::SourceMedia) -> images::ReadyImage {
 }
 
 #[gpui::test]
+fn a_vector_display_estimate_names_the_pixels_the_raster_allocates(cx: &mut gpui::TestAppContext) {
+    let svg = "<svg xmlns='http://www.w3.org/2000/svg' width='120' height='80'>\
+               <rect width='120' height='80' fill='red'/></svg>";
+    let future = cx.update(|app| images::load_source(svg_data(svg), false, app));
+    let source = futures::executor::block_on(future).expect("load");
+    let key = images::display_key("k", 400.0, 400.0, 2.0);
+    let ready = images::raster_display(&source, &key).expect("raster");
+    assert_eq!(
+        images::estimate_display_job(&source, &key),
+        md_content::media::estimate_raster_peak(ready.px_w, ready.px_h),
+        "a vector job is sized from the fit, not from the source file length"
+    );
+}
+
+#[gpui::test]
 fn svg_source_rasterises_red_as_bgra(cx: &mut gpui::TestAppContext) {
     let resolved = svg_data(
         "<svg xmlns='http://www.w3.org/2000/svg' width='2' height='2'>\

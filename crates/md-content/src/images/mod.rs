@@ -89,6 +89,9 @@ pub enum SourceMedia {
         format: ImageFormat,
         width: u32,
         height: u32,
+        /// The size the file decodes to, before the display cap. A job pays
+        /// for these pixels, not for the capped ones it keeps.
+        decoded: (u32, u32),
     },
     Vector {
         tree: Arc<usvg::Tree>,
@@ -102,6 +105,14 @@ impl SourceMedia {
     pub fn dims(&self) -> (u32, u32) {
         match self {
             SourceMedia::Bitmap { width, height, .. } => (*width, *height),
+            SourceMedia::Vector { width, height, .. } => (*width, *height),
+        }
+    }
+
+    /// Pixels a raster job of this source has to allocate for its decode.
+    pub fn decoded_dims(&self) -> (u32, u32) {
+        match self {
+            SourceMedia::Bitmap { decoded, .. } => *decoded,
             SourceMedia::Vector { width, height, .. } => (*width, *height),
         }
     }
@@ -162,7 +173,7 @@ pub use crate::pixels::{ReadyImage, dpr_from_q, dpr_q, snap_css};
 pub use fit::{contain_fit, width_fit};
 pub use keys::{cache_key, display_key, quantized_slot};
 pub use net::http_client;
-pub use raster::{paint_ready, raster_at, raster_display};
+pub use raster::{estimate_display_job, estimate_zoom_job, paint_ready, raster_at, raster_display};
 pub use source::{is_image_path, load_source, markdown_dest, resolve};
 
 #[derive(Clone, Debug)]
