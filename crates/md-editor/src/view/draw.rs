@@ -2,7 +2,7 @@ use super::{ArtifactPaint, WellScroll};
 use gpui::{App, Bounds, Hsla, Pixels, Point, TextRun, Window, hsla, point, px, size};
 use md_content::gpui_theme::{ThemeColorExt, TypeRoleExt};
 use md_content::shaper::{ShapeArtifact, ShapePart, band_align_shift};
-use md_content::{images, math};
+use md_content::{images, math, media};
 use md_core::Px;
 use md_core::block::{BlockId, BlockKind};
 use md_core::inline::InlineAlign;
@@ -90,6 +90,7 @@ pub(super) fn paint_artifact(
                     }
                     let key = math::key_for(latex, *display, *em, color, p.dpr);
                     if let Some(ready) = p.lookup.get(&key) {
+                        media::MediaUsage::note(cx, window, ready);
                         math::paint_ready(
                             window,
                             p.x + *px0 as f32 + band_dx,
@@ -143,6 +144,7 @@ pub(super) fn paint_artifact(
                     }
                     let key = images::display_key(dest, *slot_w as f32, *slot_h as f32, p.dpr);
                     if let Some(ready) = p.images.get(&key) {
+                        media::MediaUsage::note(cx, window, ready);
                         images::paint_ready(window, x, y0, *slot_w as f32, *slot_h as f32, ready);
                     } else {
                         paint_placeholder_slot(

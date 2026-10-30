@@ -130,7 +130,7 @@ impl ImageCache {
         &mut self,
         token: SourceToken,
         result: Result<SourceMedia, SourceError>,
-        cx: Option<&mut App>,
+        mut cx: Option<&mut App>,
         source_budget: usize,
     ) -> bool {
         let key = SourceKey::new(token.dest);
@@ -146,7 +146,7 @@ impl ImageCache {
         match result {
             Ok(media) if media.dims().0 > 0 && media.dims().1 > 0 => {
                 let n = media.resident_bytes();
-                self.evict_source(n, source_budget, cx);
+                self.evict_source(n, source_budget, cx.as_deref_mut());
                 if self.source_bytes.saturating_add(n) > source_budget {
                     self.source.insert(
                         key.clone(),
@@ -155,7 +155,7 @@ impl ImageCache {
                             wanted: n,
                         },
                     );
-                    self.mark_source_failed(key);
+                    self.mark_source_failed(key, cx.as_deref_mut());
                     return true;
                 }
                 self.source_bytes = self.source_bytes.saturating_add(n);
@@ -171,7 +171,7 @@ impl ImageCache {
                     key.clone(),
                     SourceSlot::Failed(crate::Error::Image(md_i18n::Key::ImageEmpty.into())),
                 );
-                self.mark_source_failed(key);
+                self.mark_source_failed(key, cx.as_deref_mut());
                 true
             }
             Err(SourceError::Retryable { err, retry_after }) => {
@@ -185,12 +185,12 @@ impl ImageCache {
                         retry_at,
                     },
                 );
-                self.mark_source_failed(key);
+                self.mark_source_failed(key, cx.as_deref_mut());
                 true
             }
             Err(SourceError::Fatal(err)) => {
                 self.source.insert(key.clone(), SourceSlot::Failed(err));
-                self.mark_source_failed(key);
+                self.mark_source_failed(key, cx.as_deref_mut());
                 true
             }
         }
@@ -263,7 +263,7 @@ impl ImageCache {
         &mut self,
         token: DisplayToken,
         result: Result<ReadyImage, crate::Error>,
-        cx: Option<&mut App>,
+        mut cx: Option<&mut App>,
     ) -> bool {
         match self.display.get(&token.key) {
             Some(DisplaySlot::InFlight { seq: slot_seq }) if *slot_seq == token.seq => {}
@@ -286,7 +286,7 @@ impl ImageCache {
             Err(err) => {
                 self.display.remove(&key);
                 self.display_lru.retain(|candidate| candidate != &key);
-                self.fail_decoded_source(&key, err);
+                self.fail_decoded_source(&key, err, cx.as_deref_mut());
                 false
             }
         }
@@ -296,11 +296,16 @@ impl ImageCache {
     /// decode now happens per raster instead of once at load. Retiring the
     /// source keeps the block on its fallback instead of re-decoding a body
     /// that will never decode, once per frame.
-    fn fail_decoded_source(&mut self, key: &DisplayKey, err: crate::Error) {
+    fn fail_decoded_source(
+        &mut self,
+        key: &DisplayKey,
+        err: crate::Error,
+        mut cx: Option<&mut App>,
+    ) {
         let source = SourceKey::new(key.dest.clone());
-        self.remove_source(&source, None);
+        self.remove_source(&source, cx.as_deref_mut());
         self.source.insert(source.clone(), SourceSlot::Failed(err));
-        self.mark_source_failed(source);
+        self.mark_source_failed(source, cx);
     }
 
     pub fn set_working_set(
@@ -389,7 +394,7 @@ impl ImageCache {
     pub fn clear(&mut self, cx: &mut App) {
         for slot in self.display.values() {
             if let DisplaySlot::Ready(img) = slot {
-                crate::media::drop_image_deferred(cx, img.image.clone());
+                crate::media::MediaUsage::release(cx, img.allocation_id(), img.image.clone());
             }
         }
         self.source.clear();
@@ -420,15 +425,15 @@ impl ImageCache {
         self.source_lru.push_back(key);
     }
 
-    fn mark_source_failed(&mut self, key: SourceKey) {
+    fn mark_source_failed(&mut self, key: SourceKey, mut cx: Option<&mut App>) {
         Rc::make_mut(&mut self.failed_src).insert(key.clone());
         self.failed_lru.retain(|candidate| *candidate != key);
         self.failed_lru.push_back(key);
-        self.trim_failed_entries();
+        self.trim_failed_entries(cx.as_deref_mut());
         self.sizes_gen = self.sizes_gen.wrapping_add(1);
     }
 
-    fn trim_failed_entries(&mut self) {
+    fn trim_failed_entries(&mut self, mut cx: Option<&mut App>) {
         while self.failed_lru.len() > MAX_FAILED_ENTRIES {
             let Some(idx) = self.failed_lru.iter().position(|key| {
                 let failed_state = matches!(
@@ -446,7 +451,7 @@ impl ImageCache {
                 break;
             };
             let victim = self.failed_lru.remove(idx).expect("failed lru");
-            self.remove_source(&victim, None);
+            self.remove_source(&victim, cx.as_deref_mut());
         }
     }
 
@@ -524,7 +529,7 @@ impl ImageCache {
                     self.display_bytes = self.display_bytes.saturating_sub(image.bytes);
                     self.clear_display_projection(&display);
                     if let Some(cx) = cx.as_deref_mut() {
-                        crate::media::drop_image_deferred(cx, image.image);
+                        crate::media::MediaUsage::release_ready(cx, image);
                     }
                 }
                 Some(DisplaySlot::InFlight { .. }) => {
@@ -593,7 +598,7 @@ impl ImageCache {
                     self.display_bytes = self.display_bytes.saturating_sub(img.bytes);
                     self.clear_display_projection(&victim);
                     if let Some(cx) = cx.as_deref_mut() {
-                        crate::media::drop_image_deferred(cx, img.image);
+                        crate::media::MediaUsage::release_ready(cx, img);
                     }
                 }
                 Some(DisplaySlot::InFlight { .. }) => unreachable!(),

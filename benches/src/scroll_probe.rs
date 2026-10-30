@@ -168,7 +168,8 @@ pub fn run_pass(
 
 pub fn account_text(a: &md_content::media::Account) -> String {
     format!(
-        "display={}/{} source={}/{} mermaid={}/{} math={}/{} zoom={} total={}",
+        "display={}/{} source={}/{} mermaid={}/{} math={}/{} zoom={} total={} \
+         resident={}/{} refused={} gpu-pending={} gpu-waited={} gpu-direct={}",
         mem::format_bytes(a.display_bytes),
         a.display_entries,
         mem::format_bytes(a.source_bytes),
@@ -179,6 +180,12 @@ pub fn account_text(a: &md_content::media::Account) -> String {
         a.math_entries,
         mem::format_bytes(a.zoom_bytes),
         mem::format_bytes(a.media_bytes()),
+        mem::format_bytes(a.resident_bytes),
+        mem::format_bytes(a.resident_limit),
+        a.refused(),
+        a.gpu_pending,
+        a.gpu_released_after_wait,
+        a.gpu_released_immediately,
     )
 }
 

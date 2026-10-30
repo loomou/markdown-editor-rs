@@ -2,6 +2,10 @@ use gpui::{App, RenderImage};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+mod usage;
+
+pub use usage::MediaUsage;
+
 pub(crate) fn drop_image_deferred(cx: &mut App, image: Arc<RenderImage>) {
     cx.defer(move |cx| cx.drop_image(image, None));
 }
@@ -445,6 +449,9 @@ pub struct Account {
     pub refused_mermaid: usize,
     pub refused_math: usize,
     pub clamped: usize,
+    pub gpu_pending: usize,
+    pub gpu_released_after_wait: usize,
+    pub gpu_released_immediately: usize,
 }
 
 impl Account {
@@ -489,7 +496,7 @@ impl std::fmt::Display for Account {
         write!(
             f,
             "media={} display={}/{} source={}/{} mermaid={}/{} math={}/{} zoom={} \
-             resident={}/{} refused={} clamped={}",
+             resident={}/{} refused={} clamped={} gpu-pending={} gpu-waited={} gpu-direct={}",
             self.media_bytes(),
             self.display_bytes,
             self.display_entries,
@@ -504,6 +511,9 @@ impl std::fmt::Display for Account {
             self.resident_limit,
             self.refused(),
             self.clamped,
+            self.gpu_pending,
+            self.gpu_released_after_wait,
+            self.gpu_released_immediately,
         )
     }
 }

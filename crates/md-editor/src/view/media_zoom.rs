@@ -292,7 +292,7 @@ impl EditorView {
     pub(crate) fn drop_zoom_raster(&mut self, cx: &mut Context<'_, Self>) {
         self.zoom_raster_job = None;
         if let Some(zr) = self.zoom_raster.take() {
-            cx.drop_image(zr.image.image, None);
+            media::MediaUsage::release_ready(cx, zr.image);
             cx.notify();
         }
     }
@@ -409,7 +409,7 @@ impl EditorView {
                                 density: target,
                                 image,
                             }) {
-                                cx.drop_image(old.image.image, None);
+                                media::MediaUsage::release_ready(cx, old.image);
                             }
                             cx.notify();
                         }
@@ -486,7 +486,7 @@ impl EditorView {
                                 density: target,
                                 image,
                             }) {
-                                cx.drop_image(old.image.image, None);
+                                media::MediaUsage::release_ready(cx, old.image);
                             }
                             cx.notify();
                         }
@@ -607,7 +607,7 @@ impl EditorView {
         &self,
         z: &MediaZoom,
         scale: f64,
-    ) -> Option<(Arc<gpui::RenderImage>, (f32, f32))> {
+    ) -> Option<(Arc<gpui::RenderImage>, Option<u64>, (f32, f32))> {
         match z.kind {
             BlockKind::Mermaid => {
                 let theme = &self.state.theme;
@@ -623,10 +623,14 @@ impl EditorView {
                 if let Some(zr) = &self.zoom_raster
                     && zr.key == ZoomKey::Mermaid(key.svg_key())
                 {
-                    return Some((zr.image.image.clone(), zr.image.css_size()));
+                    return Some((
+                        zr.image.image.clone(),
+                        zr.image.allocation_id(),
+                        zr.image.css_size(),
+                    ));
                 }
                 let ready = self.mermaid.image(&key)?;
-                Some((ready.image.clone(), ready.css_size()))
+                Some((ready.image.clone(), ready.allocation_id(), ready.css_size()))
             }
             BlockKind::Image => {
                 let dest = self.doc_maps.block_image_dest.get(&z.block)?;
@@ -634,7 +638,11 @@ impl EditorView {
                 if let Some(zr) = &self.zoom_raster
                     && zr.key == ZoomKey::Image(dest.clone())
                 {
-                    return Some((zr.image.image.clone(), zr.image.css_size()));
+                    return Some((
+                        zr.image.image.clone(),
+                        zr.image.allocation_id(),
+                        zr.image.css_size(),
+                    ));
                 }
                 let dpr = scale.max(0.25);
                 let css = zoom_css(&source, dpr as f32);
@@ -652,7 +660,7 @@ impl EditorView {
                 );
                 let dkey = images::display_key(dest, qw, qh, dpr);
                 let ready = self.images.ready_snapshot().get(&dkey)?.clone();
-                Some((ready.image.clone(), ready.css_size()))
+                Some((ready.image.clone(), ready.allocation_id(), ready.css_size()))
             }
             _ => None,
         }
@@ -758,15 +766,17 @@ pub(crate) fn paint_zoom(
         },
         dim,
     ));
-    let Some((image, css)) = v.zoom_paint_image(z, scale) else {
+    let Some((image, alloc, css)) = v.zoom_paint_image(z, scale) else {
         return;
     };
     let (x, y, w, h) = image_rect(viewport, css, z.user_scale, z.pan);
+    let canvas = v.state.theme.paint.canvas.hsla();
+    md_content::media::MediaUsage::note_alloc(cx, window, alloc);
     let bounds = Bounds {
         origin: point(px(origin.0 + x), px(origin.1 + y)),
         size: size(px(w.max(1.0)), px(h.max(1.0))),
     };
-    window.paint_quad(gpui::fill(bounds, v.state.theme.paint.canvas.hsla()));
+    window.paint_quad(gpui::fill(bounds, canvas));
     let _ = window.paint_image(bounds, bounds, Corners::all(px(0.0)), image, 0, false);
 }
 

@@ -200,7 +200,7 @@ impl MermaidCache {
     pub fn clear(&mut self, cx: &mut App) {
         for slot in self.map.values() {
             if let Slot::Ready(img) = slot {
-                crate::media::drop_image_deferred(cx, img.image.clone());
+                crate::media::MediaUsage::release(cx, img.allocation_id(), img.image.clone());
             }
         }
         self.map.clear();
@@ -251,7 +251,7 @@ impl MermaidCache {
                 Some(Slot::Ready(img)) => {
                     self.bytes = self.bytes.saturating_sub(img.bytes);
                     if let Some(cx) = cx.as_deref_mut() {
-                        crate::media::drop_image_deferred(cx, img.image);
+                        crate::media::MediaUsage::release_ready(cx, img);
                     }
                 }
                 Some(Slot::Failed(_)) => {}

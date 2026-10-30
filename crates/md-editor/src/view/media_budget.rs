@@ -46,6 +46,11 @@ impl EditorView {
             account.refused_math = refused[media::JobKind::Math.index()];
             account.clamped = coordinator.clamped();
         }
+        if let Some(usage) = cx.try_global::<media::MediaUsage>() {
+            account.gpu_pending = usage.pending();
+            account.gpu_released_after_wait = usage.released_after_wait();
+            account.gpu_released_immediately = usage.released_immediately();
+        }
         account
     }
 }
