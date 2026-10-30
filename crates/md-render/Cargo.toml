@@ -13,6 +13,11 @@ md-content = { workspace = true }
 
 gpui = { workspace = true }
 
+[features]
+# Lets a benchmark force the prefetch window instead of the default, so the
+# number of screens kept on each side can be swept. Off in every shipped build.
+bench-support = []
+
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
 

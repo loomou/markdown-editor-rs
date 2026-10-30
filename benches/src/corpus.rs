@@ -788,3 +788,437 @@ pub fn table(rows: usize, cols: usize, seed: u64) -> String {
     emit_table_sized(&mut rng, &mut out, rows.max(1), cols.max(1));
     out
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MediaStyle {
+    Photo,
+    Graphic,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct MediaImage {
+    pub name: &'static str,
+    pub width: u32,
+    pub height: u32,
+    pub style: MediaStyle,
+}
+
+pub const MEDIA_IMAGES: [MediaImage; 12] = [
+    MediaImage {
+        name: "img01",
+        width: 320,
+        height: 240,
+        style: MediaStyle::Graphic,
+    },
+    MediaImage {
+        name: "img02",
+        width: 480,
+        height: 360,
+        style: MediaStyle::Graphic,
+    },
+    MediaImage {
+        name: "img03",
+        width: 640,
+        height: 480,
+        style: MediaStyle::Photo,
+    },
+    MediaImage {
+        name: "img04",
+        width: 800,
+        height: 600,
+        style: MediaStyle::Graphic,
+    },
+    MediaImage {
+        name: "img05",
+        width: 1024,
+        height: 768,
+        style: MediaStyle::Photo,
+    },
+    MediaImage {
+        name: "img06",
+        width: 1280,
+        height: 720,
+        style: MediaStyle::Graphic,
+    },
+    MediaImage {
+        name: "img07",
+        width: 1600,
+        height: 1200,
+        style: MediaStyle::Photo,
+    },
+    MediaImage {
+        name: "img08",
+        width: 1920,
+        height: 1080,
+        style: MediaStyle::Graphic,
+    },
+    MediaImage {
+        name: "img09",
+        width: 1000,
+        height: 1000,
+        style: MediaStyle::Photo,
+    },
+    MediaImage {
+        name: "img10",
+        width: 600,
+        height: 1400,
+        style: MediaStyle::Graphic,
+    },
+    MediaImage {
+        name: "img11",
+        width: 1400,
+        height: 600,
+        style: MediaStyle::Photo,
+    },
+    MediaImage {
+        name: "img12",
+        width: 512,
+        height: 512,
+        style: MediaStyle::Photo,
+    },
+];
+
+pub const GIANT_IMAGE: MediaImage = MediaImage {
+    name: "giant",
+    width: 4096,
+    height: 4096,
+    style: MediaStyle::Graphic,
+};
+
+/// Four distinct oversized sources on one page. They decode to 16 MiB each and
+/// each resize workspace is larger still, so a page holding all four is the
+/// case that tells whether concurrent decodes are bounded: one at a time keeps
+/// the peak near a single job, four at a time multiplies it.
+pub const MEDIA_LARGE: [MediaImage; 4] = [
+    MediaImage {
+        name: "large01",
+        width: 2048,
+        height: 2048,
+        style: MediaStyle::Graphic,
+    },
+    MediaImage {
+        name: "large02",
+        width: 2048,
+        height: 2048,
+        style: MediaStyle::Graphic,
+    },
+    MediaImage {
+        name: "large03",
+        width: 2048,
+        height: 2048,
+        style: MediaStyle::Graphic,
+    },
+    MediaImage {
+        name: "large04",
+        width: 2048,
+        height: 2048,
+        style: MediaStyle::Graphic,
+    },
+];
+
+pub const MEDIA_SEED: u64 = 0x5EED_11ED;
+
+pub fn media_image_specs() -> Vec<MediaImage> {
+    MEDIA_IMAGES.to_vec()
+}
+
+fn blend(from: [u8; 4], to: [u8; 4], t: f32) -> [u8; 4] {
+    let mix = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * t).round() as u8;
+    [
+        mix(from[0], to[0]),
+        mix(from[1], to[1]),
+        mix(from[2], to[2]),
+        255,
+    ]
+}
+
+fn fill_rect(img: &mut image::RgbaImage, x: u32, y: u32, w: u32, h: u32, color: [u8; 4]) {
+    let (iw, ih) = img.dimensions();
+    for py in y..y.saturating_add(h).min(ih) {
+        for px in x..x.saturating_add(w).min(iw) {
+            img.put_pixel(px, py, image::Rgba(color));
+        }
+    }
+}
+
+fn paint_gradient(img: &mut image::RgbaImage, rng: &mut Rng) {
+    let (w, h) = img.dimensions();
+    let top = [
+        rng.below(200) as u8,
+        rng.below(200) as u8,
+        rng.below(200) as u8,
+        255,
+    ];
+    let bottom = [
+        rng.below(200) as u8,
+        rng.below(200) as u8,
+        rng.below(200) as u8,
+        255,
+    ];
+    for y in 0..h {
+        let t = y as f32 / (h.max(2) - 1) as f32;
+        let color = blend(top, bottom, t);
+        for x in 0..w {
+            img.put_pixel(x, y, image::Rgba(color));
+        }
+    }
+}
+
+fn paint_graphic(img: &mut image::RgbaImage, rng: &mut Rng) {
+    let (w, h) = img.dimensions();
+    paint_gradient(img, rng);
+    let blocks = rng.range(4, 10);
+    for _ in 0..blocks {
+        let bw = rng.range(20, (w as usize / 2).max(21)) as u32;
+        let bh = rng.range(16, (h as usize / 2).max(17)) as u32;
+        let x = rng.range(0, w.saturating_sub(bw).max(1) as usize) as u32;
+        let y = rng.range(0, h.saturating_sub(bh).max(1) as usize) as u32;
+        let color = [
+            rng.below(256) as u8,
+            rng.below(256) as u8,
+            rng.below(256) as u8,
+            255,
+        ];
+        fill_rect(img, x, y, bw, bh, color);
+    }
+    let lines = rng.range(2, 6);
+    for _ in 0..lines {
+        let y = rng.range(0, h.max(2) as usize) as u32;
+        let thickness = rng.range(2, 6) as u32;
+        let color = [
+            rng.below(256) as u8,
+            rng.below(256) as u8,
+            rng.below(256) as u8,
+            255,
+        ];
+        fill_rect(img, 0, y, w, thickness, color);
+    }
+}
+
+fn paint_photo(img: &mut image::RgbaImage, rng: &mut Rng) {
+    let (w, h) = img.dimensions();
+    paint_gradient(img, rng);
+    let noise: [i16; 256] = {
+        let mut table = [0i16; 256];
+        for slot in table.iter_mut() {
+            *slot = rng.below(49) as i16 - 24;
+        }
+        table
+    };
+    for y in 0..h {
+        for x in 0..w {
+            let n = noise[(x as usize * 7 + y as usize * 13) % 256];
+            let pixel = img.get_pixel_mut(x, y);
+            for channel in 0..3 {
+                let value = i16::from(pixel.0[channel]) + n;
+                pixel.0[channel] = value.clamp(0, 255) as u8;
+            }
+        }
+    }
+}
+
+pub fn media_pixels(spec: &MediaImage, seed: u64) -> image::RgbaImage {
+    media_pixels_sized(spec.width, spec.height, spec.style, seed)
+}
+
+pub fn media_pixels_sized(
+    width: u32,
+    height: u32,
+    style: MediaStyle,
+    seed: u64,
+) -> image::RgbaImage {
+    let salt = u64::from(width) ^ (u64::from(height) << 32);
+    let mut rng = Rng::new(seed ^ salt);
+    let mut img = image::RgbaImage::new(width, height);
+    match style {
+        MediaStyle::Graphic => paint_graphic(&mut img, &mut rng),
+        MediaStyle::Photo => paint_photo(&mut img, &mut rng),
+    }
+    img
+}
+
+pub fn encode_png(img: &image::RgbaImage) -> Vec<u8> {
+    let mut out = Vec::new();
+    image::DynamicImage::ImageRgba8(img.clone())
+        .write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
+        .expect("the media corpus image must encode as png");
+    out
+}
+
+pub const MEDIA_MERMAID: [&str; 12] = [
+    "flowchart TD\n  A[Start] --> B{Parse}\n  B -->|ok| C[Layout]\n  B -->|err| D[Report]\n  C --> E[Paint]\n  E --> F[Done]\n  D --> F",
+    "flowchart LR\n  A[Read] --> B[Shape]\n  A --> C[Split]\n  B --> D[Merge]\n  C --> D\n  D --> E[Emit]",
+    "sequenceDiagram\n  participant U as User\n  participant E as Editor\n  participant C as Cache\n  U->>E: keystroke\n  E->>C: lookup\n  C-->>E: hit\n  E-->>U: frame\n  U->>E: scroll\n  E->>C: prefetch\n  C-->>E: miss\n  E-->>U: frame",
+    "classDiagram\n  class Doc { +blocks +text }\n  class Block { +kind +span }\n  class Cache { +get() +put() }\n  Doc --> Block\n  Doc --> Cache\n  Block --> Cache",
+    "stateDiagram-v2\n  [*] --> Idle\n  Idle --> Loading: open\n  Loading --> Ready: decoded\n  Loading --> Failed: error\n  Ready --> Idle: close\n  Failed --> Idle: dismiss",
+    "erDiagram\n  DOC ||--o{ BLOCK : has\n  BLOCK ||--o{ SPAN : has\n  DOC ||--o{ SOURCE : owns\n  SOURCE ||--o{ PIXEL : decodes",
+    "gantt\n  title Release\n  dateFormat YYYY-MM-DD\n  section Core\n  Parse :a1, 2026-01-01, 10d\n  Layout :a2, after a1, 14d\n  section Media\n  Decode :b1, 2026-01-05, 8d\n  Raster :b2, after b1, 6d",
+    "pie title Cache bytes\n  \"display\" : 48\n  \"source\" : 12\n  \"mermaid\" : 30\n  \"math\" : 4",
+    "gitGraph\n  commit id: \"a1\"\n  commit id: \"b2\"\n  branch fix\n  commit id: \"c3\"\n  checkout main\n  commit id: \"d4\"\n  merge fix",
+    "journey\n  title Scroll pass\n  section Enter\n    Layout: 5: Editor\n    Shape: 3: Editor\n  section Exit\n    Evict: 2: Cache\n    Drop: 4: Cache",
+    "mindmap\n  root((media))\n    images\n      source\n      display\n      gpu\n    mermaid\n      source\n      raster\n    math\n      metrics",
+    "timeline\n  title Media work\n  2026-10 : decode\n  2026-11 : raster\n  2026-12 : budget",
+];
+
+/// A second set of diagrams, one of each syntax kind the set above already
+/// proves renders. The raster cache is keyed on the source hash, so repeating a
+/// diagram does not add an entry: a document that has to hold more diagrams
+/// than the slice allows needs more sources, not more copies.
+pub const MEDIA_MERMAID_EXTRA: [&str; 12] = [
+    "flowchart TD\n  A[Open] --> B[Parse]\n  B --> C[Compose]\n  C --> D[Layout]\n  D --> E[Snapshot]\n  E --> F[Paint]\n  F --> G{More?}\n  G -->|yes| D\n  G -->|no| H[Idle]",
+    "flowchart LR\n  A[Input] --> B{Kind}\n  B -->|text| C[Shape]\n  B -->|cell| D[Grid]\n  B -->|media| E[Load]\n  C --> F[Scene]\n  D --> F\n  E --> F",
+    "sequenceDiagram\n  participant P as Paint\n  participant U as Usage\n  participant Q as Queue\n  P->>U: note frame\n  U->>Q: release?\n  Q-->>U: pending\n  P->>U: commit\n  U->>Q: sweep\n  Q-->>P: dropped\n  U-->>P: kept",
+    "classDiagram\n  class Budget { +job +resident +split() }\n  class Permit { +bytes +lease() }\n  class Lease { +id +release() }\n  Budget --> Permit\n  Permit --> Lease",
+    "stateDiagram-v2\n  [*] --> Warm\n  Warm --> Thawing: visible\n  Thawing --> Ready: inflated\n  Thawing --> Warm: cancelled\n  Ready --> Warm: left screen\n  Ready --> [*]: evicted",
+    "erDiagram\n  WINDOW ||--o{ FRAME : paints\n  FRAME ||--o{ USAGE : notes\n  USAGE ||--o{ ALLOC : holds\n  ALLOC ||--o| LEASE : charges",
+    "gantt\n  title Migration\n  dateFormat YYYY-MM-DD\n  section Read\n  Survey :r1, 2026-02-01, 6d\n  Prototype :r2, after r1, 9d\n  section Write\n  Port :w1, after r2, 12d\n  Verify :w2, after w1, 5d",
+    "pie title Job budget\n  \"source\" : 22\n  \"display\" : 41\n  \"zoom\" : 9\n  \"mermaid\" : 18\n  \"math\" : 6",
+    "gitGraph\n  commit id: \"e1\"\n  branch warm\n  commit id: \"f2\"\n  commit id: \"g3\"\n  checkout main\n  commit id: \"h4\"\n  merge warm\n  commit id: \"i5\"",
+    "journey\n  title Open a document\n  section Read\n    Resolve: 4: App\n    Decode: 2: Cache\n  section Show\n    Raster: 3: App\n    Paint: 5: App",
+    "mindmap\n  root((budget))\n    jobs\n      source\n      display\n      thaw\n    resident\n      hot\n      warm\n      leases",
+    "timeline\n  title Cache states\n  Hot : pixels\n  Warm : bytes\n  Thawing : decode\n  Ready : pixels",
+];
+
+pub fn media_mermaid_long_doc() -> String {
+    let mut all: Vec<&str> = MEDIA_MERMAID.to_vec();
+    all.extend(MEDIA_MERMAID_EXTRA);
+    media_mermaid_doc(&all)
+}
+
+pub fn media_images_doc(specs: &[MediaImage], per_image_text: bool) -> String {
+    let mut out = String::with_capacity(specs.len() * 256);
+    for (index, spec) in specs.iter().enumerate() {
+        out.push_str("## Figure ");
+        out.push_str(&(index + 1).to_string());
+        out.push_str("\n\n");
+        if per_image_text {
+            out.push_str(
+                "A paragraph of body text ahead of the figure so the block does not sit flush \
+                 against the viewport edge while scrolling.\n\n",
+            );
+        }
+        out.push_str("![");
+        out.push_str(spec.name);
+        out.push_str("](");
+        out.push_str(spec.name);
+        out.push_str(".png)\n\n");
+        if per_image_text {
+            out.push_str(
+                "A paragraph of body text after the figure, long enough that the next heading \
+                 lands below the fold.\n\n",
+            );
+        }
+    }
+    out
+}
+
+pub fn media_mermaid_doc(sources: &[&str]) -> String {
+    let mut out = String::with_capacity(sources.len() * 512);
+    for (index, source) in sources.iter().enumerate() {
+        out.push_str("## Diagram ");
+        out.push_str(&(index + 1).to_string());
+        out.push_str("\n\nA short line of prose before the diagram.\n\n```mermaid\n");
+        out.push_str(source);
+        out.push_str("\n```\n\nA short line of prose after the diagram.\n\n");
+    }
+    out
+}
+
+pub fn media_mermaid_repeat_doc(sources: &[&str], repeat: usize) -> String {
+    let mut out = String::with_capacity(sources.len() * repeat * 512);
+    for round in 0..repeat {
+        for (index, source) in sources.iter().enumerate() {
+            out.push_str("## Round ");
+            out.push_str(&round.to_string());
+            out.push_str(" Diagram ");
+            out.push_str(&(index + 1).to_string());
+            out.push_str("\n\nA short line of prose before the diagram.\n\n```mermaid\n");
+            out.push_str(source);
+            out.push_str("\n```\n\nA short line of prose after the diagram.\n\n");
+        }
+    }
+    out
+}
+
+pub fn media_text_doc(count: usize) -> String {
+    let mut out = String::with_capacity(count * 512);
+    for index in 0..count {
+        out.push_str("## Figure ");
+        out.push_str(&(index + 1).to_string());
+        out.push_str("\n\n");
+        out.push_str(
+            "A paragraph of body text ahead of the figure so the block does not sit flush \
+             against the viewport edge while scrolling.\n\n",
+        );
+        out.push_str(
+            "A paragraph of body text after the figure, long enough that the next heading \
+             lands below the fold.\n\n",
+        );
+    }
+    out
+}
+
+/// Geometry of every gallery source. The twelve curated shapes exist to compare
+/// geometries; the gallery exists to grow the number of sources, so it holds the
+/// geometry fixed and varies only the pixels.
+pub const GALLERY_WIDTH: u32 = 240;
+pub const GALLERY_HEIGHT: u32 = 180;
+
+/// Name, geometry, style and seed of the `index`-th gallery source.
+///
+/// The seed is per index on purpose. Distinct file names alone are enough for
+/// the caches, which key on the path, but identical bytes would let any
+/// content-addressed layer collapse the files and a document of twelve hundred
+/// pictures would quietly measure one picture twelve hundred times. The style
+/// is graphic rather than photographic so the corpus stays small enough to
+/// regenerate; the photo sources in `MEDIA_IMAGES` cover the codec difference.
+pub fn media_gallery_entry(index: usize) -> (String, u32, u32, MediaStyle, u64) {
+    (
+        format!("gallery{index:04}"),
+        GALLERY_WIDTH,
+        GALLERY_HEIGHT,
+        MediaStyle::Graphic,
+        MEDIA_SEED ^ (index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15),
+    )
+}
+
+pub fn media_gallery_doc(count: usize) -> String {
+    let mut out = String::with_capacity(count * 384);
+    for index in 0..count {
+        let (name, _, _, _, _) = media_gallery_entry(index);
+        out.push_str("## Figure ");
+        out.push_str(&(index + 1).to_string());
+        out.push_str("\n\nA paragraph of body text ahead of the figure so the block does not sit flush against the viewport edge.\n\n![");
+        out.push_str(&name);
+        out.push_str("](");
+        out.push_str(&name);
+        out.push_str(".png)\n\nA paragraph of body text after the figure, long enough that the next heading lands below the fold.\n\n");
+    }
+    out
+}
+
+/// One round per screen: an image, a formula and a diagram interleaved with
+/// prose. The three caches are hot at the same time, which is the only way to
+/// see whether a per-cache slice that looks fine on its own adds up to
+/// something a window should not hold.
+pub fn media_mixed_doc(rounds: usize) -> String {
+    let mut out = String::with_capacity(rounds * 1024);
+    for index in 0..rounds {
+        let spec = MEDIA_IMAGES[index % MEDIA_IMAGES.len()];
+        out.push_str("## Round ");
+        out.push_str(&(index + 1).to_string());
+        out.push_str("\n\nA paragraph of body text ahead of the figure so the block does not sit flush against the viewport edge.\n\n![");
+        out.push_str(spec.name);
+        out.push_str("](");
+        out.push_str(spec.name);
+        out.push_str(".png)\n\n");
+        out.push_str("Inline $");
+        out.push_str(MATH_INLINE[index % MATH_INLINE.len()]);
+        out.push_str("$ follows a display block:\n\n$$\n");
+        out.push_str(MATH_DISPLAY[index % MATH_DISPLAY.len()]);
+        out.push_str("\n$$\n\n```mermaid\n");
+        out.push_str(MEDIA_MERMAID[index % MEDIA_MERMAID.len()]);
+        out.push_str("\n```\n\nA short line of prose after the diagram.\n\n");
+    }
+    out
+}

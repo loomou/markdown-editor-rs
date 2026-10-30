@@ -32,6 +32,7 @@ mod input;
 mod insert_table;
 mod jobs;
 mod keys;
+mod media_budget;
 pub(crate) mod media_zoom;
 mod open;
 mod paint;
@@ -512,7 +513,7 @@ struct DocShapeMaps {
 }
 
 struct DisplayJob {
-    source: std::sync::Arc<gpui::RenderImage>,
+    source: images::SourceMedia,
     blocks: Vec<BlockId>,
 }
 

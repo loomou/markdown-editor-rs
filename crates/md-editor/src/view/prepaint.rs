@@ -248,6 +248,7 @@ impl EditorElement {
                 height: viewport.1,
                 dpr: scale,
             };
+            v.set_media_budget(frame.viewport, scale, cx);
             v.schedule_mermaid(&frame.texts, viewfinder, cx);
             v.schedule_math(&frame.texts, &frame.cells, math_popover.as_ref(), scale, cx);
             v.schedule_images(&frame.texts, &frame.cells, popover.as_ref(), viewfinder, cx);

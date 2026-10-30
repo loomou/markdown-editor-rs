@@ -25,6 +25,36 @@ pub struct PublishedFrame {
 
 pub const MAX_ITERATIONS: u32 = 64;
 
+/// Screens of layout kept on each side of the viewport. This is the prefetch
+/// range for media as well: a block that is materialized is a block whose
+/// images and diagrams get requested, so widening it trades memory for the
+/// chance that the next screen is already built.
+pub const DEFAULT_KEEP_SCREENS: f64 = 2.0;
+
+#[cfg(feature = "bench-support")]
+static KEEP_SCREENS_TENTHS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Force the prefetch window. Zero restores the default, so a sweep does not
+/// need a second switch to get back to the shipped value.
+#[cfg(feature = "bench-support")]
+pub fn set_keep_screens(screens: f64) {
+    KEEP_SCREENS_TENTHS.store(
+        (screens.max(0.0) * 10.0).round() as usize,
+        std::sync::atomic::Ordering::Release,
+    );
+}
+
+pub fn keep_screens() -> f64 {
+    #[cfg(feature = "bench-support")]
+    {
+        let tenths = KEEP_SCREENS_TENTHS.load(std::sync::atomic::Ordering::Acquire);
+        if tenths != 0 {
+            return tenths as f64 / 10.0;
+        }
+    }
+    DEFAULT_KEEP_SCREENS
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct DeferredSettlement {
     pub invalidated: Vec<LayoutBoxId>,
@@ -172,7 +202,7 @@ impl IncrementalEngine {
             island_stats: IslandStats::default(),
             viewport_params_gen: 0,
             doc_rebuilds: 0,
-            eviction: EvictionPolicy::windowed(2.0),
+            eviction: EvictionPolicy::windowed(keep_screens()),
             pins: BTreeSet::new(),
             lazy,
             flatten_gens: 1,

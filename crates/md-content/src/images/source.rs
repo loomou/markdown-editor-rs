@@ -1,11 +1,11 @@
-use super::raster::native_dims;
 use super::{
-    DataEncoding, MAX_FETCH, MAX_IMAGE_PIXELS, MAX_SOURCE_BYTES, Resolved, SOURCE_RETRY_BASE,
-    SOURCE_RETRY_MAX, SourceError, SourceLoad,
+    DataEncoding, MAX_FETCH, MAX_IMAGE_PIXELS, MAX_RASTER_PIXELS, MAX_SOURCE_BYTES, Resolved,
+    SOURCE_RETRY_BASE, SOURCE_RETRY_MAX, SourceError, SourceLoad, SourceMedia,
 };
+use crate::pixels::capped_dims;
 use futures::AsyncReadExt;
-use gpui::{App, Image, ImageFormat, http_client};
-use image::ImageReader;
+use gpui::{App, ImageFormat, http_client};
+use image::{ImageDecoder, ImageReader};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -81,16 +81,16 @@ pub fn load_source(resolved: Resolved, allow_remote: bool, cx: &mut App) -> Sour
             )))
         }),
         Resolved::Remote(url) => load_remote(url, cx),
-        Resolved::Local(path) => load_local(path, cx),
+        Resolved::Local(path) => load_local(path),
         Resolved::Data {
             payload,
             format,
             encoding,
-        } => decode_data(payload, format, encoding, cx),
+        } => decode_data(payload, format, encoding),
     }
 }
 
-fn load_local(path: PathBuf, cx: &mut App) -> SourceLoad {
+fn load_local(path: PathBuf) -> SourceLoad {
     if file_too_big(&path) {
         return Box::pin(async {
             Err(SourceError::Fatal(crate::Error::Image(
@@ -98,12 +98,11 @@ fn load_local(path: PathBuf, cx: &mut App) -> SourceLoad {
             )))
         });
     }
-    decode_bytes_from_path(path.clone(), format_from_path(&path), cx)
+    decode_bytes_from_path(path.clone(), format_from_path(&path))
 }
 
 fn load_remote(url: String, cx: &mut App) -> SourceLoad {
     let client = cx.http_client();
-    let svg = cx.svg_renderer();
     Box::pin(async move {
         let mut response = client
             .get(&url, ().into(), true)
@@ -138,15 +137,7 @@ fn load_remote(url: String, cx: &mut App) -> SourceLoad {
                 "unsupported image format".to_owned().into(),
             ))
         })?;
-        validate_image_dimensions(format, &bytes)?;
-        Image::from_bytes(format, bytes)
-            .to_image_data(svg)
-            .map_err(|e| SourceError::Fatal(crate::Error::Image(e.to_string().into())))
-            .and_then(|img| {
-                native_dims(img).ok_or_else(|| {
-                    SourceError::Fatal(crate::Error::Image(md_i18n::Key::ImageEmpty.into()))
-                })
-            })
+        parse_source(format, bytes)
     })
 }
 
@@ -156,8 +147,54 @@ pub(super) fn parse_retry_after(headers: &http_client::http::HeaderMap) -> Optio
     Some(Duration::from_secs(secs).clamp(SOURCE_RETRY_BASE, SOURCE_RETRY_MAX))
 }
 
-fn decode_bytes_from_path(path: PathBuf, format: Option<ImageFormat>, cx: &mut App) -> SourceLoad {
-    let svg = cx.svg_renderer();
+pub(super) fn parse_source(
+    format: ImageFormat,
+    bytes: Vec<u8>,
+) -> Result<SourceMedia, SourceError> {
+    if format == ImageFormat::Svg {
+        let tree = svg_tree(&bytes)?;
+        let size = tree.size();
+        let width = size.width().ceil().max(1.0) as u32;
+        let height = size.height().ceil().max(1.0) as u32;
+        return Ok(SourceMedia::Vector {
+            tree: Arc::new(tree),
+            width,
+            height,
+            bytes: bytes.len(),
+            lease: None,
+        });
+    }
+    let (declared_w, declared_h) = validate_image_dimensions(format, &bytes)?;
+    let (width, height) = capped_dims(declared_w, declared_h, MAX_RASTER_PIXELS);
+    Ok(SourceMedia::Bitmap {
+        bytes: Arc::new(bytes),
+        format,
+        width,
+        height,
+        decoded: (declared_w, declared_h),
+        lease: None,
+    })
+}
+
+fn svg_tree(bytes: &[u8]) -> Result<usvg::Tree, crate::Error> {
+    if !svg_depth_within_limit(bytes) {
+        return Err(crate::Error::Image(md_i18n::Key::ImageTooLarge.into()));
+    }
+    let refused = Arc::new(AtomicBool::new(false));
+    let tree = usvg::Tree::from_data(bytes, &svg_parse_options(Some(Arc::clone(&refused))))
+        .map_err(|e| crate::Error::Image(e.to_string().into()))?;
+    if refused.load(Ordering::Relaxed) {
+        return Err(crate::Error::Image(md_i18n::Key::ImageBadPath.into()));
+    }
+    let size = tree.size();
+    let pixels = f64::from(size.width()) * f64::from(size.height());
+    if pixels > MAX_IMAGE_PIXELS as f64 {
+        return Err(crate::Error::Image(md_i18n::Key::ImageTooLarge.into()));
+    }
+    Ok(tree)
+}
+
+fn decode_bytes_from_path(path: PathBuf, format: Option<ImageFormat>) -> SourceLoad {
     Box::pin(async move {
         let bytes = std::fs::read(&path).map_err(|e| crate::Error::Image(e.to_string().into()))?;
         if bytes.len() > MAX_FETCH {
@@ -171,25 +208,11 @@ fn decode_bytes_from_path(path: PathBuf, format: Option<ImageFormat>, cx: &mut A
                 "unsupported image format".to_owned().into(),
             ))
         })?;
-        validate_image_dimensions(format, &bytes)?;
-        Image::from_bytes(format, bytes)
-            .to_image_data(svg)
-            .map_err(|e| SourceError::Fatal(crate::Error::Image(e.to_string().into())))
-            .and_then(|img| {
-                native_dims(img).ok_or_else(|| {
-                    SourceError::Fatal(crate::Error::Image(md_i18n::Key::ImageEmpty.into()))
-                })
-            })
+        parse_source(format, bytes)
     })
 }
 
-fn decode_data(
-    payload: String,
-    format: ImageFormat,
-    encoding: DataEncoding,
-    cx: &mut App,
-) -> SourceLoad {
-    let svg = cx.svg_renderer();
+fn decode_data(payload: String, format: ImageFormat, encoding: DataEncoding) -> SourceLoad {
     Box::pin(async move {
         let bytes = decode_data_payload(&payload, encoding)
             .ok_or_else(|| crate::Error::Image(md_i18n::Key::ImageBadPath.into()))?;
@@ -199,15 +222,7 @@ fn decode_data(
             )));
         }
         let bytes = decompress_svgz_bounded(bytes)?;
-        validate_image_dimensions(format, &bytes)?;
-        Image::from_bytes(format, bytes)
-            .to_image_data(svg)
-            .map_err(|e| SourceError::Fatal(crate::Error::Image(e.to_string().into())))
-            .and_then(|img| {
-                native_dims(img).ok_or_else(|| {
-                    SourceError::Fatal(crate::Error::Image(md_i18n::Key::ImageEmpty.into()))
-                })
-            })
+        parse_source(format, bytes)
     })
 }
 
@@ -337,36 +352,50 @@ fn svg_depth_within_limit(bytes: &[u8]) -> bool {
     true
 }
 
-pub(super) fn validate_svg_dimensions(bytes: &[u8]) -> Result<(), crate::Error> {
-    if !svg_depth_within_limit(bytes) {
-        return Err(crate::Error::Image(md_i18n::Key::ImageTooLarge.into()));
-    }
-    let refused = Arc::new(AtomicBool::new(false));
-    let tree = usvg::Tree::from_data(bytes, &svg_parse_options(Some(Arc::clone(&refused))))
-        .map_err(|e| crate::Error::Image(e.to_string().into()))?;
-    if refused.load(Ordering::Relaxed) {
-        return Err(crate::Error::Image(md_i18n::Key::ImageBadPath.into()));
-    }
+pub(super) fn validate_svg_dimensions(bytes: &[u8]) -> Result<(u32, u32), crate::Error> {
+    let tree = svg_tree(bytes)?;
     let size = tree.size();
-    let pixels = f64::from(size.width()) * f64::from(size.height());
-    if pixels > MAX_IMAGE_PIXELS as f64 {
-        return Err(crate::Error::Image(md_i18n::Key::ImageTooLarge.into()));
-    }
-    Ok(())
+    Ok((
+        size.width().ceil().max(1.0) as u32,
+        size.height().ceil().max(1.0) as u32,
+    ))
+}
+
+/// The `image` crate counterpart of a gpui format label, for the decode the
+/// raster path runs on demand.
+pub(super) fn image_format(format: ImageFormat) -> Option<image::ImageFormat> {
+    Some(match format {
+        ImageFormat::Png => image::ImageFormat::Png,
+        ImageFormat::Jpeg => image::ImageFormat::Jpeg,
+        ImageFormat::Webp => image::ImageFormat::WebP,
+        ImageFormat::Gif => image::ImageFormat::Gif,
+        ImageFormat::Bmp => image::ImageFormat::Bmp,
+        ImageFormat::Tiff => image::ImageFormat::Tiff,
+        _ => return None,
+    })
 }
 
 pub(super) fn validate_image_dimensions(
     format: ImageFormat,
     bytes: &[u8],
-) -> Result<(), crate::Error> {
+) -> Result<(u32, u32), crate::Error> {
     if format == ImageFormat::Svg {
         return validate_svg_dimensions(bytes);
     }
-    let (width, height) = ImageReader::new(Cursor::new(bytes))
+    let mut decoder = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .map_err(|e| crate::Error::Image(e.to_string().into()))?
-        .into_dimensions()
+        .into_decoder()
         .map_err(|e| crate::Error::Image(e.to_string().into()))?;
+    let (width, height) = decoder.dimensions();
+    let orientation = decoder
+        .orientation()
+        .map_err(|e| crate::Error::Image(e.to_string().into()))?;
+    let (width, height) = if swaps_axes(orientation) {
+        (height, width)
+    } else {
+        (width, height)
+    };
     if width == 0 || height == 0 {
         return Err(crate::Error::Image(md_i18n::Key::ImageEmpty.into()));
     }
@@ -377,10 +406,30 @@ pub(super) fn validate_image_dimensions(
         return Err(crate::Error::Image(md_i18n::Key::ImageTooLarge.into()));
     }
     validate_decoded_budget(format, bytes, pixels)?;
-    Ok(())
+    Ok((width, height))
 }
 
-const MAX_ANIMATION_FRAMES: u64 = 4096;
+/// Whether decoding this orientation turns the picture a quarter turn, which
+/// swaps the reported width and height. The layout reserves a box from the
+/// size reported here, so a rotated photo has to be measured upright or the
+/// raster built for it comes out stretched.
+fn swaps_axes(orientation: image::metadata::Orientation) -> bool {
+    use image::metadata::Orientation;
+    matches!(
+        orientation,
+        Orientation::Rotate90
+            | Orientation::Rotate270
+            | Orientation::Rotate90FlipH
+            | Orientation::Rotate270FlipH
+    )
+}
+
+const MAX_ANIMATION_FRAMES: u64 = 512;
+
+/// Animated sources get a much tighter decoded budget than stills: their
+/// frames stay resident for the lifetime of the cache entry, so a long gif
+/// is the cheapest way to pin hundreds of MiB.
+const MAX_ANIMATION_DECODED_BYTES: usize = 32 * 1024 * 1024;
 
 const DECODED_BYTES_PER_PIXEL: u64 = 4;
 
@@ -394,13 +443,19 @@ fn validate_decoded_budget(
         ImageFormat::Webp => webp_frame_count(bytes).unwrap_or(u64::MAX),
         _ => 1,
     };
-    if frames > MAX_ANIMATION_FRAMES {
+    let animated = frames > 1;
+    if animated && frames > MAX_ANIMATION_FRAMES {
         return Err(crate::Error::Image(md_i18n::Key::ImageTooLarge.into()));
     }
     let decoded = canvas_pixels
         .saturating_mul(frames)
         .saturating_mul(DECODED_BYTES_PER_PIXEL);
-    if decoded > MAX_SOURCE_BYTES as u64 {
+    let budget = if animated {
+        MAX_ANIMATION_DECODED_BYTES
+    } else {
+        MAX_SOURCE_BYTES
+    };
+    if decoded > budget as u64 {
         return Err(crate::Error::Image(md_i18n::Key::ImageTooLarge.into()));
     }
     Ok(())

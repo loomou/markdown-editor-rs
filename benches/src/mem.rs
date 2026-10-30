@@ -1,4 +1,6 @@
+use std::alloc::{GlobalAlloc, Layout, System};
 use std::fmt;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Memory {
@@ -6,6 +8,148 @@ pub struct Memory {
     pub peak_working_set: usize,
     pub pagefile: usize,
     pub peak_pagefile: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Heap {
+    pub live: usize,
+    pub peak: usize,
+}
+
+/// Process CPU time, kernel and user. Both count, because a decode or a deflate
+/// spends its time in either depending on the codec, and a comparison that only
+/// watched user time would miss the kernel side of the same work.
+#[derive(Clone, Copy, Debug)]
+pub struct Cpu {
+    pub user_100ns: u64,
+    pub kernel_100ns: u64,
+}
+
+impl Cpu {
+    pub fn millis(self) -> f64 {
+        (self.user_100ns + self.kernel_100ns) as f64 / 10_000.0
+    }
+
+    /// CPU this process spent between `self` and `later`, in milliseconds.
+    pub fn since(self, later: Cpu) -> f64 {
+        later.millis() - self.millis()
+    }
+}
+
+static LIVE: AtomicUsize = AtomicUsize::new(0);
+static PEAK: AtomicUsize = AtomicUsize::new(0);
+
+pub struct CountingAllocator;
+
+fn record(size: usize) {
+    let live = LIVE.fetch_add(size, Ordering::Relaxed) + size;
+    let mut peak = PEAK.load(Ordering::Relaxed);
+    while live > peak {
+        match PEAK.compare_exchange_weak(peak, live, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => break,
+            Err(current) => peak = current,
+        }
+    }
+}
+
+fn forget(size: usize) {
+    LIVE.fetch_sub(size, Ordering::Relaxed);
+}
+
+// SAFETY: every method forwards to the System allocator with the layout it was
+// given, and only adjusts the counters after the real allocator succeeded, so
+// the accounting never disagrees with the pointer the caller receives.
+unsafe impl GlobalAlloc for CountingAllocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        // SAFETY: the caller of an allocator method guarantees a valid layout.
+        let ptr = unsafe { System.alloc(layout) };
+        if !ptr.is_null() {
+            record(layout.size());
+        }
+        ptr
+    }
+
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        // SAFETY: the caller of an allocator method guarantees a valid layout.
+        let ptr = unsafe { System.alloc_zeroed(layout) };
+        if !ptr.is_null() {
+            record(layout.size());
+        }
+        ptr
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        // SAFETY: the pointer came from this allocator with the same layout.
+        unsafe { System.dealloc(ptr, layout) };
+        forget(layout.size());
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        // SAFETY: the pointer came from this allocator with the same layout.
+        let out = unsafe { System.realloc(ptr, layout, new_size) };
+        if !out.is_null() {
+            forget(layout.size());
+            record(new_size);
+        }
+        out
+    }
+}
+
+pub fn heap() -> Heap {
+    Heap {
+        live: LIVE.load(Ordering::Relaxed),
+        peak: PEAK.load(Ordering::Relaxed),
+    }
+}
+
+pub fn reset_peak() {
+    PEAK.store(LIVE.load(Ordering::Relaxed), Ordering::Relaxed);
+}
+
+pub fn heap_text() -> String {
+    let h = heap();
+    format!(
+        "rust-heap={} peak-rust-heap={}",
+        format_bytes(h.live),
+        format_bytes(h.peak)
+    )
+}
+
+#[cfg(windows)]
+pub fn cpu() -> Option<Cpu> {
+    use windows_sys::Win32::Foundation::FILETIME;
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
+
+    let mut created = FILETIME::default();
+    let mut exited = FILETIME::default();
+    let mut kernel = FILETIME::default();
+    let mut user = FILETIME::default();
+    // SAFETY: GetCurrentProcess returns a pseudo-handle that is always valid for the
+    // calling process and must never be closed, and every FILETIME out-parameter is a
+    // live local that the call only writes into.
+    let ok = unsafe {
+        GetProcessTimes(
+            GetCurrentProcess(),
+            &mut created,
+            &mut exited,
+            &mut kernel,
+            &mut user,
+        )
+    };
+    if ok == 0 {
+        return None;
+    }
+    let ticks =
+        |time: FILETIME| (u64::from(time.dwHighDateTime) << 32) | u64::from(time.dwLowDateTime);
+    Some(Cpu {
+        user_100ns: ticks(user),
+        kernel_100ns: ticks(kernel),
+    })
+}
+
+#[cfg(not(windows))]
+pub fn cpu() -> Option<Cpu> {
+    None
 }
 
 impl fmt::Display for Memory {

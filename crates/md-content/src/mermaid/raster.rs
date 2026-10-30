@@ -15,6 +15,28 @@ pub fn raster(source: &str, spec: &RasterSpec) -> Result<ReadyImage, crate::Erro
     raster_with_svg(source, spec).map(|(image, _)| image)
 }
 
+/// Working bytes a body raster will hold at its peak: the pixmap resvg
+/// renders into, the PNG the export encodes, and the BGRA copy decoded from
+/// it. The diagram never exceeds the slot the spec fits it into, so the slot
+/// at the requested density is a ceiling rather than a guess.
+pub fn estimate_job(spec: &RasterSpec) -> usize {
+    let density = spec.dpr.max(0.25);
+    let px_w = (spec.fit_w as f32 * density).ceil().max(1.0) as u32;
+    let px_h = (spec.fit_h as f32 * density).ceil().max(1.0) as u32;
+    let (px_w, px_h) = crate::pixels::capped_dims(px_w, px_h, super::svg::MAX_RASTER_PIXELS as u64);
+    crate::media::estimate_raster_peak(px_w, px_h)
+}
+
+/// Working bytes a zoom raster will hold at its peak. The export scales the
+/// diagram to the css box the overlay asked for, so that box at the requested
+/// density is the pixel target.
+pub fn estimate_zoom_job(css: (f32, f32), density: f32) -> usize {
+    let density = density.max(0.25);
+    let px_w = (css.0.max(1.0) * density).ceil().max(1.0) as u32;
+    let px_h = (css.1.max(1.0) * density).ceil().max(1.0) as u32;
+    crate::media::estimate_raster_peak(px_w, px_h)
+}
+
 pub fn raster_with_svg(
     source: &str,
     spec: &RasterSpec,

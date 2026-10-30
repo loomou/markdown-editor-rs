@@ -320,6 +320,7 @@ impl EditorElement {
                     size: size(px(t.content_width as f32), px(view_h as f32)),
                 };
                 if let Some(ready) = ready {
+                    md_content::media::MediaUsage::note(cx, window, &ready);
                     window.with_content_mask(Some(ContentMask { bounds: clip }), |window| {
                         mermaid::paint_ready(
                             window,

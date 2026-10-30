@@ -1,7 +1,23 @@
+use crate::media::ByteLease;
 use gpui::RenderImage;
 use image::RgbaImage;
 use smallvec::smallvec;
 use std::sync::Arc;
+
+/// The pixel size a bitmap is decoded at once `max_pixels` is enforced. Both
+/// the loader (which never decodes) and the raster path (which does) go
+/// through here, so the reported intrinsic size always matches the pixels a
+/// decode will actually produce.
+pub fn capped_dims(width: u32, height: u32, max_pixels: u64) -> (u32, u32) {
+    if width == 0 || height == 0 || u64::from(width) * u64::from(height) <= max_pixels {
+        return (width, height);
+    }
+    let scale = (max_pixels as f32 / (width as f32 * height as f32).max(1.0)).sqrt();
+    (
+        ((width as f32 * scale).floor() as u32).max(1),
+        ((height as f32 * scale).floor() as u32).max(1),
+    )
+}
 
 #[derive(Clone)]
 pub struct ReadyImage {
@@ -10,7 +26,7 @@ pub struct ReadyImage {
     pub dpr: f32,
     pub px_w: u32,
     pub px_h: u32,
-    pub shared_with_source: bool,
+    lease: Option<Arc<ByteLease>>,
 }
 
 impl ReadyImage {
@@ -20,6 +36,24 @@ impl ReadyImage {
             (self.px_w as f32 / dpr).max(1.0),
             (self.px_h as f32 / dpr).max(1.0),
         )
+    }
+
+    /// Attach the resident lease the delivering job converted from its permit.
+    /// Every clone shares the same lease, so the pixels stay charged until the
+    /// last snapshot, frame record or cache entry lets go of them.
+    pub fn with_lease(mut self, lease: Arc<ByteLease>) -> Self {
+        self.lease = Some(lease);
+        self
+    }
+
+    pub fn lease(&self) -> Option<&Arc<ByteLease>> {
+        self.lease.as_ref()
+    }
+
+    /// Identity of the pixels behind this image. Two clones report the same id;
+    /// a re-raster of the same source reports a new one.
+    pub fn allocation_id(&self) -> Option<u64> {
+        self.lease.as_ref().map(|lease| lease.id())
     }
 }
 
@@ -38,7 +72,7 @@ pub fn from_bgra(img: RgbaImage, dpr: f32) -> Option<ReadyImage> {
         dpr,
         px_w,
         px_h,
-        shared_with_source: false,
+        lease: None,
     })
 }
 

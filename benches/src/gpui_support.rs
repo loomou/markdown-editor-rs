@@ -1,8 +1,8 @@
 use crate::corpus::{
-    BLOCK_COUNTS, BLOCK_SEED, RENDER_FRAME_BLOCK_COUNTS, Shape, generate, generate_blocks, human,
-    human_blocks,
+    self, BLOCK_COUNTS, BLOCK_SEED, GIANT_IMAGE, MEDIA_IMAGES, MEDIA_LARGE, MEDIA_MERMAID,
+    RENDER_FRAME_BLOCK_COUNTS, Shape, generate, generate_blocks, human, human_blocks,
 };
-use crate::harness::{caret, doc, document_theme, environment, leaf_end};
+use crate::harness::{caret, doc, doc_with_path, document_theme, environment, leaf_end};
 use gpui::{
     BenchAppContext, Context, Entity, IntoElement, Render, Styled as _, Window, div, px, size,
 };
@@ -18,6 +18,7 @@ use md_layout::style::BoxLayoutEnvironment;
 use md_render::incremental::{Estimator, IncrementalEngine, ScrollAnchor};
 use md_theme::{DocumentTheme, LineBreakMode};
 use std::fmt;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 pub const SEED: u64 = 0x5EED_0A11;
@@ -49,11 +50,32 @@ pub struct FrameCase {
     pub doc: Doc,
     pub theme: DocumentTheme,
     pub env: BoxLayoutEnvironment,
+    pub path: Option<PathBuf>,
+    /// Job budget this case must be measured under. `None` keeps the editor's
+    /// default, so a case can compare one document at more than one ceiling.
+    pub job_bytes: Option<usize>,
+    /// Resident ceiling this case must be measured under. `None` follows the
+    /// viewport, which is what a real window does. A case that sets it asks
+    /// what happens when the caches cannot hold everything the document has
+    /// shown, which is the only situation a warm cache can help with.
+    pub resident_bytes: Option<usize>,
+    /// Frames rendered after each wrap without scrolling. A cooling candidate
+    /// needs to stay off screen for the grace, and a pass that wraps every
+    /// fourteen frames never gives it that long.
+    pub dwell_ms: u64,
+    /// Steps the pass takes. `None` is the default, which covers the twelve
+    /// media cases several times over; a document with a hundred times as much
+    /// media needs a hundred times the steps to be traversed once, and a pass
+    /// that stops halfway has not seen the history it was built to test.
+    pub steps: Option<usize>,
 }
 
 impl FrameCase {
     pub fn fresh_doc(&self) -> Doc {
-        doc(&self.text)
+        match &self.path {
+            Some(path) => doc_with_path(&self.text, path.clone()),
+            None => doc(&self.text),
+        }
     }
 }
 
@@ -89,6 +111,11 @@ pub fn cases() -> Vec<FrameCase> {
                 text,
                 theme: document_theme(),
                 env: environment(),
+                path: None,
+                job_bytes: None,
+                resident_bytes: None,
+                dwell_ms: 0,
+                steps: None,
             });
         }
     }
@@ -119,6 +146,11 @@ pub fn cases_for_blocks(counts: &[usize]) -> Vec<FrameCase> {
             text,
             theme: document_theme(),
             env: environment(),
+            path: None,
+            job_bytes: None,
+            resident_bytes: None,
+            dwell_ms: 0,
+            steps: None,
         });
     }
     out
@@ -127,6 +159,143 @@ pub fn cases_for_blocks(counts: &[usize]) -> Vec<FrameCase> {
 pub fn editor_window_bounds(scroll: Px, viewport_h: Px) -> (Px, Px) {
     let pad = KEEP_SCREENS * viewport_h;
     ((scroll - pad).max(0.0), scroll + viewport_h + pad)
+}
+
+pub fn corpus_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("corpus")
+}
+
+pub fn media_root() -> PathBuf {
+    corpus_root().join("media")
+}
+
+fn media_case(label: &str, text: String, path: PathBuf) -> FrameCase {
+    FrameCase {
+        label: label.to_owned(),
+        doc: doc_with_path(&text, path.clone()),
+        text,
+        theme: document_theme(),
+        env: environment(),
+        path: Some(path),
+        job_bytes: None,
+        resident_bytes: None,
+        dwell_ms: 0,
+        steps: None,
+    }
+}
+
+fn media_case_under(label: &str, text: String, path: PathBuf, job_bytes: usize) -> FrameCase {
+    FrameCase {
+        job_bytes: Some(job_bytes),
+        ..media_case(label, text, path)
+    }
+}
+
+/// A case whose caches cannot hold every image the document has shown. The
+/// ceiling is set from what the full-corpus cases actually hold, so the slice
+/// is smaller than the content rather than arbitrarily small.
+fn media_case_tight(
+    label: &str,
+    text: String,
+    path: PathBuf,
+    resident_bytes: usize,
+    dwell_ms: u64,
+) -> FrameCase {
+    FrameCase {
+        resident_bytes: Some(resident_bytes),
+        dwell_ms,
+        ..media_case(label, text, path)
+    }
+}
+
+/// A document long enough that the default 300 steps would not reach the end.
+/// The step count is set so the pass traverses the document once: a pass that
+/// stops halfway has only seen half the history it exists to test.
+fn media_case_long(label: &str, text: String, path: PathBuf, steps: usize) -> FrameCase {
+    FrameCase {
+        steps: Some(steps),
+        ..media_case(label, text, path)
+    }
+}
+
+pub fn media_cases() -> Vec<FrameCase> {
+    let root = media_root();
+    vec![
+        media_case(
+            "media-images-12",
+            corpus::media_images_doc(&MEDIA_IMAGES, true),
+            root.join("images.md"),
+        ),
+        media_case_tight(
+            "media-images-12-tight",
+            corpus::media_images_doc(&MEDIA_IMAGES, true),
+            root.join("images.md"),
+            120 << 20,
+            400,
+        ),
+        media_case(
+            "media-image-giant",
+            corpus::media_images_doc(&[GIANT_IMAGE], true),
+            root.join("giant.md"),
+        ),
+        media_case(
+            "media-images-large-4",
+            corpus::media_images_doc(&MEDIA_LARGE, true),
+            root.join("large.md"),
+        ),
+        media_case_under(
+            "media-images-large-4-unlimited",
+            corpus::media_images_doc(&MEDIA_LARGE, true),
+            root.join("large.md"),
+            usize::MAX,
+        ),
+        media_case(
+            "media-mermaid-12",
+            corpus::media_mermaid_doc(&MEDIA_MERMAID),
+            root.join("mermaid.md"),
+        ),
+        media_case_tight(
+            "media-mermaid-24-tight",
+            corpus::media_mermaid_long_doc(),
+            root.join("mermaid.md"),
+            170 << 20,
+            400,
+        ),
+        media_case(
+            "media-mermaid-repeat",
+            corpus::media_mermaid_repeat_doc(&MEDIA_MERMAID[..2], 6),
+            root.join("mermaid-repeat.md"),
+        ),
+        media_case(
+            "media-text-12",
+            corpus::media_text_doc(12),
+            root.join("text.md"),
+        ),
+        media_case(
+            "media-mixed-12-full",
+            corpus::media_mixed_doc(12),
+            root.join("mixed.md"),
+        ),
+        media_case_tight(
+            "media-mixed-12-tight",
+            corpus::media_mixed_doc(12),
+            root.join("mixed.md"),
+            120 << 20,
+            400,
+        ),
+        media_case_long(
+            "media-gallery-120",
+            corpus::media_gallery_doc(120),
+            root.join("gallery120.md"),
+            400,
+        ),
+        media_case_long(
+            "media-gallery-1200",
+            corpus::media_gallery_doc(1200),
+            root.join("gallery1200.md"),
+            1200,
+        ),
+    ]
 }
 
 pub struct Step {
@@ -243,14 +412,39 @@ pub fn text_nodes(
 pub const EDITOR_VIEWPORT: (f32, f32) = (900.0, 600.0);
 
 pub fn mount_shell(case: &FrameCase, cx: &mut BenchAppContext<'_, '_>) -> Entity<Shell> {
-    mount_shell_text(&case.text, cx)
+    mount_shell_doc_budget(case.fresh_doc(), case.job_bytes, case.resident_bytes, cx)
 }
 
 pub fn mount_shell_text(text: &str, cx: &mut BenchAppContext<'_, '_>) -> Entity<Shell> {
+    mount_shell_doc(doc(text), cx)
+}
+
+pub fn mount_shell_doc(doc: Doc, cx: &mut BenchAppContext<'_, '_>) -> Entity<Shell> {
+    mount_shell_doc_budget(doc, None, None, cx)
+}
+
+pub fn mount_shell_doc_budget(
+    doc: Doc,
+    job_bytes: Option<usize>,
+    resident_bytes: Option<usize>,
+    cx: &mut BenchAppContext<'_, '_>,
+) -> Entity<Shell> {
+    // `MD_BENCH_RESIDENT=<MiB>` wins over the case so one build can sweep the
+    // ceiling: the value that matters is where the content stops fitting, and
+    // that is not known before the first run.
+    let resident_bytes = std::env::var("MD_BENCH_RESIDENT")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .map(|mib| mib << 20)
+        .or(resident_bytes);
+    md_content::media::set_resident_override(resident_bytes);
     let mut window = cx.add_empty_window();
     let shell = window.update(|window, cx| {
         window.resize(size(px(EDITOR_VIEWPORT.0), px(EDITOR_VIEWPORT.1)));
-        window.replace_root(cx, |_window, cx| Shell::new(doc(text), cx))
+        if let Some(limit) = job_bytes {
+            md_content::media::MediaCoordinator::install_exact(cx, limit);
+        }
+        window.replace_root(cx, |_window, cx| Shell::new(doc, cx))
     });
     window.update(|window, cx| {
         let focus = shell.read(cx).editor_focus().clone();

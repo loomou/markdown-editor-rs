@@ -63,7 +63,9 @@ impl Element for EditorElement {
         let started = std::time::Instant::now();
         #[cfg(feature = "bench-support")]
         crate::interact_probe::mark_paint_start();
+        md_content::media::MediaUsage::begin_frame(cx, window);
         self.paint_impl(bounds, st, window, cx);
+        md_content::media::MediaUsage::commit_frame(cx, window);
         #[cfg(feature = "bench-support")]
         crate::interact_probe::record_paint(started.elapsed().as_secs_f64() * 1000.0);
     }

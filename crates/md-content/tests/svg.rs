@@ -15,20 +15,63 @@ fn svg_data(svg: &str) -> images::Resolved {
 }
 
 #[gpui::test]
-fn svg_source_uses_bgra_channels(cx: &mut gpui::TestAppContext) {
+fn a_wide_canvas_svg_stays_a_tree_not_a_prerasterised_bitmap(cx: &mut gpui::TestAppContext) {
+    let svg = "<svg xmlns='http://www.w3.org/2000/svg' width='1299' height='1299'>\
+               <rect width='1299' height='1299' fill='red'/></svg>";
+    let future = cx.update(|app| images::load_source(svg_data(svg), false, app));
+    let source = futures::executor::block_on(future).expect("load");
+    assert_eq!(source.dims(), (1299, 1299));
+    assert!(
+        matches!(&source, images::SourceMedia::Vector { .. }),
+        "an svg source must keep the tree, not a prerasterised bitmap"
+    );
+    assert!(
+        source.resident_bytes() < 64 * 1024,
+        "the tree costs {} bytes; a dpr-2 preraster of this canvas would cost 27 MiB",
+        source.resident_bytes()
+    );
+}
+
+fn raster_vector(media: &images::SourceMedia) -> images::ReadyImage {
+    let images::SourceMedia::Vector { .. } = media else {
+        panic!("expected a vector source");
+    };
+    let (w, h) = media.dims();
+    images::raster_at(media, (w as f32, h as f32), 1.0).unwrap()
+}
+
+#[gpui::test]
+fn a_vector_display_estimate_names_the_pixels_the_raster_allocates(cx: &mut gpui::TestAppContext) {
+    let svg = "<svg xmlns='http://www.w3.org/2000/svg' width='120' height='80'>\
+               <rect width='120' height='80' fill='red'/></svg>";
+    let future = cx.update(|app| images::load_source(svg_data(svg), false, app));
+    let source = futures::executor::block_on(future).expect("load");
+    let key = images::display_key("k", 400.0, 400.0, 2.0);
+    let ready = images::raster_display(&source, &key).expect("raster");
+    assert_eq!(
+        images::estimate_display_job(&source, &key),
+        md_content::media::estimate_raster_peak(ready.px_w, ready.px_h),
+        "a vector job is sized from the fit, not from the source file length"
+    );
+}
+
+#[gpui::test]
+fn svg_source_rasterises_red_as_bgra(cx: &mut gpui::TestAppContext) {
     let resolved = svg_data(
         "<svg xmlns='http://www.w3.org/2000/svg' width='2' height='2'>\
          <rect width='2' height='2' fill='red'/></svg>",
     );
     let future = cx.update(|app| images::load_source(resolved, false, app));
-    let (source, width, height) = futures::executor::block_on(future).unwrap();
-    let pixel = &source.as_bytes(0).unwrap()[..4];
+    let source = futures::executor::block_on(future).unwrap();
+    let (width, height) = source.dims();
+    let ready = raster_vector(&source);
+    let pixel = &ready.image.as_bytes(0).unwrap()[..4];
     println!("red SVG source={width}x{height}, first pixel={pixel:?}");
     assert_eq!(
         pixel,
         &[0, 0, 255, 255],
-        "RenderImage and the display-layer raster consume BGRA; gpui's SVG rasterizer swaps RGBA to \
-         BGRA itself, so red must arrive as [0,0,255]"
+        "the display-layer raster consumes BGRA; resvg emits RGBA and the pipeline swaps it, so \
+         red must arrive as [0,0,255]"
     );
 }
 
@@ -48,8 +91,9 @@ fn png_source_stays_bgra(cx: &mut gpui::TestAppContext) {
     )
     .unwrap();
     let future = cx.update(|app| images::load_source(resolved, false, app));
-    let (source, _, _) = futures::executor::block_on(future).unwrap();
-    let pixel = &source.as_bytes(0).unwrap()[..4];
+    let source = futures::executor::block_on(future).unwrap();
+    let ready = images::raster_display(&source, &images::display_key("k", 2.0, 2.0, 1.0)).unwrap();
+    let pixel = &ready.image.as_bytes(0).unwrap()[..4];
     assert_eq!(pixel, &[0, 0, 255, 255], "the PNG BGRA convention holds");
 }
 
@@ -66,15 +110,16 @@ fn svg_embedded_png_is_painted(cx: &mut gpui::TestAppContext) {
          <image xlink:href='data:image/png;base64,{encoded}' width='2' height='2'/></svg>"
     ));
     let future = cx.update(|app| images::load_source(resolved, false, app));
-    let (image, _, _) = futures::executor::block_on(future).unwrap();
-    let pixel = &image.as_bytes(0).unwrap()[..4];
+    let source = futures::executor::block_on(future).unwrap();
+    let ready = raster_vector(&source);
+    let pixel = &ready.image.as_bytes(0).unwrap()[..4];
     println!("embedded PNG SVG pixel={pixel:?}");
     assert_eq!(
         pixel,
         &[56, 34, 12, 255],
-        "an opaque embedded PNG must paint: gpui's SVG rasterizer emits BGRA, so RGBA [12,34,56] \
-         lands as [56,34,12] with alpha 255; fully transparent means the raster was dropped by the \
-         backend"
+        "an opaque embedded PNG must paint: resvg emits RGBA and the pipeline swaps it, so RGBA \
+         [12,34,56] lands as [56,34,12] with alpha 255; fully transparent means the raster was \
+         dropped by the backend"
     );
 }
 
@@ -90,8 +135,9 @@ fn plain_svg_still_paints_vector_content(cx: &mut gpui::TestAppContext) {
             app,
         )
     });
-    let (image, _, _) = futures::executor::block_on(future).unwrap();
-    let pixel = &image.as_bytes(0).unwrap()[..4];
+    let source = futures::executor::block_on(future).unwrap();
+    let ready = raster_vector(&source);
+    let pixel = &ready.image.as_bytes(0).unwrap()[..4];
     assert_eq!(
         pixel,
         &[56, 34, 12, 255],
@@ -146,9 +192,13 @@ fn plain_svg_still_loads(cx: &mut gpui::TestAppContext) {
     let source = b"<svg xmlns='http://www.w3.org/2000/svg' width='4' height='4'>\
                    <rect width='4' height='4' fill='red'/></svg>";
     let future = cx.update(|app| images::load_source(data_url(source), false, app));
-    let (image, _, _) = futures::executor::block_on(future)
+    let source = futures::executor::block_on(future)
         .expect("a plain SVG without external references must still load");
-    assert!(image.size(0).width > gpui::DevicePixels(0));
+    let (width, height) = source.dims();
+    assert!(
+        width > 0 && height > 0,
+        "the svg must report intrinsic dims"
+    );
 }
 
 #[gpui::test]
@@ -212,9 +262,10 @@ fn small_svgz_still_loads(cx: &mut gpui::TestAppContext) {
     );
     let future =
         cx.update(|app| images::load_source(images::resolve(&input, None).unwrap(), false, app));
-    let (image, _, _) = futures::executor::block_on(future)
+    let source = futures::executor::block_on(future)
         .expect("a small SVGZ must still load through the bounded decompress path");
-    let pixel = &image.as_bytes(0).unwrap()[..4];
+    let ready = raster_vector(&source);
+    let pixel = &ready.image.as_bytes(0).unwrap()[..4];
     assert_eq!(
         pixel,
         &[56, 34, 12, 255],

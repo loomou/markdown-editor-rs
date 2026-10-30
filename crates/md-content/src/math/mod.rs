@@ -19,7 +19,7 @@ mod tests;
 
 pub use crate::pixels::ReadyImage;
 pub use metrics::MathEm;
-pub use raster::{paint_ready, raster};
+pub use raster::{estimate_job, paint_ready, raster};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MathMetricSlots {
@@ -104,6 +104,7 @@ pub struct MathCache {
     hot: HashSet<MathKey>,
     warm: HashSet<MathKey>,
     bytes: usize,
+    max_bytes: usize,
     inflight: usize,
     metrics: Rc<MathMetrics>,
     metrics_order: VecDeque<MetricId>,

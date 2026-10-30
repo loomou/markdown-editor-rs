@@ -4,7 +4,8 @@ use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_m
 use md_bench::corpus::{Shape, generate, human};
 use md_content::math::{key_for as math_key_for, raster as math_raster, spec_from_key};
 use md_content::mermaid::{
-    MermaidKey, raster as mermaid_raster, spec_from_theme, theme_fingerprint,
+    MermaidKey, MermaidRasterKey, RasterSpec, raster as mermaid_raster, spec_from_theme,
+    theme_fingerprint,
 };
 use md_content::mermaid;
 use md_core::block::BlockKind;
@@ -133,19 +134,29 @@ fn math_raster_bench(c: &mut Criterion) {
     group.finish();
 }
 
+fn mermaid_specs(theme: &DocumentTheme, fingerprint: u64, sources: &[String]) -> Vec<RasterSpec> {
+    sources
+        .iter()
+        .map(|source| {
+            let key = MermaidKey {
+                block: 0,
+                generation: 0,
+                raster: MermaidRasterKey::for_source(
+                    source,
+                    fingerprint,
+                    320,
+                    10_000,
+                    md_content::images::dpr_q(1.0),
+                ),
+            };
+            spec_from_theme(theme, key)
+        })
+        .collect()
+}
+
 fn mermaid_render_bench(c: &mut Criterion) {
     let theme = md_bench::harness::document_theme();
     let fingerprint = theme_fingerprint(&theme);
-    let key = MermaidKey {
-        block: 0,
-        generation: 0,
-        revision: 0,
-        theme_fp: fingerprint,
-        width_q: 320,
-        max_h: 10_000,
-        dpr_q: md_content::images::dpr_q(1.0),
-    };
-    let spec = spec_from_theme(&theme, key);
     let mut group = c.benchmark_group("content/mermaid-render");
     group.sample_size(10);
     for size in SIZES {
@@ -155,9 +166,11 @@ fn mermaid_render_bench(c: &mut Criterion) {
             "the mermaid corpus must yield at least one diagram"
         );
         let sampled: Vec<String> = all.iter().take(MERMAID_SAMPLE).cloned().collect();
+        let specs = mermaid_specs(&theme, fingerprint, &sampled);
         let rendered = sampled
             .iter()
-            .filter(|source| mermaid_raster(source, &spec).is_ok())
+            .zip(&specs)
+            .filter(|(source, spec)| mermaid_raster(source, spec).is_ok())
             .count();
         assert!(
             rendered > 0,
@@ -177,8 +190,8 @@ fn mermaid_render_bench(c: &mut Criterion) {
             |b, sampled| {
                 b.iter(|| {
                     let mut ok = 0usize;
-                    for source in sampled {
-                        if mermaid_raster(source, &spec).is_ok() {
+                    for (source, spec) in sampled.iter().zip(&specs) {
+                        if mermaid_raster(source, spec).is_ok() {
                             ok += 1;
                         }
                     }
@@ -193,16 +206,6 @@ fn mermaid_render_bench(c: &mut Criterion) {
 fn mermaid_stage_bench(c: &mut Criterion) {
     let theme = md_bench::harness::document_theme();
     let fingerprint = theme_fingerprint(&theme);
-    let key = MermaidKey {
-        block: 0,
-        generation: 0,
-        revision: 0,
-        theme_fp: fingerprint,
-        width_q: 320,
-        max_h: 10_000,
-        dpr_q: md_content::images::dpr_q(1.0),
-    };
-    let spec = spec_from_theme(&theme, key);
     let mut group = c.benchmark_group("content/mermaid-stage");
     group.sample_size(10);
     for size in SIZES {
@@ -212,9 +215,15 @@ fn mermaid_stage_bench(c: &mut Criterion) {
             "the mermaid corpus must yield at least one diagram"
         );
         let sampled: Vec<String> = all.iter().take(MERMAID_SAMPLE).cloned().collect();
+        let specs = mermaid_specs(&theme, fingerprint, &sampled);
         let sealed: Vec<_> = sampled
             .iter()
-            .filter_map(|source| mermaid::render_sealed(source, &spec).ok())
+            .zip(&specs)
+            .filter_map(|(source, spec)| {
+                mermaid::render_sealed(source, spec)
+                    .ok()
+                    .map(|sealed| (sealed, spec.clone()))
+            })
             .collect();
         assert!(
             !sealed.is_empty(),
@@ -234,8 +243,8 @@ fn mermaid_stage_bench(c: &mut Criterion) {
             |b, sampled| {
                 b.iter(|| {
                     let mut ok = 0usize;
-                    for source in sampled {
-                        if mermaid::render_sealed(source, &spec).is_ok() {
+                    for (source, spec) in sampled.iter().zip(&specs) {
+                        if mermaid::render_sealed(source, spec).is_ok() {
                             ok += 1;
                         }
                     }
@@ -247,8 +256,8 @@ fn mermaid_stage_bench(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("parse", human(size)), &sealed, |b, sealed| {
             b.iter(|| {
                 let mut ok = 0usize;
-                for sealed in sealed {
-                    if mermaid::prepare_sealed(sealed, &spec).is_ok() {
+                for (sealed, spec) in sealed {
+                    if mermaid::prepare_sealed(sealed, spec).is_ok() {
                         ok += 1;
                     }
                 }
@@ -261,8 +270,8 @@ fn mermaid_stage_bench(c: &mut Criterion) {
             |b, sealed| {
                 b.iter(|| {
                     let mut ok = 0usize;
-                    for sealed in sealed {
-                        if mermaid::prepare_sealed(sealed, &spec)
+                    for (sealed, spec) in sealed {
+                        if mermaid::prepare_sealed(sealed, spec)
                             .is_ok_and(|prepared| prepared.encode_png().is_ok())
                         {
                             ok += 1;

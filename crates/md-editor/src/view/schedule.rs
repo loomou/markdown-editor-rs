@@ -3,12 +3,43 @@ use super::jobs::{
 };
 use super::{DisplayJob, EditorView, ImagePopover, ImageSchedule, MathPopover, Viewfinder};
 use gpui::Context;
-use md_content::{images, math, mermaid};
+use md_content::{images, math, media, mermaid};
 use md_core::Px;
 use md_core::block::{BlockId, BlockKind};
 use std::collections::HashMap;
 
 impl EditorView {
+    pub(super) fn set_media_budget(
+        &mut self,
+        viewport: (Px, Px),
+        dpr: f64,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let (width, height) = viewport;
+        let dpr = dpr.max(0.25);
+        let screen = (width.max(1.0) * height.max(1.0) * dpr * dpr * 4.0) as usize;
+        let total = media::resident_override().unwrap_or_else(|| media::resident_ceiling(screen));
+        media::MediaCoordinator::set_resident_limit(cx, total);
+        let split = media::split_resident(total);
+        let entries = images::Budget::for_viewport(width, height, dpr);
+        self.images.set_budget(
+            images::Budget {
+                display_bytes: split.display,
+                display_entries: entries.display_entries,
+                source_bytes: split.source,
+            },
+            cx,
+        );
+        self.mermaid.set_budget(
+            mermaid::Budget {
+                bytes: split.mermaid,
+                entries: entries.display_entries,
+            },
+            cx,
+        );
+        self.math.set_budget(split.math, cx);
+    }
+
     fn warm_mermaid_blocks(&self, top: Px, viewport_h: Px) -> Vec<(BlockId, Px)> {
         let Some(eng) = self.state.incremental.as_ref() else {
             return Vec::new();
@@ -89,27 +120,118 @@ impl EditorView {
         self.mermaid.set_working_set(protect, warm, cx);
         let jobs: Vec<_> = jobs.into_iter().chain(warm_jobs).collect();
         for (key, src, spec) in jobs {
+            if let Some(stored) = self.mermaid.begin_thaw(&key) {
+                let estimate = media::estimate_decode_job(stored.px_w, stored.px_h);
+                let Some(permit) =
+                    media::MediaCoordinator::admit(cx, media::JobKind::Thaw, estimate)
+                else {
+                    self.mermaid.cancel_thaw(&key);
+                    continue;
+                };
+                cx.spawn(async move |this, cx| {
+                    let (result, permit) = cx
+                        .background_executor()
+                        .spawn(async move { (media::decode(&stored), permit) })
+                        .await;
+                    let _ = this.update(cx, |v, cx| {
+                        let result = match result {
+                            Some(image) => {
+                                let bytes = image.bytes;
+                                Some(image.with_lease(permit.into_lease(bytes)))
+                            }
+                            None => {
+                                drop(permit);
+                                None
+                            }
+                        };
+                        let changed = v.mermaid.finish_thaw(&key, result);
+                        if changed && let Some(eng) = v.state.incremental.as_mut() {
+                            eng.invalidate_island_for_block(key.block);
+                        }
+                        cx.notify();
+                    });
+                })
+                .detach();
+                continue;
+            }
+            let Some(permit) = media::MediaCoordinator::admit(
+                cx,
+                media::JobKind::Mermaid,
+                mermaid::estimate_job(&spec),
+            ) else {
+                continue;
+            };
             if !self.mermaid.begin(key) {
                 continue;
             }
             cx.spawn(async move |this, cx| {
-                let result = cx
+                let (result, permit) = cx
                     .background_executor()
-                    .spawn(async move { mermaid::raster_with_svg(&src, &spec) })
+                    .spawn(async move { (mermaid::raster_with_svg(&src, &spec), permit) })
                     .await;
                 let _ = this.update(cx, |v, cx| {
-                    if let Ok((_, svg)) = &result {
-                        v.mermaid.store_svg(key.svg_key(), svg.clone());
-                    }
+                    let result = match result {
+                        Ok((image, svg)) => {
+                            v.mermaid.store_svg(key.svg_key(), svg);
+                            let bytes = image.bytes;
+                            Ok(image.with_lease(permit.into_lease(bytes)))
+                        }
+                        Err(err) => {
+                            drop(permit);
+                            Err(err)
+                        }
+                    };
                     if let Err(ref err) = result {
                         tracing::warn!(error = %err, "mermaid");
                     }
                     let ready = result.is_ok();
-                    v.mermaid.finish(key, result.map(|(image, _)| image), cx);
+                    v.mermaid.finish(key, result, cx);
                     if ready && let Some(eng) = v.state.incremental.as_mut() {
                         eng.invalidate_island_for_block(key.block);
                     }
                     cx.notify();
+                });
+            })
+            .detach();
+        }
+        self.schedule_mermaid_cooling(cx);
+    }
+
+    fn schedule_mermaid_cooling(&mut self, cx: &mut Context<'_, Self>) {
+        let pressured = media::over_resident(cx);
+        for key in self
+            .mermaid
+            .coolable_at(std::time::Instant::now(), pressured)
+        {
+            let Some((key, image)) = self.mermaid.begin_cool(&key) else {
+                continue;
+            };
+            let (px_w, px_h, dpr) = (image.px_w, image.px_h, image.dpr);
+            let Some(permit) = media::MediaCoordinator::admit(
+                cx,
+                media::JobKind::Cool,
+                media::estimate_encode_job(px_w, px_h),
+            ) else {
+                self.mermaid.cancel_cool(&key);
+                continue;
+            };
+            cx.spawn(async move |this, cx| {
+                let codec = media::DEFAULT_WARM_CODEC;
+                let (result, permit) = cx
+                    .background_executor()
+                    .spawn(async move { (media::encode(&image, codec), permit) })
+                    .await;
+                let _ = this.update(cx, |v, cx| match result {
+                    Some(bytes) => {
+                        let len = bytes.len();
+                        let warm = media::WarmImage::new(bytes, codec, px_w, px_h, dpr)
+                            .with_lease(permit.into_lease(len));
+                        v.mermaid.finish_cool(&key, warm, cx);
+                    }
+                    None => {
+                        drop(permit);
+                        v.mermaid.cancel_cool(&key);
+                    }
                 });
             })
             .detach();
@@ -154,19 +276,44 @@ impl EditorView {
             collect_math_popover_job(p, &mut jobs, &mut protect);
         }
         self.math.set_working_set(protect, std::iter::empty(), cx);
+        let metrics = self.math.metrics_snapshot();
         for (key, (src, spec, blocks)) in jobs {
             if self.math.contains(&key) {
                 continue;
             }
+            let em = math::metric(&metrics, &key.latex, key.display)
+                .flatten()
+                .unwrap_or_else(|| math::MathEm::estimate(&key.latex));
+            let bytes = math::estimate_job(em, key.font_size(), key.dpr());
+            let Some(permit) = media::MediaCoordinator::admit(cx, media::JobKind::Math, bytes)
+            else {
+                continue;
+            };
             if !self.math.begin(key.clone()) {
                 continue;
             }
             cx.spawn(async move |this, cx| {
-                let result = cx
+                let (result, permit) = cx
                     .background_executor()
-                    .spawn(async move { math::raster(&src, &spec) })
+                    .spawn(async move { (math::raster(&src, &spec), permit) })
                     .await;
                 let _ = this.update(cx, |v, cx| {
+                    let result = match result {
+                        Ok(mut out) => {
+                            match out.image.take() {
+                                Some(image) => {
+                                    let bytes = image.bytes;
+                                    out.image = Some(image.with_lease(permit.into_lease(bytes)));
+                                }
+                                None => drop(permit),
+                            }
+                            Ok(out)
+                        }
+                        Err(err) => {
+                            drop(permit);
+                            Err(err)
+                        }
+                    };
                     if let Err(ref err) = result {
                         tracing::warn!(error = %err, "math");
                     }
@@ -207,6 +354,51 @@ impl EditorView {
             }
         }
         jobs
+    }
+
+    /// Replace the pixels of entries that have been off-screen for a while with
+    /// their compressed form. A job that cannot be admitted is not started: the
+    /// entry stays hot and eviction, which needs no budget, is what frees the
+    /// bytes instead.
+    fn schedule_cooling(&mut self, cx: &mut Context<'_, Self>) {
+        let pressured = media::over_resident(cx);
+        for key in self
+            .images
+            .coolable_at(std::time::Instant::now(), pressured)
+        {
+            let Some((token, image)) = self.images.begin_cool(&key) else {
+                continue;
+            };
+            let (px_w, px_h, dpr) = (image.px_w, image.px_h, image.dpr);
+            let Some(permit) = media::MediaCoordinator::admit(
+                cx,
+                media::JobKind::Cool,
+                media::estimate_encode_job(px_w, px_h),
+            ) else {
+                self.images.cancel_cool(token);
+                continue;
+            };
+            cx.spawn(async move |this, cx| {
+                let codec = media::DEFAULT_WARM_CODEC;
+                let (result, permit) = cx
+                    .background_executor()
+                    .spawn(async move { (media::encode(&image, codec), permit) })
+                    .await;
+                let _ = this.update(cx, |v, cx| match result {
+                    Some(bytes) => {
+                        let len = bytes.len();
+                        let warm = media::WarmImage::new(bytes, codec, px_w, px_h, dpr)
+                            .with_lease(permit.into_lease(len));
+                        v.images.finish_cool(token, warm, cx);
+                    }
+                    None => {
+                        drop(permit);
+                        v.images.cancel_cool(token);
+                    }
+                });
+            })
+            .detach();
+        }
     }
 
     pub(super) fn schedule_images(
@@ -256,6 +448,13 @@ impl EditorView {
             if self.images.source_contains(&dest) && !self.images.source_retry_due(&dest) {
                 continue;
             }
+            let Some(permit) = media::MediaCoordinator::admit(
+                cx,
+                media::JobKind::Source,
+                images::estimate_source_job(),
+            ) else {
+                continue;
+            };
             let Some(token) = self.images.begin_source(dest.clone()) else {
                 continue;
             };
@@ -276,7 +475,22 @@ impl EditorView {
                 let result = match this.update(cx, |view, cx| {
                     resolved.map(|resolved| images::load_source(resolved, view.remote_images, cx))
                 }) {
-                    Ok(Some(fut)) => cx.background_executor().spawn(fut).await,
+                    Ok(Some(fut)) => {
+                        let (loaded, permit) = cx
+                            .background_executor()
+                            .spawn(async move { (fut.await, permit) })
+                            .await;
+                        match loaded {
+                            Ok(media) => {
+                                let resident = media.resident_bytes();
+                                Ok(media.with_lease(permit.into_lease(resident)))
+                            }
+                            Err(err) => {
+                                drop(permit);
+                                Err(err)
+                            }
+                        }
+                    }
                     Ok(None) => Err(md_content::images::SourceError::Fatal(
                         md_content::Error::Image(md_i18n::Key::ImageBadPath.into()),
                     )),
@@ -301,17 +515,60 @@ impl EditorView {
             if self.images.display_contains(&key) {
                 continue;
             }
+            let DisplayJob { source, blocks } = job;
+            if let Some((token, warm)) = self.images.begin_thaw(&key) {
+                let estimate = media::estimate_decode_job(warm.px_w, warm.px_h);
+                let Some(permit) =
+                    media::MediaCoordinator::admit(cx, media::JobKind::Thaw, estimate)
+                else {
+                    self.images.cancel_thaw(token);
+                    continue;
+                };
+                cx.spawn(async move |this, cx| {
+                    let (result, permit) = cx
+                        .background_executor()
+                        .spawn(async move { (media::decode(&warm), permit) })
+                        .await;
+                    let _ = this.update(cx, |v, cx| {
+                        let result = match result {
+                            Some(image) => {
+                                let bytes = image.bytes;
+                                Some(image.with_lease(permit.into_lease(bytes)))
+                            }
+                            None => {
+                                drop(permit);
+                                tracing::warn!(?key, "warm payload did not inflate");
+                                None
+                            }
+                        };
+                        let changed = v.images.finish_thaw(token, result, cx);
+                        if changed && let Some(eng) = v.state.incremental.as_mut() {
+                            for b in blocks {
+                                eng.invalidate_island_for_block(b);
+                            }
+                        }
+                        cx.notify();
+                    });
+                })
+                .detach();
+                continue;
+            }
+            let bytes = images::estimate_display_job(&source, &key);
+            let Some(permit) = media::MediaCoordinator::admit(cx, media::JobKind::Display, bytes)
+            else {
+                continue;
+            };
             let Some(display_token) = self.images.begin_display(key.clone()) else {
                 continue;
             };
-            let DisplayJob { source, blocks } = job;
             cx.spawn(async move |this, cx| {
                 let raster_key = key.clone();
-                let result = cx
+                let (result, permit) = cx
                     .background_executor()
-                    .spawn(async move { images::raster_display(&source, &raster_key) })
+                    .spawn(async move { (images::raster_display(&source, &raster_key), permit) })
                     .await;
                 let _ = this.update(cx, |v, cx| {
+                    let result = super::media_budget::deliver(result, permit);
                     if let Err(ref err) = result {
                         tracing::warn!(error = %err, "image display");
                     }
@@ -326,5 +583,6 @@ impl EditorView {
             })
             .detach();
         }
+        self.schedule_cooling(cx);
     }
 }

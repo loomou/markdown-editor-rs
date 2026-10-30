@@ -15,6 +15,7 @@ impl MathCache {
             hot: HashSet::new(),
             warm: HashSet::new(),
             bytes: 0,
+            max_bytes: MAX_BYTES,
             inflight: 0,
             metrics: Rc::new(HashMap::new()),
             metrics_order: VecDeque::new(),
@@ -22,6 +23,18 @@ impl MathCache {
             ready: Rc::new(HashMap::new()),
             failed: Rc::new(HashSet::new()),
         }
+    }
+
+    pub fn set_budget(&mut self, bytes: usize, cx: &mut App) {
+        self.set_budget_inner(bytes, Some(cx));
+    }
+
+    pub(super) fn set_budget_inner(&mut self, bytes: usize, cx: Option<&mut App>) {
+        if self.max_bytes == bytes {
+            return;
+        }
+        self.max_bytes = bytes;
+        self.evict(cx, MAX_ENTRIES, bytes);
     }
 
     pub fn contains(&self, key: &MathKey) -> bool {
@@ -86,7 +99,8 @@ impl MathCache {
         }
         let working = self.hot.len().saturating_add(self.warm.len());
         let warm_entries = working.saturating_add(WARM_EXTRA_ENTRIES).min(MAX_ENTRIES);
-        self.evict(cx, warm_entries, MAX_BYTES);
+        let bytes = self.max_bytes;
+        self.evict(cx, warm_entries, bytes);
     }
 
     pub fn finish(
@@ -157,14 +171,15 @@ impl MathCache {
                 changed
             }
         };
-        self.evict(cx, MAX_ENTRIES, MAX_BYTES);
+        let bytes = self.max_bytes;
+        self.evict(cx, MAX_ENTRIES, bytes);
         changed
     }
 
     pub fn clear(&mut self, cx: &mut App) {
         for slot in self.map.values() {
             if let Slot::Ready(img) = slot {
-                cx.drop_image(img.image.clone(), None);
+                crate::media::MediaUsage::release(cx, img.allocation_id(), img.image.clone());
             }
         }
         self.map.clear();
@@ -217,7 +232,11 @@ impl MathCache {
     }
 
     fn evict(&mut self, mut cx: Option<&mut App>, max_entries: usize, max_bytes: usize) {
-        while self.map.len() > max_entries || self.bytes > max_bytes {
+        loop {
+            let pressured = cx.as_deref().is_some_and(crate::media::over_resident);
+            if self.map.len() <= max_entries && self.bytes <= max_bytes && !pressured {
+                break;
+            }
             let Some(idx) = self.victim_index() else {
                 break;
             };
@@ -226,7 +245,7 @@ impl MathCache {
                 Some(Slot::Ready(img)) => {
                     self.bytes = self.bytes.saturating_sub(img.bytes);
                     if let Some(cx) = cx.as_deref_mut() {
-                        cx.drop_image(img.image, None);
+                        crate::media::MediaUsage::release_ready(cx, img);
                     }
                     Rc::make_mut(&mut self.ready).remove(&victim);
                 }
@@ -277,6 +296,14 @@ impl MathCache {
     #[cfg(test)]
     pub(super) fn entry_count(&self) -> usize {
         self.map.len()
+    }
+
+    pub fn account(&self) -> crate::media::Account {
+        crate::media::Account {
+            math_bytes: self.bytes,
+            math_entries: self.map.len(),
+            ..crate::media::Account::default()
+        }
     }
 
     #[cfg(test)]

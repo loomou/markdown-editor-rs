@@ -79,6 +79,22 @@ pub(super) fn raster_dimensions(
     Some((u32::try_from(width).ok()?, u32::try_from(height).ok()?))
 }
 
+/// Working bytes a formula raster will hold at its peak: the PNG the renderer
+/// encodes plus the BGRA copy decoded from it. The size follows from the laid
+/// out formula, so a caller holding the metric can size the job exactly; a
+/// caller that only has the estimate uses the same guess the renderer lays the
+/// line out with.
+pub fn estimate_job(em: MathEm, font_size: f32, dpr: f32) -> usize {
+    let dpr = f64::from(dpr.max(0.25));
+    let em_px = f64::from(font_size) * dpr;
+    let pad_px = f64::from(MATH_PAD) * dpr;
+    let px_w = (f64::from(em.width) * em_px + 2.0 * pad_px).ceil().max(1.0);
+    let px_h = ((f64::from(em.height) + f64::from(em.depth)) * em_px + 2.0 * pad_px)
+        .ceil()
+        .max(1.0);
+    crate::media::estimate_raster_peak(px_w as u32, px_h as u32)
+}
+
 pub fn raster(latex: &str, spec: &RasterSpec) -> Result<RasterOut, crate::Error> {
     let laid_out = layout_formula(latex, spec.display, spec.color)
         .ok_or_else(|| crate::Error::Math(md_i18n::Key::FormulaParseFailed.into()))?;
