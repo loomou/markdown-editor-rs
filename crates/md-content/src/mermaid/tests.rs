@@ -831,3 +831,31 @@ fn eviction_drops_warm_diagrams_and_their_bytes() {
     assert_eq!(cache.warm_bytes(), 0);
     assert_eq!(cache.entry_count(), 0);
 }
+
+#[test]
+fn a_diagram_is_only_offered_for_compression_once_the_cache_spills() {
+    let mut cache = MermaidCache::new();
+    fill_mermaid_ready(&mut cache, 3);
+    cache.set_working_set_inner(std::iter::empty(), std::iter::empty(), None);
+    let later = std::time::Instant::now()
+        + crate::media::cool_grace()
+        + std::time::Duration::from_millis(1);
+    assert!(
+        cache.coolable_at(later, false).is_empty(),
+        "every diagram is still here, so compressing one would only be undone"
+    );
+
+    cache.set_budget_inner(
+        Budget {
+            bytes: 1 << 20,
+            entries: 1,
+        },
+        None,
+    );
+    assert_eq!(cache.entry_count(), 1, "the slice has to spill");
+    assert_eq!(
+        cache.coolable_at(later, false).len(),
+        1,
+        "the survivor is worth more as bytes than as the next eviction"
+    );
+}

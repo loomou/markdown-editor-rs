@@ -31,6 +31,7 @@ impl ImageCache {
             left_screen: HashMap::new(),
             cool_refused: HashSet::new(),
             cool_discarded: 0,
+            spilled: false,
             sizes_gen: 0,
             sizes: Rc::new(HashMap::new()),
             ready: Rc::new(HashMap::new()),
@@ -45,6 +46,11 @@ impl ImageCache {
     pub(super) fn set_budget_inner(&mut self, budget: Budget, mut cx: Option<&mut App>) {
         if self.budget == budget {
             return;
+        }
+        if budget.display_bytes > self.budget.display_bytes
+            || budget.display_entries > self.budget.display_entries
+        {
+            self.spilled = false;
         }
         self.budget = budget;
         self.evict_display(
@@ -424,6 +430,7 @@ impl ImageCache {
         self.cooling.clear();
         self.left_screen.clear();
         self.cool_refused.clear();
+        self.spilled = false;
         self.sizes_gen = 0;
         self.sizes = Rc::new(HashMap::new());
         self.ready = Rc::new(HashMap::new());
@@ -633,6 +640,7 @@ impl ImageCache {
             let victim = self.display_lru.remove(idx).expect("lru");
             match self.display.remove(&victim) {
                 Some(DisplaySlot::Ready(img)) => {
+                    self.spilled = true;
                     self.display_bytes = self.display_bytes.saturating_sub(img.bytes);
                     self.clear_display_projection(&victim);
                     if let Some(cx) = cx.as_deref_mut() {
@@ -640,6 +648,7 @@ impl ImageCache {
                     }
                 }
                 Some(DisplaySlot::Warm(warm)) => {
+                    self.spilled = true;
                     self.warm_bytes = self.warm_bytes.saturating_sub(warm.resident_bytes());
                     self.clear_display_projection(&victim);
                 }

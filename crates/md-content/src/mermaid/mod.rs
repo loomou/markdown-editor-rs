@@ -186,6 +186,10 @@ pub struct MermaidCache {
     left_screen: HashMap<MermaidRasterKey, Instant>,
     cool_refused: HashSet<MermaidRasterKey>,
     cool_discarded: usize,
+    /// Set the first time a diagram is dropped for lack of room. A cache that
+    /// has never had to evict is holding every diagram the document asked for,
+    /// and compressing one there only costs an encode and a decode.
+    spilled: bool,
     theme_fp: u64,
     svgs: HashMap<MermaidSvgKey, std::sync::Arc<merman::svg::ResvgCompatibleSvg>>,
     svg_order: VecDeque<MermaidSvgKey>,

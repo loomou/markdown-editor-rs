@@ -327,6 +327,11 @@ pub struct ImageCache {
     left_screen: HashMap<DisplayKey, Instant>,
     cool_refused: HashSet<DisplayKey>,
     cool_discarded: usize,
+    /// Set the first time an entry is dropped for lack of room. Compressing an
+    /// off-screen entry only buys anything when the content does not fit the
+    /// slice; a cache that has never had to evict is holding everything it was
+    /// asked for, and a revisit there is already free.
+    spilled: bool,
     sizes_gen: u64,
     sizes: Rc<HashMap<SourceKey, (u32, u32)>>,
     ready: Rc<HashMap<DisplayKey, ReadyImage>>,

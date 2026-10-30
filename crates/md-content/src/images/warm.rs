@@ -28,6 +28,12 @@ impl ImageCache {
         if !crate::media::cooling_enabled() {
             return Vec::new();
         }
+        // Without pressure and without a spill there is nothing to gain: the
+        // cache is holding every entry it was asked for, so a revisit costs
+        // nothing and an encode would only be undone later.
+        if !self.spilled && !pressured {
+            return Vec::new();
+        }
         let grace = if pressured {
             std::time::Duration::ZERO
         } else {

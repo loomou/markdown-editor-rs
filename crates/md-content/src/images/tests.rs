@@ -1727,6 +1727,7 @@ fn an_entry_that_stays_off_screen_is_offered_for_compression(cx: &mut gpui::Test
             },
             cx,
         );
+        let victim = ready_in(&mut cache, cx, "b");
         let key = ready_in(&mut cache, cx, "a");
 
         cache.set_working_set(
@@ -1740,7 +1741,28 @@ fn an_entry_that_stays_off_screen_is_offered_for_compression(cx: &mut gpui::Test
             "an entry that has just left the screen is not worth an encode yet"
         );
         let later = Instant::now() + crate::media::cool_grace() + Duration::from_millis(1);
-        assert_eq!(cache.coolable_at(later, false), vec![key.clone()]);
+        assert!(
+            cache.coolable_at(later, false).is_empty(),
+            "a cache that is holding everything it was asked for has nothing to gain from compressing"
+        );
+
+        cache.set_budget(
+            Budget {
+                display_bytes: 1 << 20,
+                display_entries: 1,
+                source_bytes: 1 << 20,
+            },
+            cx,
+        );
+        assert!(
+            !cache.display_contains(&victim),
+            "the slice has to be small enough to force an eviction"
+        );
+        assert_eq!(
+            cache.coolable_at(later, false),
+            vec![key.clone()],
+            "once the content has spilled the slice, keeping an off-screen entry as bytes is cheaper than dropping it"
+        );
 
         cache.set_working_set([key], std::iter::empty(), std::iter::empty(), cx);
         assert!(
@@ -1812,7 +1834,17 @@ fn a_compression_that_barely_shrank_is_refused_and_not_retried(cx: &mut gpui::Te
             },
             cx,
         );
+        let victim = ready_in(&mut cache, cx, "b");
         let key = ready_in(&mut cache, cx, "a");
+        cache.set_budget(
+            Budget {
+                display_bytes: 1 << 20,
+                display_entries: 1,
+                source_bytes: 1 << 20,
+            },
+            cx,
+        );
+        assert!(!cache.display_contains(&victim), "the slice must spill");
         cache.set_working_set(
             std::iter::empty(),
             std::iter::empty(),

@@ -26,6 +26,12 @@ impl MermaidCache {
         if !crate::media::cooling_enabled() {
             return Vec::new();
         }
+        // A diagram is the most expensive thing here to rebuild, but rebuilding
+        // it only happens after an eviction: until the cache has had to drop
+        // one, every diagram is still there and compressing it buys nothing.
+        if !self.spilled && !pressured {
+            return Vec::new();
+        }
         let grace = if pressured {
             std::time::Duration::ZERO
         } else {

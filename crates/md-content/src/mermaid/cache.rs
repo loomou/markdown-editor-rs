@@ -26,6 +26,7 @@ impl MermaidCache {
             left_screen: HashMap::new(),
             cool_refused: HashSet::new(),
             cool_discarded: 0,
+            spilled: false,
             theme_fp: 0,
             svgs: HashMap::new(),
             svg_order: VecDeque::new(),
@@ -42,6 +43,9 @@ impl MermaidCache {
     pub(super) fn set_budget_inner(&mut self, budget: Budget, cx: Option<&mut App>) {
         if self.budget == budget {
             return;
+        }
+        if budget.bytes > self.budget.bytes || budget.entries > self.budget.entries {
+            self.spilled = false;
         }
         self.budget = budget;
         self.evict(cx, budget.entries, budget.bytes);
@@ -228,6 +232,7 @@ impl MermaidCache {
         self.cooling.clear();
         self.left_screen.clear();
         self.cool_refused.clear();
+        self.spilled = false;
         self.svgs.clear();
         self.svg_order.clear();
         self.current = Rc::new(HashMap::new());
@@ -272,12 +277,14 @@ impl MermaidCache {
             self.lru.retain(|k| *k != victim);
             match self.map.remove(&victim) {
                 Some(Slot::Ready(img)) => {
+                    self.spilled = true;
                     self.bytes = self.bytes.saturating_sub(img.bytes);
                     if let Some(cx) = cx.as_deref_mut() {
                         crate::media::MediaUsage::release_ready(cx, img);
                     }
                 }
                 Some(Slot::Warm(warm)) => {
+                    self.spilled = true;
                     self.warm_bytes = self.warm_bytes.saturating_sub(warm.resident_bytes());
                 }
                 Some(Slot::Failed(_)) => {}
