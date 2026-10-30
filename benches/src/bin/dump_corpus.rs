@@ -49,5 +49,56 @@ fn main() {
         total += text.len();
     }
 
+    let media = root.join("media");
+    fs::create_dir_all(&media).expect("the media corpus directory must be creatable");
+    let mut images = corpus::media_image_specs();
+    images.push(corpus::GIANT_IMAGE);
+    for spec in &images {
+        let png = corpus::encode_png(&corpus::media_pixels(spec, corpus::MEDIA_SEED));
+        let path = media.join(format!("{}.png", spec.name));
+        fs::write(&path, &png).expect("the media corpus image must be writable");
+        println!(
+            "{:<18} {:>5}x{:<5} {:>10} {:>18x}",
+            "media-image",
+            spec.width,
+            spec.height,
+            png.len(),
+            corpus::fingerprint(&format!("{}x{}", spec.width, spec.height))
+        );
+        total += png.len();
+    }
+
+    let docs = [
+        (
+            "images.md",
+            corpus::media_images_doc(&corpus::MEDIA_IMAGES, true),
+        ),
+        (
+            "giant.md",
+            corpus::media_images_doc(&[corpus::GIANT_IMAGE], true),
+        ),
+        (
+            "mermaid.md",
+            corpus::media_mermaid_doc(&corpus::MEDIA_MERMAID),
+        ),
+        (
+            "mermaid-repeat.md",
+            corpus::media_mermaid_repeat_doc(&corpus::MEDIA_MERMAID[..2], 6),
+        ),
+        ("text.md", corpus::media_text_doc(12)),
+    ];
+    for (name, text) in &docs {
+        let path = media.join(name);
+        fs::write(&path, text).expect("the media corpus document must be writable");
+        println!(
+            "{:<18} {:>11} {:>10} {:>18x}",
+            "media-doc",
+            name,
+            text.len(),
+            corpus::fingerprint(text)
+        );
+        total += text.len();
+    }
+
     println!("total {total} bytes under {}", root.display());
 }

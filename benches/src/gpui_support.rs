@@ -1,8 +1,8 @@
 use crate::corpus::{
-    BLOCK_COUNTS, BLOCK_SEED, RENDER_FRAME_BLOCK_COUNTS, Shape, generate, generate_blocks, human,
-    human_blocks,
+    self, BLOCK_COUNTS, BLOCK_SEED, GIANT_IMAGE, MEDIA_IMAGES, MEDIA_MERMAID,
+    RENDER_FRAME_BLOCK_COUNTS, Shape, generate, generate_blocks, human, human_blocks,
 };
-use crate::harness::{caret, doc, document_theme, environment, leaf_end};
+use crate::harness::{caret, doc, doc_with_path, document_theme, environment, leaf_end};
 use gpui::{
     BenchAppContext, Context, Entity, IntoElement, Render, Styled as _, Window, div, px, size,
 };
@@ -18,6 +18,7 @@ use md_layout::style::BoxLayoutEnvironment;
 use md_render::incremental::{Estimator, IncrementalEngine, ScrollAnchor};
 use md_theme::{DocumentTheme, LineBreakMode};
 use std::fmt;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 pub const SEED: u64 = 0x5EED_0A11;
@@ -49,11 +50,15 @@ pub struct FrameCase {
     pub doc: Doc,
     pub theme: DocumentTheme,
     pub env: BoxLayoutEnvironment,
+    pub path: Option<PathBuf>,
 }
 
 impl FrameCase {
     pub fn fresh_doc(&self) -> Doc {
-        doc(&self.text)
+        match &self.path {
+            Some(path) => doc_with_path(&self.text, path.clone()),
+            None => doc(&self.text),
+        }
     }
 }
 
@@ -89,6 +94,7 @@ pub fn cases() -> Vec<FrameCase> {
                 text,
                 theme: document_theme(),
                 env: environment(),
+                path: None,
             });
         }
     }
@@ -119,6 +125,7 @@ pub fn cases_for_blocks(counts: &[usize]) -> Vec<FrameCase> {
             text,
             theme: document_theme(),
             env: environment(),
+            path: None,
         });
     }
     out
@@ -127,6 +134,56 @@ pub fn cases_for_blocks(counts: &[usize]) -> Vec<FrameCase> {
 pub fn editor_window_bounds(scroll: Px, viewport_h: Px) -> (Px, Px) {
     let pad = KEEP_SCREENS * viewport_h;
     ((scroll - pad).max(0.0), scroll + viewport_h + pad)
+}
+
+pub fn corpus_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("corpus")
+}
+
+pub fn media_root() -> PathBuf {
+    corpus_root().join("media")
+}
+
+fn media_case(label: &str, text: String, path: PathBuf) -> FrameCase {
+    FrameCase {
+        label: label.to_owned(),
+        doc: doc_with_path(&text, path.clone()),
+        text,
+        theme: document_theme(),
+        env: environment(),
+        path: Some(path),
+    }
+}
+
+pub fn media_cases() -> Vec<FrameCase> {
+    let root = media_root();
+    let mut out = Vec::with_capacity(5);
+    out.push(media_case(
+        "media-images-12",
+        corpus::media_images_doc(&MEDIA_IMAGES, true),
+        root.join("images.md"),
+    ));
+    out.push(media_case(
+        "media-image-giant",
+        corpus::media_images_doc(&[GIANT_IMAGE], true),
+        root.join("giant.md"),
+    ));
+    out.push(media_case(
+        "media-mermaid-12",
+        corpus::media_mermaid_doc(&MEDIA_MERMAID),
+        root.join("mermaid.md"),
+    ));
+    out.push(media_case(
+        "media-mermaid-repeat",
+        corpus::media_mermaid_repeat_doc(&MEDIA_MERMAID[..2], 6),
+        root.join("mermaid-repeat.md"),
+    ));
+    out.push(media_case(
+        "media-text-12",
+        corpus::media_text_doc(12),
+        root.join("text.md"),
+    ));
+    out
 }
 
 pub struct Step {
@@ -243,14 +300,18 @@ pub fn text_nodes(
 pub const EDITOR_VIEWPORT: (f32, f32) = (900.0, 600.0);
 
 pub fn mount_shell(case: &FrameCase, cx: &mut BenchAppContext<'_, '_>) -> Entity<Shell> {
-    mount_shell_text(&case.text, cx)
+    mount_shell_doc(case.fresh_doc(), cx)
 }
 
 pub fn mount_shell_text(text: &str, cx: &mut BenchAppContext<'_, '_>) -> Entity<Shell> {
+    mount_shell_doc(doc(text), cx)
+}
+
+pub fn mount_shell_doc(doc: Doc, cx: &mut BenchAppContext<'_, '_>) -> Entity<Shell> {
     let mut window = cx.add_empty_window();
     let shell = window.update(|window, cx| {
         window.resize(size(px(EDITOR_VIEWPORT.0), px(EDITOR_VIEWPORT.1)));
-        window.replace_root(cx, |_window, cx| Shell::new(doc(text), cx))
+        window.replace_root(cx, |_window, cx| Shell::new(doc, cx))
     });
     window.update(|window, cx| {
         let focus = shell.read(cx).editor_focus().clone();

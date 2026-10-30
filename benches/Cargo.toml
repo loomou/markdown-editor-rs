@@ -14,6 +14,7 @@ md-theme = { path = "../crates/md-theme" }
 md-content = { path = "../crates/md-content", features = ["bench-support"] }
 md-render = { path = "../crates/md-render" }
 md-editor = { path = "../crates/md-editor", features = ["bench-support", "hot_path"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
 gpui = { git = "https://github.com/zed-industries/zed.git", rev = "8eebe1ce1cd0190d44d9fac25f1bd71a4fc89a65", features = [
     "bench-support",
 ] }
@@ -155,6 +156,11 @@ harness = false
 [[bench]]
 name = "app_mem"
 path = "suites/app_mem.rs"
+harness = false
+
+[[bench]]
+name = "media_scroll"
+path = "suites/media_scroll.rs"
 harness = false
 
 [lints.rust]

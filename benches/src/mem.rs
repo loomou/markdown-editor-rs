@@ -1,4 +1,6 @@
+use std::alloc::{GlobalAlloc, Layout, System};
 use std::fmt;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Memory {
@@ -6,6 +8,91 @@ pub struct Memory {
     pub peak_working_set: usize,
     pub pagefile: usize,
     pub peak_pagefile: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Heap {
+    pub live: usize,
+    pub peak: usize,
+}
+
+static LIVE: AtomicUsize = AtomicUsize::new(0);
+static PEAK: AtomicUsize = AtomicUsize::new(0);
+
+pub struct CountingAllocator;
+
+fn record(size: usize) {
+    let live = LIVE.fetch_add(size, Ordering::Relaxed) + size;
+    let mut peak = PEAK.load(Ordering::Relaxed);
+    while live > peak {
+        match PEAK.compare_exchange_weak(peak, live, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => break,
+            Err(current) => peak = current,
+        }
+    }
+}
+
+fn forget(size: usize) {
+    LIVE.fetch_sub(size, Ordering::Relaxed);
+}
+
+// SAFETY: every method forwards to the System allocator with the layout it was
+// given, and only adjusts the counters after the real allocator succeeded, so
+// the accounting never disagrees with the pointer the caller receives.
+unsafe impl GlobalAlloc for CountingAllocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        // SAFETY: the caller of an allocator method guarantees a valid layout.
+        let ptr = unsafe { System.alloc(layout) };
+        if !ptr.is_null() {
+            record(layout.size());
+        }
+        ptr
+    }
+
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        // SAFETY: the caller of an allocator method guarantees a valid layout.
+        let ptr = unsafe { System.alloc_zeroed(layout) };
+        if !ptr.is_null() {
+            record(layout.size());
+        }
+        ptr
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        // SAFETY: the pointer came from this allocator with the same layout.
+        unsafe { System.dealloc(ptr, layout) };
+        forget(layout.size());
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        // SAFETY: the pointer came from this allocator with the same layout.
+        let out = unsafe { System.realloc(ptr, layout, new_size) };
+        if !out.is_null() {
+            forget(layout.size());
+            record(new_size);
+        }
+        out
+    }
+}
+
+pub fn heap() -> Heap {
+    Heap {
+        live: LIVE.load(Ordering::Relaxed),
+        peak: PEAK.load(Ordering::Relaxed),
+    }
+}
+
+pub fn reset_peak() {
+    PEAK.store(LIVE.load(Ordering::Relaxed), Ordering::Relaxed);
+}
+
+pub fn heap_text() -> String {
+    let h = heap();
+    format!(
+        "rust-heap={} peak-rust-heap={}",
+        format_bytes(h.live),
+        format_bytes(h.peak)
+    )
 }
 
 impl fmt::Display for Memory {
