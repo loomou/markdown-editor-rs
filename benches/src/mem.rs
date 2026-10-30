@@ -16,6 +16,26 @@ pub struct Heap {
     pub peak: usize,
 }
 
+/// Process CPU time, kernel and user. Both count, because a decode or a deflate
+/// spends its time in either depending on the codec, and a comparison that only
+/// watched user time would miss the kernel side of the same work.
+#[derive(Clone, Copy, Debug)]
+pub struct Cpu {
+    pub user_100ns: u64,
+    pub kernel_100ns: u64,
+}
+
+impl Cpu {
+    pub fn millis(self) -> f64 {
+        (self.user_100ns + self.kernel_100ns) as f64 / 10_000.0
+    }
+
+    /// CPU this process spent between `self` and `later`, in milliseconds.
+    pub fn since(self, later: Cpu) -> f64 {
+        later.millis() - self.millis()
+    }
+}
+
 static LIVE: AtomicUsize = AtomicUsize::new(0);
 static PEAK: AtomicUsize = AtomicUsize::new(0);
 
@@ -93,6 +113,43 @@ pub fn heap_text() -> String {
         format_bytes(h.live),
         format_bytes(h.peak)
     )
+}
+
+#[cfg(windows)]
+pub fn cpu() -> Option<Cpu> {
+    use windows_sys::Win32::Foundation::FILETIME;
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
+
+    let mut created = FILETIME::default();
+    let mut exited = FILETIME::default();
+    let mut kernel = FILETIME::default();
+    let mut user = FILETIME::default();
+    // SAFETY: GetCurrentProcess returns a pseudo-handle that is always valid for the
+    // calling process and must never be closed, and every FILETIME out-parameter is a
+    // live local that the call only writes into.
+    let ok = unsafe {
+        GetProcessTimes(
+            GetCurrentProcess(),
+            &mut created,
+            &mut exited,
+            &mut kernel,
+            &mut user,
+        )
+    };
+    if ok == 0 {
+        return None;
+    }
+    let ticks =
+        |time: FILETIME| (u64::from(time.dwHighDateTime) << 32) | u64::from(time.dwLowDateTime);
+    Some(Cpu {
+        user_100ns: ticks(user),
+        kernel_100ns: ticks(kernel),
+    })
+}
+
+#[cfg(not(windows))]
+pub fn cpu() -> Option<Cpu> {
+    None
 }
 
 impl fmt::Display for Memory {

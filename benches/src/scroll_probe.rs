@@ -82,6 +82,34 @@ pub struct Pass {
     pub wraps: usize,
     pub step: f64,
     pub dwell_ms: u64,
+    /// Process CPU for the whole pass, warmup excluded. Background media work
+    /// runs on the app's executors, so this is the only number that covers what
+    /// cooling costs; the main thread alone would show a saving that does not
+    /// exist.
+    pub cpu_ms: f64,
+    /// The part of `cpu_ms` spent inside `dwell`, where frames are painted but
+    /// nothing scrolls. A grace that only pays off in a pause has to be charged
+    /// here rather than hidden in the total.
+    pub cpu_dwell_ms: f64,
+    /// Wall time of one scroll step, from setting the offset to the app being
+    /// idle again. This is not a frame time: the harness drains every pending
+    /// media job before it returns, so the number includes work a real window
+    /// would have done after the frame was presented. It is still the quantity
+    /// that says whether a grace makes scrolling more expensive.
+    pub step_p50: f64,
+    pub step_p95: f64,
+    pub step_p99: f64,
+    pub step_max: f64,
+    pub steps: usize,
+}
+
+/// Nearest-rank percentile over an already sorted slice.
+fn percentile(sorted: &[f64], fraction: f64) -> f64 {
+    if sorted.is_empty() {
+        return 0.0;
+    }
+    let index = ((sorted.len() - 1) as f64 * fraction).round() as usize;
+    sorted[index]
 }
 
 /// Keep painting without scrolling. A frame that does not scroll still runs the
@@ -121,11 +149,16 @@ pub fn run_pass(
     let mut peak_step = 0usize;
     let mut wraps = 0usize;
     let mut samples: Vec<Sample> = Vec::with_capacity(steps);
+    let cpu_start = mem::cpu();
+    let mut cpu_dwell_ms = 0.0;
+    let mut step_ms: Vec<f64> = Vec::with_capacity(steps);
 
     for index in 0..steps {
         let before = cx.read_entity(shell, |shell, app| shell.bench_frame_metrics(app).0);
+        let step_started = std::time::Instant::now();
         cx.update_entity(shell, |shell, cx| shell.bench_scroll_to(before + step, cx));
         cx.run_until_idle();
+        step_ms.push(step_started.elapsed().as_secs_f64() * 1000.0);
         let deep = index % SAMPLE_EVERY == 0 || index + TAIL >= steps;
         let s = sample(shell, cx, deep);
         if s.ws > peak_ws {
@@ -146,9 +179,18 @@ pub fn run_pass(
             wraps += 1;
             cx.update_entity(shell, |shell, cx| shell.bench_scroll_to(0.0, cx));
             cx.run_until_idle();
+            let dwell_start = mem::cpu();
             dwell(shell, cx, dwell_ms);
+            if let (Some(start), Some(end)) = (dwell_start, mem::cpu()) {
+                cpu_dwell_ms += start.since(end);
+            }
         }
     }
+
+    let cpu_ms = cpu_start
+        .zip(mem::cpu())
+        .map_or(0.0, |(start, end)| start.since(end));
+    step_ms.sort_by(|left, right| left.partial_cmp(right).expect("finite"));
 
     let tail = &samples[samples.len().saturating_sub(TAIL)..];
     let steady = Sample {
@@ -182,6 +224,13 @@ pub fn run_pass(
         wraps,
         step,
         dwell_ms,
+        cpu_ms,
+        cpu_dwell_ms,
+        step_p50: percentile(&step_ms, 0.50),
+        step_p95: percentile(&step_ms, 0.95),
+        step_p99: percentile(&step_ms, 0.99),
+        step_max: step_ms.last().copied().unwrap_or(0.0),
+        steps: step_ms.len(),
     }
 }
 
@@ -189,7 +238,8 @@ pub fn account_text(a: &md_content::media::Account) -> String {
     format!(
         "display={}/{} source={}/{} mermaid={}/{} math={}/{} zoom={} total={} \
          warm={}/{} warm-skipped={} warm-dropped={} jobs=display{} mermaid{} thaw{} cool{} \
-         resident={}/{} refused={} gpu-pending={} gpu-waited={} gpu-direct={}",
+         resident={}/{} refused={} (source{} display{} zoom{} mermaid{} math{} cool{} thaw{}) \
+         clamped={} gpu-pending={} gpu-waited={} gpu-direct={}",
         mem::format_bytes(a.display_bytes),
         a.display_entries,
         mem::format_bytes(a.source_bytes),
@@ -211,6 +261,14 @@ pub fn account_text(a: &md_content::media::Account) -> String {
         mem::format_bytes(a.resident_bytes),
         mem::format_bytes(a.resident_limit),
         a.refused(),
+        a.refused_source,
+        a.refused_display,
+        a.refused_zoom,
+        a.refused_mermaid,
+        a.refused_math,
+        a.refused_cool,
+        a.refused_thaw,
+        a.clamped,
         a.gpu_pending,
         a.gpu_released_after_wait,
         a.gpu_released_immediately,
@@ -273,5 +331,17 @@ pub fn summarize(label: &str, p: &Pass) {
         p.steady.materialized,
         mem::format_bytes(p.steady.job_peak),
         account_text(&p.steady.media),
+    );
+    eprintln!(
+        "[media-scroll {label}] cost steps={} wall p50={:.3}ms p95={:.3}ms p99={:.3}ms max={:.3}ms \
+         | cpu total={:.0}ms scroll={:.0}ms dwell={:.0}ms",
+        p.steps,
+        p.step_p50,
+        p.step_p95,
+        p.step_p99,
+        p.step_max,
+        p.cpu_ms,
+        p.cpu_ms - p.cpu_dwell_ms,
+        p.cpu_dwell_ms,
     );
 }

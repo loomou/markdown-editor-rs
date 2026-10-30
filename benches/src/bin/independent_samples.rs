@@ -17,6 +17,10 @@ struct Row {
     mermaid: f64,
     thaws: f64,
     cools: f64,
+    cpu_ms: f64,
+    cpu_scroll_ms: f64,
+    step_p95: f64,
+    step_p99: f64,
 }
 
 impl Row {
@@ -32,6 +36,10 @@ impl Row {
             .unwrap_or_default();
         let media_total = mib(parts[3], "total=")?;
         let steady_heap = mib(parts[2], "rust-heap=")?;
+        let cost = text
+            .lines()
+            .find(|line| line.contains("] cost "))
+            .unwrap_or_default();
         Some(Self {
             peak_ws: mib(parts[1], " ws=")?,
             peak_heap: mib(parts[1], "rust-heap=")?,
@@ -47,6 +55,10 @@ impl Row {
             mermaid: count(jobs, "mermaid")?,
             thaws: count(jobs, "thaw")?,
             cools: count(jobs, "cool")?,
+            cpu_ms: mib(cost, "total=").unwrap_or(0.0),
+            cpu_scroll_ms: mib(cost, "scroll=").unwrap_or(0.0),
+            step_p95: mib(cost, "p95=").unwrap_or(0.0),
+            step_p99: mib(cost, "p99=").unwrap_or(0.0),
         })
     }
 }
@@ -156,8 +168,20 @@ fn main() {
     println!("runs    {runs}");
     println!();
     println!(
-        "{:>4} {:>9} {:>8} {:>8} {:>8} {:>6} {:>6} {:>6} {:>6} {:>5}",
-        "run", "media", "display", "warm", "peak", "disp", "merm", "thaw", "cool", "drop"
+        "{:>4} {:>9} {:>8} {:>8} {:>8} {:>6} {:>6} {:>6} {:>6} {:>5} {:>8} {:>7} {:>7}",
+        "run",
+        "media",
+        "display",
+        "warm",
+        "peak",
+        "disp",
+        "merm",
+        "thaw",
+        "cool",
+        "drop",
+        "cpu-ms",
+        "p95-ms",
+        "p99-ms"
     );
 
     let mut rows = Vec::with_capacity(runs);
@@ -185,7 +209,7 @@ fn main() {
             std::process::exit(1);
         };
         println!(
-            "{:>4} {:>9.2} {:>8.2} {:>8.2} {:>8.2} {:>6.0} {:>6.0} {:>6.0} {:>6.0} {:>5.0}",
+            "{:>4} {:>9.2} {:>8.2} {:>8.2} {:>8.2} {:>6.0} {:>6.0} {:>6.0} {:>6.0} {:>5.0} {:>8.0} {:>7.3} {:>7.3}",
             run,
             row.step_media,
             row.display_bytes,
@@ -195,7 +219,10 @@ fn main() {
             row.mermaid,
             row.thaws,
             row.cools,
-            row.dropped
+            row.dropped,
+            row.cpu_ms,
+            row.step_p95,
+            row.step_p99
         );
         rows.push(row);
     }
@@ -216,6 +243,12 @@ fn main() {
     spread(&rows, "thaw-jobs", |row| row.thaws);
     spread(&rows, "cool-jobs", |row| row.cools);
     spread(&rows, "dropped", |row| row.dropped);
+    println!();
+    println!("across {} independent processes, milliseconds", rows.len());
+    spread(&rows, "cpu-total", |row| row.cpu_ms);
+    spread(&rows, "cpu-scroll", |row| row.cpu_scroll_ms);
+    spread(&rows, "step-p95", |row| row.step_p95);
+    spread(&rows, "step-p99", |row| row.step_p99);
 }
 
 fn spread(rows: &[Row], name: &str, pick: fn(&Row) -> f64) {
