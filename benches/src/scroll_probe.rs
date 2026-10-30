@@ -349,3 +349,134 @@ pub fn summarize(label: &str, p: &Pass) {
         p.cpu_dwell_ms,
     );
 }
+
+/// Two or more windows scrolled in turn, so the shared coordinator is exercised
+/// the way an app with two open documents exercises it: the same sources appear
+/// twice, and a budget that each window could afford alone has to be shared.
+pub struct WindowsPass {
+    pub steady: Vec<Sample>,
+    pub peak_ws: usize,
+    pub peak_heap: usize,
+    pub peak_job: usize,
+    /// Sum of every window's cache bytes. This is what a per-window view cannot
+    /// show: each account can look fine while the app holds several of them.
+    pub peak_media: usize,
+    pub resident_peak: usize,
+    pub resident_limit: usize,
+    pub wraps: usize,
+    pub steps: usize,
+    pub cpu_ms: f64,
+    pub step_p50: f64,
+    pub step_p95: f64,
+    pub step_p99: f64,
+}
+
+pub fn run_windows_pass(
+    shells: &[Entity<Shell>],
+    cx: &mut BenchAppContext<'_, '_>,
+    label: &str,
+    steps: usize,
+) -> WindowsPass {
+    for _ in 0..WARMUP_FRAMES {
+        cx.run_until_idle();
+    }
+    let mut peak_ws = 0usize;
+    let mut peak_heap = 0usize;
+    let mut peak_job = 0usize;
+    let mut peak_media = 0usize;
+    let mut wraps = 0usize;
+    let mut step_ms: Vec<f64> = Vec::with_capacity(steps * shells.len());
+    let cpu_start = mem::cpu();
+
+    for index in 0..steps {
+        for shell in shells {
+            let before = cx.read_entity(shell, |shell, app| shell.bench_frame_metrics(app).0);
+            let started = std::time::Instant::now();
+            cx.update_entity(shell, |shell, cx| shell.bench_scroll_to(before + VIEWPORT_H, cx));
+            cx.run_until_idle();
+            step_ms.push(started.elapsed().as_secs_f64() * 1000.0);
+            let after = cx.read_entity(shell, |shell, app| shell.bench_frame_metrics(app).0);
+            if after <= before + 1.0 {
+                wraps += 1;
+                cx.update_entity(shell, |shell, cx| shell.bench_scroll_to(0.0, cx));
+                cx.run_until_idle();
+            }
+        }
+        if index % SAMPLE_EVERY == 0 || index + TAIL >= steps {
+            let mut media = 0usize;
+            for shell in shells {
+                let s = sample(shell, cx, false);
+                media = media.saturating_add(s.media.media_bytes());
+                peak_ws = peak_ws.max(s.ws);
+                peak_heap = peak_heap.max(s.heap);
+                peak_job = peak_job.max(s.job_peak);
+            }
+            peak_media = peak_media.max(media);
+            eprintln!(
+                "[media-windows {label}] step={index:>3} windows={} media-sum={} {}",
+                shells.len(),
+                mem::format_bytes(media),
+                shells
+                    .first()
+                    .map(|shell| describe(&sample(shell, cx, false)))
+                    .unwrap_or_default(),
+            );
+        }
+    }
+
+    let cpu_ms = cpu_start
+        .zip(mem::cpu())
+        .map_or(0.0, |(start, end)| start.since(end));
+    step_ms.sort_by(|left, right| left.partial_cmp(right).expect("finite"));
+    let steady = shells.iter().map(|shell| sample(shell, cx, true)).collect();
+    let (resident_peak, resident_limit) = shells.first().map_or((0, 0), |shell| {
+        (
+            cx.read_entity(shell, |shell, app| shell.bench_media_resident_peak(app)),
+            cx.read_entity(shell, |shell, app| shell.bench_media_account(app).resident_limit),
+        )
+    });
+    WindowsPass {
+        steady,
+        peak_ws,
+        peak_heap,
+        peak_job,
+        peak_media,
+        resident_peak,
+        resident_limit,
+        wraps,
+        steps,
+        cpu_ms,
+        step_p50: percentile(&step_ms, 0.50),
+        step_p95: percentile(&step_ms, 0.95),
+        step_p99: percentile(&step_ms, 0.99),
+    }
+}
+
+pub fn summarize_windows(label: &str, p: &WindowsPass) {
+    eprintln!(
+        "[media-windows {label}] summary windows={} steps={} wraps={} | peak: ws={} rust-heap={} \
+         job-peak={} media-sum={} | resident peak={}/{} | cost wall p50={:.3}ms p95={:.3}ms \
+         p99={:.3}ms cpu={:.0}ms",
+        p.steady.len(),
+        p.steps,
+        p.wraps,
+        mem::format_bytes(p.peak_ws),
+        mem::format_bytes(p.peak_heap),
+        mem::format_bytes(p.peak_job),
+        mem::format_bytes(p.peak_media),
+        mem::format_bytes(p.resident_peak),
+        mem::format_bytes(p.resident_limit),
+        p.step_p50,
+        p.step_p95,
+        p.step_p99,
+        p.cpu_ms,
+    );
+    for (index, s) in p.steady.iter().enumerate() {
+        eprintln!(
+            "[media-windows {label}] window{index} steady: ws={} rust-heap={} media: {}",
+            mem::format_bytes(s.ws),
+            mem::format_bytes(s.heap),
+            account_text(&s.media),
+        );
+    }
+}

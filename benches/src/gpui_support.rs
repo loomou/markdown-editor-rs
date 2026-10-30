@@ -272,7 +272,7 @@ pub fn media_cases() -> Vec<FrameCase> {
             root.join("text.md"),
         ),
         media_case(
-            "media-mixed-12",
+            "media-mixed-12-full",
             corpus::media_mixed_doc(12),
             root.join("mixed.md"),
         ),

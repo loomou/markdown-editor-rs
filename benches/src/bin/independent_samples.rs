@@ -17,6 +17,11 @@ struct Row {
     mermaid: f64,
     thaws: f64,
     cools: f64,
+    refused: f64,
+    refused_display: f64,
+    refused_mermaid: f64,
+    refused_cool: f64,
+    refused_thaw: f64,
     cpu_ms: f64,
     cpu_scroll_ms: f64,
     step_p95: f64,
@@ -55,6 +60,11 @@ impl Row {
             mermaid: count(jobs, "mermaid")?,
             thaws: count(jobs, "thaw")?,
             cools: count(jobs, "cool")?,
+            refused: count(parts[3], "refused=").unwrap_or(0.0),
+            refused_display: bracketed(parts[3], "display").unwrap_or(0.0),
+            refused_mermaid: bracketed(parts[3], "mermaid").unwrap_or(0.0),
+            refused_cool: bracketed(parts[3], "cool").unwrap_or(0.0),
+            refused_thaw: bracketed(parts[3], "thaw").unwrap_or(0.0),
             cpu_ms: mib(cost, "total=").unwrap_or(0.0),
             cpu_scroll_ms: mib(cost, "scroll=").unwrap_or(0.0),
             step_p95: mib(cost, "p95=").unwrap_or(0.0),
@@ -87,6 +97,15 @@ fn count(segment: &str, key: &str) -> Option<f64> {
         .find(|c: char| !c.is_ascii_digit())
         .unwrap_or(rest.len());
     rest[..end].parse().ok()
+}
+
+/// The per-queue breakdown is printed as `refused=12 (source0 display12 ...)`,
+/// so the queue name only means something inside the parentheses.
+fn bracketed(segment: &str, queue: &str) -> Option<f64> {
+    let open = segment.find("refused=")?;
+    let inner = &segment[open..];
+    let close = inner.find(')')?;
+    count(&inner[..close], queue)
 }
 
 fn step_median(text: &str, key: &str) -> Option<f64> {
@@ -209,7 +228,7 @@ fn main() {
             std::process::exit(1);
         };
         println!(
-            "{:>4} {:>9.2} {:>8.2} {:>8.2} {:>8.2} {:>6.0} {:>6.0} {:>6.0} {:>6.0} {:>5.0} {:>8.0} {:>7.3} {:>7.3}",
+            "{:>4} {:>9.2} {:>8.2} {:>8.2} {:>8.2} {:>6.0} {:>6.0} {:>6.0} {:>6.0} {:>5.0} {:>5.0} {:>8.0} {:>7.3} {:>7.3}",
             run,
             row.step_media,
             row.display_bytes,
@@ -220,6 +239,7 @@ fn main() {
             row.thaws,
             row.cools,
             row.dropped,
+            row.refused,
             row.cpu_ms,
             row.step_p95,
             row.step_p99
@@ -243,6 +263,11 @@ fn main() {
     spread(&rows, "thaw-jobs", |row| row.thaws);
     spread(&rows, "cool-jobs", |row| row.cools);
     spread(&rows, "dropped", |row| row.dropped);
+    spread(&rows, "refused", |row| row.refused);
+    spread(&rows, "ref-display", |row| row.refused_display);
+    spread(&rows, "ref-mermaid", |row| row.refused_mermaid);
+    spread(&rows, "ref-cool", |row| row.refused_cool);
+    spread(&rows, "ref-thaw", |row| row.refused_thaw);
     println!();
     println!("across {} independent processes, milliseconds", rows.len());
     spread(&rows, "cpu-total", |row| row.cpu_ms);
