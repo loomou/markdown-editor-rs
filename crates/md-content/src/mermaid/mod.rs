@@ -100,6 +100,16 @@ pub struct MermaidRasterKey {
 }
 
 impl MermaidRasterKey {
+    pub fn for_source(source: &str, theme_fp: u64, width_q: u32, max_h: u32, dpr_q: u16) -> Self {
+        Self {
+            source: hash_source(source),
+            theme_fp,
+            width_q,
+            max_h,
+            dpr_q,
+        }
+    }
+
     pub fn dpr(self) -> f32 {
         crate::pixels::dpr_from_q(self.dpr_q)
     }
