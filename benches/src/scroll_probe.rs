@@ -2,10 +2,10 @@ use gpui::{AppContext, BenchAppContext, Entity};
 use md_core::Px;
 use md_editor::Shell;
 
+use crate::gpui_support::VIEWPORT_H;
 use crate::mem;
 
 pub const WARMUP_FRAMES: usize = 8;
-pub const STEPS_PER_PASS: f64 = 200.0;
 pub const SAMPLE_EVERY: usize = 20;
 pub const TAIL: usize = 5;
 
@@ -140,7 +140,11 @@ pub fn run_pass(
     let base = sample(shell, cx, true);
     eprintln!("[media-scroll {label}] base {}", describe(&base));
 
-    let step = (base.total / STEPS_PER_PASS).max(600.0);
+    // One step is one viewport. A longer step would skip screens, and a cache
+    // only ever sees the screens that were built, so a long document would be
+    // measured on a fraction of its media. A document that needs more steps to
+    // traverse asks for them instead of scrolling faster.
+    let step = VIEWPORT_H;
     let mut peak_ws = base.ws;
     let mut peak_private = base.private;
     let mut peak_pagefile = base.pagefile;

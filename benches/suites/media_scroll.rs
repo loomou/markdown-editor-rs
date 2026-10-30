@@ -1,5 +1,5 @@
 use gpui::BenchAppContext;
-use md_bench::gpui_support::{media_cases, mount_shell, FrameCase};
+use md_bench::gpui_support::{FrameCase, media_cases, mount_shell};
 use md_bench::mem;
 use md_bench::scroll_probe::{run_pass, summarize};
 
@@ -23,7 +23,8 @@ fn media_scroll(case: &FrameCase, cx: &mut BenchAppContext<'_, '_>) {
     mem::reset_peak();
     cx.update(md_content::media::MediaCoordinator::reset_peak);
     let shell = mount_shell(case, cx);
-    let pass = run_pass(&shell, cx, &case.label, STEPS, case.dwell_ms);
+    let steps = case.steps.unwrap_or(STEPS);
+    let pass = run_pass(&shell, cx, &case.label, steps, case.dwell_ms);
     summarize(&case.label, &pass);
 
     cx.bench_renderer(shell, move |shell, _window, cx| {

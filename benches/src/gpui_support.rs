@@ -1,16 +1,16 @@
 use crate::corpus::{
-    self, generate, generate_blocks, human, human_blocks, Shape, BLOCK_COUNTS, BLOCK_SEED,
-    GIANT_IMAGE, MEDIA_IMAGES, MEDIA_LARGE, MEDIA_MERMAID, RENDER_FRAME_BLOCK_COUNTS,
+    self, BLOCK_COUNTS, BLOCK_SEED, GIANT_IMAGE, MEDIA_IMAGES, MEDIA_LARGE, MEDIA_MERMAID,
+    RENDER_FRAME_BLOCK_COUNTS, Shape, generate, generate_blocks, human, human_blocks,
 };
 use crate::harness::{caret, doc, doc_with_path, document_theme, environment, leaf_end};
 use gpui::{
-    div, px, size, BenchAppContext, Context, Entity, IntoElement, Render, Styled as _, Window,
+    BenchAppContext, Context, Entity, IntoElement, Render, Styled as _, Window, div, px, size,
 };
 use md_content::shaper::{GpuiShaper, ShapeMedia};
+use md_core::Px;
 use md_core::block::BlockId;
 use md_core::doc::Doc;
 use md_core::document::Command;
-use md_core::Px;
 use md_editor::Shell;
 use md_layout::box_tree::LayoutBoxId;
 use md_layout::island::FallbackSolver;
@@ -63,6 +63,11 @@ pub struct FrameCase {
     /// needs to stay off screen for the grace, and a pass that wraps every
     /// fourteen frames never gives it that long.
     pub dwell_ms: u64,
+    /// Steps the pass takes. `None` is the default, which covers the twelve
+    /// media cases several times over; a document with a hundred times as much
+    /// media needs a hundred times the steps to be traversed once, and a pass
+    /// that stops halfway has not seen the history it was built to test.
+    pub steps: Option<usize>,
 }
 
 impl FrameCase {
@@ -110,6 +115,7 @@ pub fn cases() -> Vec<FrameCase> {
                 job_bytes: None,
                 resident_bytes: None,
                 dwell_ms: 0,
+                steps: None,
             });
         }
     }
@@ -144,6 +150,7 @@ pub fn cases_for_blocks(counts: &[usize]) -> Vec<FrameCase> {
             job_bytes: None,
             resident_bytes: None,
             dwell_ms: 0,
+            steps: None,
         });
     }
     out
@@ -173,6 +180,7 @@ fn media_case(label: &str, text: String, path: PathBuf) -> FrameCase {
         job_bytes: None,
         resident_bytes: None,
         dwell_ms: 0,
+        steps: None,
     }
 }
 
@@ -196,6 +204,16 @@ fn media_case_tight(
     FrameCase {
         resident_bytes: Some(resident_bytes),
         dwell_ms,
+        ..media_case(label, text, path)
+    }
+}
+
+/// A document long enough that the default 300 steps would not reach the end.
+/// The step count is set so the pass traverses the document once: a pass that
+/// stops halfway has only seen half the history it exists to test.
+fn media_case_long(label: &str, text: String, path: PathBuf, steps: usize) -> FrameCase {
+    FrameCase {
+        steps: Some(steps),
         ..media_case(label, text, path)
     }
 }
@@ -252,6 +270,30 @@ pub fn media_cases() -> Vec<FrameCase> {
             "media-text-12",
             corpus::media_text_doc(12),
             root.join("text.md"),
+        ),
+        media_case(
+            "media-mixed-12",
+            corpus::media_mixed_doc(12),
+            root.join("mixed.md"),
+        ),
+        media_case_tight(
+            "media-mixed-12-tight",
+            corpus::media_mixed_doc(12),
+            root.join("mixed.md"),
+            120 << 20,
+            400,
+        ),
+        media_case_long(
+            "media-gallery-120",
+            corpus::media_gallery_doc(120),
+            root.join("gallery120.md"),
+            400,
+        ),
+        media_case_long(
+            "media-gallery-1200",
+            corpus::media_gallery_doc(1200),
+            root.join("gallery1200.md"),
+            1200,
         ),
     ]
 }

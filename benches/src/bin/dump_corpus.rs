@@ -91,6 +91,7 @@ fn main() {
             corpus::media_mermaid_repeat_doc(&corpus::MEDIA_MERMAID[..2], 6),
         ),
         ("text.md", corpus::media_text_doc(12)),
+        ("mixed.md", corpus::media_mixed_doc(12)),
     ];
     for (name, text) in &docs {
         let path = media.join(name);
@@ -105,5 +106,38 @@ fn main() {
         total += text.len();
     }
 
+    let gallery_bytes = dump_gallery(&media);
+    total += gallery_bytes;
+    for count in GALLERY_DOCS {
+        let text = corpus::media_gallery_doc(count);
+        let name = format!("gallery{count}.md");
+        fs::write(media.join(&name), &text).expect("the gallery document must be writable");
+        println!(
+            "{:<18} {:>11} {:>10} {:>18x}",
+            "media-doc",
+            name,
+            text.len(),
+            corpus::fingerprint(&text)
+        );
+        total += text.len();
+    }
+
     println!("total {total} bytes under {}", root.display());
+}
+
+const GALLERY_DOCS: [usize; 2] = [120, 1200];
+
+fn dump_gallery(media: &PathBuf) -> usize {
+    let count = GALLERY_DOCS[1];
+    let mut bytes = 0usize;
+    for index in 0..count {
+        let (name, width, height, style, seed) = corpus::media_gallery_entry(index);
+        let pixels = corpus::media_pixels_sized(width, height, style, seed);
+        let png = corpus::encode_png(&pixels);
+        fs::write(media.join(format!("{name}.png")), &png)
+            .expect("the gallery image must be writable");
+        bytes += png.len();
+    }
+    println!("{:<18} {:>11} {:>10}", "media-gallery", count, bytes);
+    bytes
 }

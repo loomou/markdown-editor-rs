@@ -1018,10 +1018,19 @@ fn paint_photo(img: &mut image::RgbaImage, rng: &mut Rng) {
 }
 
 pub fn media_pixels(spec: &MediaImage, seed: u64) -> image::RgbaImage {
-    let salt = u64::from(spec.width) ^ (u64::from(spec.height) << 32);
+    media_pixels_sized(spec.width, spec.height, spec.style, seed)
+}
+
+pub fn media_pixels_sized(
+    width: u32,
+    height: u32,
+    style: MediaStyle,
+    seed: u64,
+) -> image::RgbaImage {
+    let salt = u64::from(width) ^ (u64::from(height) << 32);
     let mut rng = Rng::new(seed ^ salt);
-    let mut img = image::RgbaImage::new(spec.width, spec.height);
-    match spec.style {
+    let mut img = image::RgbaImage::new(width, height);
+    match style {
         MediaStyle::Graphic => paint_graphic(&mut img, &mut rng),
         MediaStyle::Photo => paint_photo(&mut img, &mut rng),
     }
@@ -1145,6 +1154,71 @@ pub fn media_text_doc(count: usize) -> String {
             "A paragraph of body text after the figure, long enough that the next heading \
              lands below the fold.\n\n",
         );
+    }
+    out
+}
+
+/// Geometry of every gallery source. The twelve curated shapes exist to compare
+/// geometries; the gallery exists to grow the number of sources, so it holds the
+/// geometry fixed and varies only the pixels.
+pub const GALLERY_WIDTH: u32 = 240;
+pub const GALLERY_HEIGHT: u32 = 180;
+
+/// Name, geometry, style and seed of the `index`-th gallery source.
+///
+/// The seed is per index on purpose. Distinct file names alone are enough for
+/// the caches, which key on the path, but identical bytes would let any
+/// content-addressed layer collapse the files and a document of twelve hundred
+/// pictures would quietly measure one picture twelve hundred times. The style
+/// is graphic rather than photographic so the corpus stays small enough to
+/// regenerate; the photo sources in `MEDIA_IMAGES` cover the codec difference.
+pub fn media_gallery_entry(index: usize) -> (String, u32, u32, MediaStyle, u64) {
+    (
+        format!("gallery{index:04}"),
+        GALLERY_WIDTH,
+        GALLERY_HEIGHT,
+        MediaStyle::Graphic,
+        MEDIA_SEED ^ (index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15),
+    )
+}
+
+pub fn media_gallery_doc(count: usize) -> String {
+    let mut out = String::with_capacity(count * 384);
+    for index in 0..count {
+        let (name, _, _, _, _) = media_gallery_entry(index);
+        out.push_str("## Figure ");
+        out.push_str(&(index + 1).to_string());
+        out.push_str("\n\nA paragraph of body text ahead of the figure so the block does not sit flush against the viewport edge.\n\n![");
+        out.push_str(&name);
+        out.push_str("](");
+        out.push_str(&name);
+        out.push_str(".png)\n\nA paragraph of body text after the figure, long enough that the next heading lands below the fold.\n\n");
+    }
+    out
+}
+
+/// One round per screen: an image, a formula and a diagram interleaved with
+/// prose. The three caches are hot at the same time, which is the only way to
+/// see whether a per-cache slice that looks fine on its own adds up to
+/// something a window should not hold.
+pub fn media_mixed_doc(rounds: usize) -> String {
+    let mut out = String::with_capacity(rounds * 1024);
+    for index in 0..rounds {
+        let spec = MEDIA_IMAGES[index % MEDIA_IMAGES.len()];
+        out.push_str("## Round ");
+        out.push_str(&(index + 1).to_string());
+        out.push_str("\n\nA paragraph of body text ahead of the figure so the block does not sit flush against the viewport edge.\n\n![");
+        out.push_str(spec.name);
+        out.push_str("](");
+        out.push_str(spec.name);
+        out.push_str(".png)\n\n");
+        out.push_str("Inline $");
+        out.push_str(MATH_INLINE[index % MATH_INLINE.len()]);
+        out.push_str("$ follows a display block:\n\n$$\n");
+        out.push_str(MATH_DISPLAY[index % MATH_DISPLAY.len()]);
+        out.push_str("\n$$\n\n```mermaid\n");
+        out.push_str(MEDIA_MERMAID[index % MEDIA_MERMAID.len()]);
+        out.push_str("\n```\n\nA short line of prose after the diagram.\n\n");
     }
     out
 }
