@@ -16,10 +16,28 @@ impl EditorView {
         cx: &mut Context<'_, Self>,
     ) {
         let (width, height) = viewport;
-        self.images
-            .set_budget(images::Budget::for_viewport(width, height, dpr), cx);
-        self.mermaid
-            .set_budget(mermaid::Budget::for_viewport(width, height, dpr), cx);
+        let dpr = dpr.max(0.25);
+        let screen = (width.max(1.0) * height.max(1.0) * dpr * dpr * 4.0) as usize;
+        let total = media::resident_ceiling(screen);
+        media::MediaCoordinator::set_resident_limit(cx, total);
+        let split = media::split_resident(total);
+        let entries = images::Budget::for_viewport(width, height, dpr);
+        self.images.set_budget(
+            images::Budget {
+                display_bytes: split.display,
+                display_entries: entries.display_entries,
+                source_bytes: split.source,
+            },
+            cx,
+        );
+        self.mermaid.set_budget(
+            mermaid::Budget {
+                bytes: split.mermaid,
+                entries: entries.display_entries,
+            },
+            cx,
+        );
+        self.math.set_budget(split.math, cx);
     }
 
     fn warm_mermaid_blocks(&self, top: Px, viewport_h: Px) -> Vec<(BlockId, Px)> {
@@ -102,30 +120,40 @@ impl EditorView {
         self.mermaid.set_working_set(protect, warm, cx);
         let jobs: Vec<_> = jobs.into_iter().chain(warm_jobs).collect();
         for (key, src, spec) in jobs {
-            let Some(permit) = media::MediaCoordinator::admit(cx, mermaid::estimate_job(&spec))
-            else {
+            let Some(permit) = media::MediaCoordinator::admit(
+                cx,
+                media::JobKind::Mermaid,
+                mermaid::estimate_job(&spec),
+            ) else {
                 continue;
             };
             if !self.mermaid.begin(key) {
                 continue;
             }
             cx.spawn(async move |this, cx| {
-                let result = cx
+                let (result, permit) = cx
                     .background_executor()
                     .spawn(async move {
-                        let _permit = permit;
-                        mermaid::raster_with_svg(&src, &spec)
+                        (mermaid::raster_with_svg(&src, &spec), permit)
                     })
                     .await;
                 let _ = this.update(cx, |v, cx| {
-                    if let Ok((_, svg)) = &result {
-                        v.mermaid.store_svg(key.svg_key(), svg.clone());
-                    }
+                    let result = match result {
+                        Ok((image, svg)) => {
+                            v.mermaid.store_svg(key.svg_key(), svg);
+                            let bytes = image.bytes;
+                            Ok(image.with_lease(permit.into_lease(bytes)))
+                        }
+                        Err(err) => {
+                            drop(permit);
+                            Err(err)
+                        }
+                    };
                     if let Err(ref err) = result {
                         tracing::warn!(error = %err, "mermaid");
                     }
                     let ready = result.is_ok();
-                    v.mermaid.finish(key, result.map(|(image, _)| image), cx);
+                    v.mermaid.finish(key, result, cx);
                     if ready && let Some(eng) = v.state.incremental.as_mut() {
                         eng.invalidate_island_for_block(key.block);
                     }
@@ -183,21 +211,35 @@ impl EditorView {
                 .flatten()
                 .unwrap_or_else(|| math::MathEm::estimate(&key.latex));
             let bytes = math::estimate_job(em, key.font_size(), key.dpr());
-            let Some(permit) = media::MediaCoordinator::admit(cx, bytes) else {
+            let Some(permit) = media::MediaCoordinator::admit(cx, media::JobKind::Math, bytes)
+            else {
                 continue;
             };
             if !self.math.begin(key.clone()) {
                 continue;
             }
             cx.spawn(async move |this, cx| {
-                let result = cx
+                let (result, permit) = cx
                     .background_executor()
-                    .spawn(async move {
-                        let _permit = permit;
-                        math::raster(&src, &spec)
-                    })
+                    .spawn(async move { (math::raster(&src, &spec), permit) })
                     .await;
                 let _ = this.update(cx, |v, cx| {
+                    let result = match result {
+                        Ok(mut out) => {
+                            match out.image.take() {
+                                Some(image) => {
+                                    let bytes = image.bytes;
+                                    out.image = Some(image.with_lease(permit.into_lease(bytes)));
+                                }
+                                None => drop(permit),
+                            }
+                            Ok(out)
+                        }
+                        Err(err) => {
+                            drop(permit);
+                            Err(err)
+                        }
+                    };
                     if let Err(ref err) = result {
                         tracing::warn!(error = %err, "math");
                     }
@@ -287,6 +329,13 @@ impl EditorView {
             if self.images.source_contains(&dest) && !self.images.source_retry_due(&dest) {
                 continue;
             }
+            let Some(permit) = media::MediaCoordinator::admit(
+                cx,
+                media::JobKind::Source,
+                images::estimate_source_job(),
+            ) else {
+                continue;
+            };
             let Some(token) = self.images.begin_source(dest.clone()) else {
                 continue;
             };
@@ -307,7 +356,22 @@ impl EditorView {
                 let result = match this.update(cx, |view, cx| {
                     resolved.map(|resolved| images::load_source(resolved, view.remote_images, cx))
                 }) {
-                    Ok(Some(fut)) => cx.background_executor().spawn(fut).await,
+                    Ok(Some(fut)) => {
+                        let (loaded, permit) = cx
+                            .background_executor()
+                            .spawn(async move { (fut.await, permit) })
+                            .await;
+                        match loaded {
+                            Ok(media) => {
+                                let resident = media.resident_bytes();
+                                Ok(media.with_lease(permit.into_lease(resident)))
+                            }
+                            Err(err) => {
+                                drop(permit);
+                                Err(err)
+                            }
+                        }
+                    }
                     Ok(None) => Err(md_content::images::SourceError::Fatal(
                         md_content::Error::Image(md_i18n::Key::ImageBadPath.into()),
                     )),
@@ -334,7 +398,8 @@ impl EditorView {
             }
             let DisplayJob { source, blocks } = job;
             let bytes = images::estimate_display_job(&source, &key);
-            let Some(permit) = media::MediaCoordinator::admit(cx, bytes) else {
+            let Some(permit) = media::MediaCoordinator::admit(cx, media::JobKind::Display, bytes)
+            else {
                 continue;
             };
             let Some(display_token) = self.images.begin_display(key.clone()) else {
@@ -342,14 +407,14 @@ impl EditorView {
             };
             cx.spawn(async move |this, cx| {
                 let raster_key = key.clone();
-                let result = cx
+                let (result, permit) = cx
                     .background_executor()
                     .spawn(async move {
-                        let _permit = permit;
-                        images::raster_display(&source, &raster_key)
+                        (images::raster_display(&source, &raster_key), permit)
                     })
                     .await;
                 let _ = this.update(cx, |v, cx| {
+                    let result = super::media_budget::deliver(result, permit);
                     if let Err(ref err) = result {
                         tracing::warn!(error = %err, "image display");
                     }

@@ -487,7 +487,11 @@ impl ImageCache {
     }
 
     fn evict_source(&mut self, incoming: usize, source_budget: usize, mut cx: Option<&mut App>) {
-        while self.source_bytes.saturating_add(incoming) > source_budget {
+        loop {
+            let pressured = cx.as_deref().is_some_and(crate::media::over_resident);
+            if self.source_bytes.saturating_add(incoming) <= source_budget && !pressured {
+                break;
+            }
             let Some(idx) = self.pick_source_victim() else {
                 break;
             };
@@ -575,7 +579,11 @@ impl ImageCache {
     }
 
     fn evict_display(&mut self, mut cx: Option<&mut App>, max_entries: usize, max_bytes: usize) {
-        while self.display.len() > max_entries || self.display_bytes > max_bytes {
+        loop {
+            let pressured = cx.as_deref().is_some_and(crate::media::over_resident);
+            if self.display.len() <= max_entries && self.display_bytes <= max_bytes && !pressured {
+                break;
+            }
             let Some(idx) = self.pick_display_victim() else {
                 break;
             };

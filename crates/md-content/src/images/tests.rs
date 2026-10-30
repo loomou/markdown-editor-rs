@@ -1524,6 +1524,7 @@ fn an_estimate_counts_the_pixels_the_file_decodes_to_not_the_capped_ones() {
         width: 2048,
         height: 2048,
         decoded: (4096, 4096),
+        lease: None,
     };
     assert_eq!(media.dims(), (2048, 2048));
     assert_eq!(media.decoded_dims(), (4096, 4096));
@@ -1568,4 +1569,128 @@ fn a_zoom_estimate_follows_the_target_into_the_pixel_cap() {
         estimate < uncapped,
         "an uncapped target would ask for {uncapped} bytes"
     );
+}
+
+fn leased_display(
+    cx: &gpui::App,
+    media: &SourceMedia,
+    key: &super::DisplayKey,
+) -> crate::pixels::ReadyImage {
+    let permit = crate::media::MediaCoordinator::admit(cx, crate::media::JobKind::Display, 1 << 20)
+        .expect("admit a display job");
+    let image = raster_display(media, key).expect("raster");
+    let bytes = image.bytes;
+    image.with_lease(permit.into_lease(bytes))
+}
+
+#[gpui::test]
+fn app_pressure_evicts_past_the_display_slice_and_a_snapshot_keeps_it_charged(
+    cx: &mut gpui::TestAppContext,
+) {
+    cx.update(|cx| {
+        crate::media::MediaCoordinator::install_with(cx, 1 << 20, 1 << 10);
+        let mut cache = ImageCache::new();
+        cache.set_budget(
+            Budget {
+                display_bytes: 1 << 20,
+                display_entries: 8,
+                source_bytes: 1 << 20,
+            },
+            cx,
+        );
+        let media = bitmap_from_png(&png_with_size(16, 16));
+
+        let first = display_key("a", 16.0, 16.0, 1.0);
+        let token = cache.begin_display(first.clone()).expect("begin a");
+        let image = leased_display(cx, &media, &first);
+        assert_eq!(image.bytes, 1024);
+        assert!(cache.finish_display(token, Ok(image), cx));
+        assert_eq!(crate::media::MediaCoordinator::app_resident(cx), 1024);
+
+        let snapshot = cache.ready_snapshot();
+
+        let second = display_key("b", 16.0, 16.0, 1.0);
+        let token = cache.begin_display(second.clone()).expect("begin b");
+        let image = leased_display(cx, &media, &second);
+        assert!(cache.finish_display(token, Ok(image), cx));
+
+        assert_eq!(
+            cache.display_entry_count(),
+            0,
+            "the resident ceiling is exceeded, so both displays go before either slice is refilled"
+        );
+        assert_eq!(
+            crate::media::MediaCoordinator::app_resident(cx),
+            1024,
+            "the snapshot still holds one image, so its pixels stay charged after the entry is gone"
+        );
+
+        drop(snapshot);
+        assert_eq!(
+            crate::media::MediaCoordinator::app_resident(cx),
+            0,
+            "the last clone of each image returns its lease"
+        );
+    });
+}
+
+#[gpui::test]
+fn a_late_display_result_is_dropped_with_its_lease(cx: &mut gpui::TestAppContext) {
+    cx.update(|cx| {
+        crate::media::MediaCoordinator::install_with(cx, 1 << 20, 1 << 20);
+        let mut cache = ImageCache::new();
+        let media = bitmap_from_png(&png_with_size(16, 16));
+        let key = display_key("a", 16.0, 16.0, 1.0);
+
+        let token = cache.begin_display(key.clone()).expect("begin");
+        let image = leased_display(cx, &media, &key);
+        assert!(cache.finish_display(token.clone(), Ok(image), cx));
+        assert_eq!(crate::media::MediaCoordinator::app_resident(cx), 1024);
+
+        let late = leased_display(cx, &media, &key);
+        assert!(
+            !cache.finish_display(token, Ok(late), cx),
+            "the slot already holds a newer result"
+        );
+        assert_eq!(
+            crate::media::MediaCoordinator::app_resident(cx),
+            1024,
+            "the late pixels must give their lease back instead of double charging"
+        );
+    });
+}
+
+#[gpui::test]
+fn a_source_lease_covers_its_encoded_bytes_until_the_cache_lets_go(cx: &mut gpui::TestAppContext) {
+    cx.update(|cx| {
+        crate::media::MediaCoordinator::install_with(cx, 1 << 20, 1 << 20);
+        let mut cache = ImageCache::new();
+        cache.set_budget(
+            Budget {
+                display_bytes: 1 << 20,
+                display_entries: 8,
+                source_bytes: 1 << 20,
+            },
+            cx,
+        );
+        let media = bitmap_from_png(&png_with_size(16, 16));
+        let resident = media.resident_bytes();
+        let permit =
+            crate::media::MediaCoordinator::admit(cx, crate::media::JobKind::Source, 1 << 20)
+                .expect("admit a source job");
+        let media = media.with_lease(permit.into_lease(resident));
+        let token = cache.begin_source("a".into()).expect("begin source");
+        assert!(cache.finish_source(token, Ok(media.clone()), cx));
+        assert_eq!(crate::media::MediaCoordinator::app_resident(cx), resident);
+
+        drop(media);
+        assert_eq!(
+            crate::media::MediaCoordinator::app_resident(cx),
+            resident,
+            "the cache still holds the source, so its bytes stay charged"
+        );
+
+        cache.clear(cx);
+        assert_eq!(crate::media::MediaCoordinator::app_resident(cx), 0);
+    });
 }

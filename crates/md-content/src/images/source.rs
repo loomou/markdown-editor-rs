@@ -161,6 +161,7 @@ pub(super) fn parse_source(
             width,
             height,
             bytes: bytes.len(),
+            lease: None,
         });
     }
     let (declared_w, declared_h) = validate_image_dimensions(format, &bytes)?;
@@ -171,6 +172,7 @@ pub(super) fn parse_source(
         width,
         height,
         decoded: (declared_w, declared_h),
+        lease: None,
     })
 }
 

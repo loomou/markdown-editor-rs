@@ -24,6 +24,13 @@ const MAX_IMAGE_PIXELS: u64 = 64 * 1024 * 1024;
 const MAX_RASTER_PIXELS: u64 = 4 * 1024 * 1024;
 const HTTP_TIMEOUT_SECS: u64 = 15;
 
+/// Working bytes a source load asks for before it knows the file size. The read
+/// buffer is capped at `MAX_FETCH`, so that is the most it can hold while the
+/// decode that follows is estimated separately per raster.
+pub fn estimate_source_job() -> usize {
+    MAX_FETCH
+}
+
 const MAX_FAILED_ENTRIES: usize = 256;
 
 const DISPLAY_SCREENS: usize = 8;
@@ -92,12 +99,14 @@ pub enum SourceMedia {
         /// The size the file decodes to, before the display cap. A job pays
         /// for these pixels, not for the capped ones it keeps.
         decoded: (u32, u32),
+        lease: Option<Arc<crate::media::ByteLease>>,
     },
     Vector {
         tree: Arc<usvg::Tree>,
         width: u32,
         height: u32,
         bytes: usize,
+        lease: Option<Arc<crate::media::ByteLease>>,
     },
 }
 
@@ -122,6 +131,27 @@ impl SourceMedia {
             SourceMedia::Bitmap { bytes, .. } => bytes.len(),
             SourceMedia::Vector { bytes, .. } => *bytes,
         }
+    }
+
+    /// Charge the encoded bytes or the parse tree to the resident account for
+    /// as long as any clone of this source is alive.
+    pub fn with_lease(mut self, lease: Arc<crate::media::ByteLease>) -> Self {
+        match &mut self {
+            SourceMedia::Bitmap { lease: slot, .. } | SourceMedia::Vector { lease: slot, .. } => {
+                *slot = Some(lease)
+            }
+        }
+        self
+    }
+
+    pub fn lease(&self) -> Option<&Arc<crate::media::ByteLease>> {
+        match self {
+            SourceMedia::Bitmap { lease, .. } | SourceMedia::Vector { lease, .. } => lease.as_ref(),
+        }
+    }
+
+    pub fn allocation_id(&self) -> Option<u64> {
+        self.lease().map(|lease| lease.id())
     }
 }
 

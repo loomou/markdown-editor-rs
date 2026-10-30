@@ -238,7 +238,11 @@ impl MermaidCache {
     }
 
     fn evict(&mut self, mut cx: Option<&mut App>, max_entries: usize, max_bytes: usize) {
-        while self.map.len() > max_entries || self.bytes > max_bytes {
+        loop {
+            let pressured = cx.as_deref().is_some_and(crate::media::over_resident);
+            if self.map.len() <= max_entries && self.bytes <= max_bytes && !pressured {
+                break;
+            }
             let Some(victim) = self.pick_victim() else {
                 break;
             };

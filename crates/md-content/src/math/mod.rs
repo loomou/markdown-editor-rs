@@ -104,6 +104,7 @@ pub struct MathCache {
     hot: HashSet<MathKey>,
     warm: HashSet<MathKey>,
     bytes: usize,
+    max_bytes: usize,
     inflight: usize,
     metrics: Rc<MathMetrics>,
     metrics_order: VecDeque<MetricId>,

@@ -365,7 +365,7 @@ impl EditorView {
         };
         let spec = mermaid::spec_from_theme(&theme, key);
         let bytes = mermaid::estimate_zoom_job(css, target);
-        let Some(permit) = media::MediaCoordinator::admit(cx, bytes) else {
+        let Some(permit) = media::MediaCoordinator::admit(cx, media::JobKind::Zoom, bytes) else {
             return;
         };
         self.zoom_raster_job = Some(ZoomRasterJob {
@@ -373,15 +373,17 @@ impl EditorView {
             density: target,
             task: cx.spawn(async move |this, cx| {
                 cx.background_executor().timer(ZOOM_RASTER_DEBOUNCE).await;
-                let result = cx
+                let (result, permit) = cx
                     .background_executor()
                     .spawn(async move {
-                        let _permit = permit;
                         let svg = match svg {
                             Some(svg) => svg,
-                            None => std::sync::Arc::new(mermaid::render_sealed(&src, &spec)?),
+                            None => match mermaid::render_sealed(&src, &spec) {
+                                Ok(svg) => std::sync::Arc::new(svg),
+                                Err(err) => return (Err(err), permit),
+                            },
                         };
-                        mermaid::raster_svg(&svg, css, target)
+                        (mermaid::raster_svg(&svg, css, target), permit)
                     })
                     .await;
                 let _ = this.update(cx, |v, cx| {
@@ -400,7 +402,7 @@ impl EditorView {
                     if !same {
                         return;
                     }
-                    match result {
+                    match super::media_budget::deliver(result, permit) {
                         Ok(image) => {
                             if let Some(old) = v.zoom_raster.replace(ZoomRaster {
                                 key: zoom_key,
@@ -455,7 +457,7 @@ impl EditorView {
             return;
         }
         let bytes = images::estimate_zoom_job(&source, css, target);
-        let Some(permit) = media::MediaCoordinator::admit(cx, bytes) else {
+        let Some(permit) = media::MediaCoordinator::admit(cx, media::JobKind::Zoom, bytes) else {
             return;
         };
         self.zoom_raster_job = Some(ZoomRasterJob {
@@ -463,12 +465,9 @@ impl EditorView {
             density: target,
             task: cx.spawn(async move |this, cx| {
                 cx.background_executor().timer(ZOOM_RASTER_DEBOUNCE).await;
-                let result = cx
+                let (result, permit) = cx
                     .background_executor()
-                    .spawn(async move {
-                        let _permit = permit;
-                        images::raster_at(&source, css, target)
-                    })
+                    .spawn(async move { (images::raster_at(&source, css, target), permit) })
                     .await;
                 let _ = this.update(cx, |v, cx| {
                     let same = v.media_zoom.as_ref().is_some_and(|z| {
@@ -480,7 +479,7 @@ impl EditorView {
                     if !same {
                         return;
                     }
-                    match result {
+                    match super::media_budget::deliver(result, permit) {
                         Ok(image) => {
                             if let Some(old) = v.zoom_raster.replace(ZoomRaster {
                                 key: zoom_key,

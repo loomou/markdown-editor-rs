@@ -1,3 +1,4 @@
+use crate::media::ByteLease;
 use gpui::RenderImage;
 use image::RgbaImage;
 use smallvec::smallvec;
@@ -25,6 +26,7 @@ pub struct ReadyImage {
     pub dpr: f32,
     pub px_w: u32,
     pub px_h: u32,
+    lease: Option<Arc<ByteLease>>,
 }
 
 impl ReadyImage {
@@ -34,6 +36,24 @@ impl ReadyImage {
             (self.px_w as f32 / dpr).max(1.0),
             (self.px_h as f32 / dpr).max(1.0),
         )
+    }
+
+    /// Attach the resident lease the delivering job converted from its permit.
+    /// Every clone shares the same lease, so the pixels stay charged until the
+    /// last snapshot, frame record or cache entry lets go of them.
+    pub fn with_lease(mut self, lease: Arc<ByteLease>) -> Self {
+        self.lease = Some(lease);
+        self
+    }
+
+    pub fn lease(&self) -> Option<&Arc<ByteLease>> {
+        self.lease.as_ref()
+    }
+
+    /// Identity of the pixels behind this image. Two clones report the same id;
+    /// a re-raster of the same source reports a new one.
+    pub fn allocation_id(&self) -> Option<u64> {
+        self.lease.as_ref().map(|lease| lease.id())
     }
 }
 
@@ -52,6 +72,7 @@ pub fn from_bgra(img: RgbaImage, dpr: f32) -> Option<ReadyImage> {
         dpr,
         px_w,
         px_h,
+        lease: None,
     })
 }
 

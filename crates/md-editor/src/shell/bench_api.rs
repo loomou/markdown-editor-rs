@@ -49,10 +49,15 @@ impl Shell {
     }
 
     pub fn bench_media_account(&self, cx: &App) -> md_content::media::Account {
-        self.editor.read(cx).media_account()
+        self.editor.read(cx).media_ledger(cx)
     }
 
     pub fn bench_media_job_peak(&self, cx: &App) -> usize {
         md_content::media::MediaCoordinator::app_peak(cx)
+    }
+
+    pub fn bench_media_resident_peak(&self, cx: &App) -> usize {
+        cx.try_global::<md_content::media::MediaCoordinator>()
+            .map_or(0, md_content::media::MediaCoordinator::resident_peak)
     }
 }
