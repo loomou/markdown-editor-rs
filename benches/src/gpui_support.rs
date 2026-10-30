@@ -202,58 +202,58 @@ fn media_case_tight(
 
 pub fn media_cases() -> Vec<FrameCase> {
     let root = media_root();
-    let mut out = Vec::with_capacity(9);
-    out.push(media_case(
-        "media-images-12",
-        corpus::media_images_doc(&MEDIA_IMAGES, true),
-        root.join("images.md"),
-    ));
-    out.push(media_case_tight(
-        "media-images-12-tight",
-        corpus::media_images_doc(&MEDIA_IMAGES, true),
-        root.join("images.md"),
-        120 << 20,
-        400,
-    ));
-    out.push(media_case(
-        "media-image-giant",
-        corpus::media_images_doc(&[GIANT_IMAGE], true),
-        root.join("giant.md"),
-    ));
-    out.push(media_case(
-        "media-images-large-4",
-        corpus::media_images_doc(&MEDIA_LARGE, true),
-        root.join("large.md"),
-    ));
-    out.push(media_case_under(
-        "media-images-large-4-unlimited",
-        corpus::media_images_doc(&MEDIA_LARGE, true),
-        root.join("large.md"),
-        usize::MAX,
-    ));
-    out.push(media_case(
-        "media-mermaid-12",
-        corpus::media_mermaid_doc(&MEDIA_MERMAID),
-        root.join("mermaid.md"),
-    ));
-    out.push(media_case_tight(
-        "media-mermaid-24-tight",
-        corpus::media_mermaid_long_doc(),
-        root.join("mermaid.md"),
-        170 << 20,
-        400,
-    ));
-    out.push(media_case(
-        "media-mermaid-repeat",
-        corpus::media_mermaid_repeat_doc(&MEDIA_MERMAID[..2], 6),
-        root.join("mermaid-repeat.md"),
-    ));
-    out.push(media_case(
-        "media-text-12",
-        corpus::media_text_doc(12),
-        root.join("text.md"),
-    ));
-    out
+    vec![
+        media_case(
+            "media-images-12",
+            corpus::media_images_doc(&MEDIA_IMAGES, true),
+            root.join("images.md"),
+        ),
+        media_case_tight(
+            "media-images-12-tight",
+            corpus::media_images_doc(&MEDIA_IMAGES, true),
+            root.join("images.md"),
+            120 << 20,
+            400,
+        ),
+        media_case(
+            "media-image-giant",
+            corpus::media_images_doc(&[GIANT_IMAGE], true),
+            root.join("giant.md"),
+        ),
+        media_case(
+            "media-images-large-4",
+            corpus::media_images_doc(&MEDIA_LARGE, true),
+            root.join("large.md"),
+        ),
+        media_case_under(
+            "media-images-large-4-unlimited",
+            corpus::media_images_doc(&MEDIA_LARGE, true),
+            root.join("large.md"),
+            usize::MAX,
+        ),
+        media_case(
+            "media-mermaid-12",
+            corpus::media_mermaid_doc(&MEDIA_MERMAID),
+            root.join("mermaid.md"),
+        ),
+        media_case_tight(
+            "media-mermaid-24-tight",
+            corpus::media_mermaid_long_doc(),
+            root.join("mermaid.md"),
+            170 << 20,
+            400,
+        ),
+        media_case(
+            "media-mermaid-repeat",
+            corpus::media_mermaid_repeat_doc(&MEDIA_MERMAID[..2], 6),
+            root.join("mermaid-repeat.md"),
+        ),
+        media_case(
+            "media-text-12",
+            corpus::media_text_doc(12),
+            root.join("text.md"),
+        ),
+    ]
 }
 
 pub struct Step {

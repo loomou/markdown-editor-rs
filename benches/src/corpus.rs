@@ -1007,7 +1007,7 @@ fn paint_photo(img: &mut image::RgbaImage, rng: &mut Rng) {
     };
     for y in 0..h {
         for x in 0..w {
-            let n = noise[((x as usize * 7 + y as usize * 13) % 256) as usize];
+            let n = noise[(x as usize * 7 + y as usize * 13) % 256];
             let pixel = img.get_pixel_mut(x, y);
             for channel in 0..3 {
                 let value = i16::from(pixel.0[channel]) + n;
@@ -1071,7 +1071,7 @@ pub const MEDIA_MERMAID_EXTRA: [&str; 12] = [
 ];
 
 pub fn media_mermaid_long_doc() -> String {
-    let mut all: Vec<&str> = MEDIA_MERMAID.iter().copied().collect();
+    let mut all: Vec<&str> = MEDIA_MERMAID.to_vec();
     all.extend(MEDIA_MERMAID_EXTRA);
     media_mermaid_doc(&all)
 }

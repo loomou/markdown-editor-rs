@@ -13,7 +13,7 @@ fn main() {
     files.sort();
 
     for width in [900u32, 1600u32] {
-        println!("\n== display raster, {} px wide ==", width);
+        println!("\n== display raster, {width} px wide ==");
         println!(
             "{:<12} {:>10} {:>8} {:>12} {:>8} {:>9} {:>12} {:>8} {:>9}",
             "file", "px", "raw", "deflate", "ratio", "enc ms", "png", "ratio", "enc ms"
@@ -21,7 +21,7 @@ fn main() {
         for path in &files {
             let name = path.file_name().unwrap().to_string_lossy().to_string();
             let Some(row) = measure(path, width) else {
-                println!("{:<12} decode failed", name);
+                println!("{name:<12} decode failed");
                 continue;
             };
             println!(
@@ -88,10 +88,8 @@ fn measure(path: &PathBuf, width: u32) -> Option<Row> {
     assert_eq!(restored, raw, "png round trip");
 
     println!(
-        "{:<12} thaw: deflate {:.1} ms  png {:.1} ms",
-        "",
-        thaw_ms,
-        png_thaw_ms
+        "{:<12} thaw: deflate {thaw_ms:.1} ms  png {png_thaw_ms:.1} ms",
+        ""
     );
 
     Some(Row {

@@ -21,7 +21,7 @@ fn media_scroll(case: &FrameCase, cx: &mut BenchAppContext<'_, '_>) {
         md_content::media::set_cool_grace(std::time::Duration::from_millis(millis));
     }
     mem::reset_peak();
-    cx.update(|app| md_content::media::MediaCoordinator::reset_peak(app));
+    cx.update(md_content::media::MediaCoordinator::reset_peak);
     let shell = mount_shell(case, cx);
     let pass = run_pass(&shell, cx, &case.label, STEPS, case.dwell_ms);
     summarize(&case.label, &pass);
