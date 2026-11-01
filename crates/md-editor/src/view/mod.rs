@@ -460,6 +460,8 @@ pub struct EditorView {
     pub(crate) search: SearchState,
 
     media: MediaCache,
+    animation_running: std::rc::Rc<std::cell::Cell<bool>>,
+    visible_animations: Vec<std::sync::Arc<md_content::images::Animation>>,
     pub(crate) zoom_raster: Option<media_zoom::ZoomRaster>,
     pub(crate) zoom_raster_job: Option<media_zoom::ZoomRasterJob>,
     remote_images: bool,
@@ -511,6 +513,7 @@ struct DocShapeMaps {
 
 struct DisplayJob {
     source: std::sync::Arc<gpui::RenderImage>,
+    animation: Option<std::sync::Arc<md_content::images::Animation>>,
     blocks: Vec<BlockId>,
 }
 

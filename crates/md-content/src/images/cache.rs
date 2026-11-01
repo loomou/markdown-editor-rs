@@ -1,8 +1,9 @@
 use super::raster::decoded_len;
 use super::{
-    DisplayKey, DisplaySlot, DisplayToken, ImageCache, MAX_DISPLAY_BYTES, MAX_DISPLAY_ENTRIES,
-    MAX_FAILED_ENTRIES, MAX_IN_FLIGHT, MAX_SOURCE_BYTES, SourceError, SourceKey, SourceSlot,
-    SourceToken, WARM_DISPLAY_EXTRA, WARM_SOURCE_IN_FLIGHT, source_retry_delay,
+    DecodedSource, DisplayKey, DisplaySlot, DisplayToken, ImageCache, MAX_DISPLAY_BYTES,
+    MAX_DISPLAY_ENTRIES, MAX_FAILED_ENTRIES, MAX_IN_FLIGHT, MAX_SOURCE_BYTES, SourceError,
+    SourceKey, SourceSlot, SourceToken, WARM_DISPLAY_EXTRA, WARM_SOURCE_IN_FLIGHT,
+    source_retry_delay,
 };
 use crate::pixels::{ReadyImage, drop_image_deferred};
 use gpui::{App, RenderImage};
@@ -64,7 +65,14 @@ impl ImageCache {
 
     pub fn source_image(&self, dest: &str) -> Option<Arc<RenderImage>> {
         match self.source.get(dest) {
-            Some(SourceSlot::Ready { image }) => Some(Arc::clone(image)),
+            Some(SourceSlot::Ready { image, .. }) => Some(Arc::clone(image)),
+            _ => None,
+        }
+    }
+
+    pub fn source_animation(&self, dest: &str) -> Option<Arc<super::Animation>> {
+        match self.source.get(dest) {
+            Some(SourceSlot::Ready { animation, .. }) => animation.clone(),
             _ => None,
         }
     }
@@ -103,7 +111,7 @@ impl ImageCache {
     pub fn finish_source(
         &mut self,
         token: SourceToken,
-        result: Result<(Arc<RenderImage>, u32, u32), SourceError>,
+        result: Result<DecodedSource, SourceError>,
         cx: &mut App,
     ) -> bool {
         self.finish_source_inner(token, result, Some(cx), MAX_SOURCE_BYTES)
@@ -112,7 +120,7 @@ impl ImageCache {
     pub(crate) fn finish_source_inner(
         &mut self,
         token: SourceToken,
-        result: Result<(Arc<RenderImage>, u32, u32), SourceError>,
+        result: Result<DecodedSource, SourceError>,
         cx: Option<&mut App>,
         source_budget: usize,
     ) -> bool {
@@ -127,8 +135,8 @@ impl ImageCache {
         self.source_inflight = self.source_inflight.saturating_sub(1);
         let now = Instant::now();
         match result {
-            Ok((image, width, height)) if width > 0 && height > 0 => {
-                let n = decoded_len(&image);
+            Ok(decoded) if decoded.width > 0 && decoded.height > 0 => {
+                let n = decoded_len(&decoded.image);
                 self.evict_source(n, source_budget, cx);
                 if self.source_bytes.saturating_add(n) > source_budget {
                     self.source.insert(
@@ -142,8 +150,14 @@ impl ImageCache {
                     return true;
                 }
                 self.source_bytes = self.source_bytes.saturating_add(n);
-                self.source.insert(key.clone(), SourceSlot::Ready { image });
-                self.record_source_size(key.clone(), width, height);
+                self.source.insert(
+                    key.clone(),
+                    SourceSlot::Ready {
+                        image: decoded.image,
+                        animation: decoded.animation,
+                    },
+                );
+                self.record_source_size(key.clone(), decoded.width, decoded.height);
                 self.clear_failure_projection(&key);
                 self.touch_source(key);
                 true
@@ -318,7 +332,7 @@ impl ImageCache {
             .source_visible
             .iter()
             .filter_map(|key| match self.source.get(key) {
-                Some(SourceSlot::Ready { image }) => {
+                Some(SourceSlot::Ready { image, .. }) => {
                     pinned = pinned.saturating_add(decoded_len(image));
                     Some(key.clone())
                 }
@@ -472,7 +486,7 @@ impl ImageCache {
 
     pub(super) fn remove_source(&mut self, key: &SourceKey, mut cx: Option<&mut App>) {
         match self.source.remove(key) {
-            Some(SourceSlot::Ready { image }) => {
+            Some(SourceSlot::Ready { image, .. }) => {
                 self.source_bytes = self.source_bytes.saturating_sub(decoded_len(&image));
                 if let Some(cx) = cx.as_deref_mut() {
                     drop_image_deferred(cx, image);
@@ -536,7 +550,7 @@ impl ImageCache {
 
     pub(crate) fn for_each_allocation(&self, f: &mut dyn FnMut(&Arc<RenderImage>, usize)) {
         for slot in self.source.values() {
-            if let SourceSlot::Ready { image } = slot {
+            if let SourceSlot::Ready { image, .. } = slot {
                 f(image, decoded_len(image));
             }
         }

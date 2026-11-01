@@ -138,6 +138,8 @@ impl EditorView {
             search_open: false,
             search: Default::default(),
             media: MediaCache::new(),
+            animation_running: std::rc::Rc::new(std::cell::Cell::new(false)),
+            visible_animations: Vec::new(),
             zoom_raster: None,
             zoom_raster_job: None,
             remote_images: false,

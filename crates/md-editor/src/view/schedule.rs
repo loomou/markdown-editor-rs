@@ -252,7 +252,13 @@ impl EditorView {
 
         self.run_mermaid(mermaid.jobs, cx);
         self.run_math(math.jobs, cx);
+        self.visible_animations = images
+            .display_jobs
+            .iter()
+            .filter_map(|(_, job)| job.animation.clone())
+            .collect();
         self.run_images(images, cx);
+        self.drive_animations(cx);
     }
 
     fn run_mermaid(
@@ -391,12 +397,16 @@ impl EditorView {
             let Some(display_token) = self.media.images_mut().begin_display(key.clone()) else {
                 continue;
             };
-            let DisplayJob { source, blocks } = job;
+            let DisplayJob {
+                source,
+                animation,
+                blocks,
+            } = job;
             cx.spawn(async move |this, cx| {
                 let raster_key = key.clone();
                 let result = cx
                     .background_executor()
-                    .spawn(async move { images::raster_display(&source, &raster_key) })
+                    .spawn(async move { images::raster_display(&source, animation, &raster_key) })
                     .await;
                 let _ = this.update(cx, |v, cx| {
                     if let Err(ref err) = result {

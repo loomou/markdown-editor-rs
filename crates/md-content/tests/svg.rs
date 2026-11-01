@@ -21,7 +21,12 @@ fn svg_source_uses_bgra_channels(cx: &mut gpui::TestAppContext) {
          <rect width='2' height='2' fill='red'/></svg>",
     );
     let future = cx.update(|app| images::load_source(resolved, false, app));
-    let (source, width, height) = futures::executor::block_on(future).unwrap();
+    let images::DecodedSource {
+        image: source,
+        width,
+        height,
+        ..
+    } = futures::executor::block_on(future).unwrap();
     let pixel = &source.as_bytes(0).unwrap()[..4];
     println!("red SVG source={width}x{height}, first pixel={pixel:?}");
     assert_eq!(
@@ -48,7 +53,7 @@ fn png_source_stays_bgra(cx: &mut gpui::TestAppContext) {
     )
     .unwrap();
     let future = cx.update(|app| images::load_source(resolved, false, app));
-    let (source, _, _) = futures::executor::block_on(future).unwrap();
+    let images::DecodedSource { image: source, .. } = futures::executor::block_on(future).unwrap();
     let pixel = &source.as_bytes(0).unwrap()[..4];
     assert_eq!(pixel, &[0, 0, 255, 255], "the PNG BGRA convention holds");
 }
@@ -66,7 +71,7 @@ fn svg_embedded_png_is_painted(cx: &mut gpui::TestAppContext) {
          <image xlink:href='data:image/png;base64,{encoded}' width='2' height='2'/></svg>"
     ));
     let future = cx.update(|app| images::load_source(resolved, false, app));
-    let (image, _, _) = futures::executor::block_on(future).unwrap();
+    let images::DecodedSource { image, .. } = futures::executor::block_on(future).unwrap();
     let pixel = &image.as_bytes(0).unwrap()[..4];
     println!("embedded PNG SVG pixel={pixel:?}");
     assert_eq!(
@@ -90,7 +95,7 @@ fn plain_svg_still_paints_vector_content(cx: &mut gpui::TestAppContext) {
             app,
         )
     });
-    let (image, _, _) = futures::executor::block_on(future).unwrap();
+    let images::DecodedSource { image, .. } = futures::executor::block_on(future).unwrap();
     let pixel = &image.as_bytes(0).unwrap()[..4];
     assert_eq!(
         pixel,
@@ -146,7 +151,7 @@ fn plain_svg_still_loads(cx: &mut gpui::TestAppContext) {
     let source = b"<svg xmlns='http://www.w3.org/2000/svg' width='4' height='4'>\
                    <rect width='4' height='4' fill='red'/></svg>";
     let future = cx.update(|app| images::load_source(data_url(source), false, app));
-    let (image, _, _) = futures::executor::block_on(future)
+    let images::DecodedSource { image, .. } = futures::executor::block_on(future)
         .expect("a plain SVG without external references must still load");
     assert!(image.size(0).width > gpui::DevicePixels(0));
 }
@@ -212,7 +217,7 @@ fn small_svgz_still_loads(cx: &mut gpui::TestAppContext) {
     );
     let future =
         cx.update(|app| images::load_source(images::resolve(&input, None).unwrap(), false, app));
-    let (image, _, _) = futures::executor::block_on(future)
+    let images::DecodedSource { image, .. } = futures::executor::block_on(future)
         .expect("a small SVGZ must still load through the bounded decompress path");
     let pixel = &image.as_bytes(0).unwrap()[..4];
     assert_eq!(

@@ -241,11 +241,13 @@ pub(super) fn collect_image_jobs(
                     entry.push(block);
                 }
             } else if let Some(source) = sched.cache.source_image(dest) {
+                let animation = sched.cache.source_animation(dest);
                 let entry = sched
                     .display_jobs
                     .entry(dkey)
                     .or_insert_with(|| DisplayJob {
                         source,
+                        animation,
                         blocks: Vec::new(),
                     });
                 if !entry.blocks.contains(&block) {
@@ -268,11 +270,13 @@ pub(super) fn collect_popover_job(popover: &ImagePopover, sched: &mut ImageSched
     };
     sched.protect.push(plan.key.clone());
     if let Some(source) = sched.cache.source_image(dest) {
+        let animation = sched.cache.source_animation(dest);
         sched
             .display_jobs
             .entry(plan.key.clone())
             .or_insert_with(|| DisplayJob {
                 source,
+                animation,
                 blocks: Vec::new(),
             });
     }

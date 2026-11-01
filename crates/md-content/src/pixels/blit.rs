@@ -1,6 +1,6 @@
+use super::ReadyImage;
 use super::quantize::snap_px;
-use gpui::{Bounds, Corners, RenderImage, Window, point, px, size};
-use std::sync::Arc;
+use gpui::{Bounds, Corners, Window, point, px, size};
 
 fn blit_rect(x: f32, y: f32, px_w: u32, px_h: u32, dpr: f32) -> (f32, f32, f32, f32) {
     let dpr = dpr.max(0.25);
@@ -9,19 +9,11 @@ fn blit_rect(x: f32, y: f32, px_w: u32, px_h: u32, dpr: f32) -> (f32, f32, f32, 
     (snap_px(x, dpr), snap_px(y, dpr), dw, dh)
 }
 
-pub fn paint_at(
-    window: &mut Window,
-    x: f32,
-    y: f32,
-    image: &Arc<RenderImage>,
-    px_w: u32,
-    px_h: u32,
-    raster_dpr: f32,
-) {
-    if px_w == 0 || px_h == 0 {
+pub fn paint_at(window: &mut Window, x: f32, y: f32, ready: &ReadyImage) {
+    if ready.px_w == 0 || ready.px_h == 0 {
         return;
     }
-    let (ox, oy, dw, dh) = blit_rect(x, y, px_w, px_h, raster_dpr);
+    let (ox, oy, dw, dh) = blit_rect(x, y, ready.px_w, ready.px_h, ready.dpr);
     let bounds = Bounds {
         origin: point(px(ox), px(oy)),
         size: size(px(dw), px(dh)),
@@ -30,8 +22,8 @@ pub fn paint_at(
         bounds,
         bounds,
         Corners::all(px(0.0)),
-        image.clone(),
-        0,
+        ready.image.clone(),
+        ready.frame_index(),
         false,
     );
 }

@@ -30,8 +30,29 @@ fn source_retry_delay(attempt: u32) -> Duration {
         .min(SOURCE_RETRY_MAX)
 }
 
-type SourceLoad =
-    Pin<Box<dyn Future<Output = Result<(Arc<RenderImage>, u32, u32), SourceError>> + Send>>;
+pub mod animation;
+
+pub use animation::Animation;
+
+pub struct DecodedSource {
+    pub image: Arc<RenderImage>,
+    pub width: u32,
+    pub height: u32,
+    pub animation: Option<Arc<Animation>>,
+}
+
+impl std::fmt::Debug for DecodedSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DecodedSource")
+            .field("width", &self.width)
+            .field("height", &self.height)
+            .field("frames", &self.image.frame_count())
+            .field("animated", &self.animation.is_some())
+            .finish()
+    }
+}
+
+type SourceLoad = Pin<Box<dyn Future<Output = Result<DecodedSource, SourceError>> + Send>>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SourceError {
@@ -139,6 +160,7 @@ enum SourceSlot {
     },
     Ready {
         image: Arc<RenderImage>,
+        animation: Option<Arc<Animation>>,
     },
     Failed(crate::Error),
     Retryable {

@@ -1,3 +1,4 @@
+use super::Animation;
 use super::DisplayKey;
 use super::fit::contain_fit;
 use crate::pixels::{ReadyImage, from_bgra, paint_at, snap_css};
@@ -8,6 +9,7 @@ use std::sync::Arc;
 
 pub fn raster_display(
     source: &Arc<RenderImage>,
+    animation: Option<Arc<Animation>>,
     key: &DisplayKey,
 ) -> Result<ReadyImage, crate::Error> {
     if source.frame_count() == 0 {
@@ -20,8 +22,20 @@ pub fn raster_display(
         return Err(crate::Error::Image(md_i18n::Key::ImageEmpty.into()));
     }
     let (slot_w, slot_h) = key.raster_slot();
-    let (fw, fh) = contain_fit(iw as f32, ih as f32, slot_w, slot_h);
     let dpr = key.raster_dpr();
+    if source.frame_count() > 1 {
+        let (fw, fh) = contain_fit(iw as f32, ih as f32, slot_w, slot_h);
+        return Ok(ReadyImage {
+            image: Arc::clone(source),
+            bytes: 0,
+            dpr,
+            px_w: (snap_css(fw, dpr) * dpr).ceil().max(1.0) as u32,
+            px_h: (snap_css(fh, dpr) * dpr).ceil().max(1.0) as u32,
+            shared_with_source: true,
+            animation,
+        });
+    }
+    let (fw, fh) = contain_fit(iw as f32, ih as f32, slot_w, slot_h);
     let px_w = (snap_css(fw, dpr) * dpr).ceil().max(1.0) as u32;
     let px_h = (snap_css(fh, dpr) * dpr).ceil().max(1.0) as u32;
     if px_w == iw && px_h == ih {
@@ -32,6 +46,7 @@ pub fn raster_display(
             px_w,
             px_h,
             shared_with_source: true,
+            animation,
         });
     }
     let raw = source
@@ -55,15 +70,7 @@ pub fn paint_ready(
     let (image_w, image_h) = ready.css_size();
     let dx = ((slot_w - image_w).max(0.0)) * 0.5;
     let dy = ((slot_h - image_h).max(0.0)) * 0.5;
-    paint_at(
-        window,
-        x + dx,
-        y + dy,
-        &ready.image,
-        ready.px_w,
-        ready.px_h,
-        ready.dpr,
-    );
+    paint_at(window, x + dx, y + dy, ready);
 }
 
 pub(super) fn native_dims(img: Arc<RenderImage>) -> Option<(Arc<RenderImage>, u32, u32)> {

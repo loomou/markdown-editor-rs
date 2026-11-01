@@ -140,7 +140,16 @@ fn clear_must_reject_an_old_source_result(cx: &mut gpui::TestAppContext) {
             image::Rgba([0, 0, 255, 255]),
         ));
         let image = std::sync::Arc::new(gpui::RenderImage::new(vec![frame]));
-        let accepted_old = cache.finish_source(old, Ok((image, 2, 2)), app);
+        let accepted_old = cache.finish_source(
+            old,
+            Ok(images::DecodedSource {
+                image,
+                width: 2,
+                height: 2,
+                animation: None,
+            }),
+            app,
+        );
         assert!(
             !accepted_old,
             "clear must void the old job's identity, not just the map entry"

@@ -1,3 +1,4 @@
+use crate::images::Animation;
 use gpui::RenderImage;
 use image::RgbaImage;
 use smallvec::smallvec;
@@ -11,6 +12,7 @@ pub struct ReadyImage {
     pub px_w: u32,
     pub px_h: u32,
     pub shared_with_source: bool,
+    pub animation: Option<Arc<Animation>>,
 }
 
 impl ReadyImage {
@@ -20,6 +22,10 @@ impl ReadyImage {
             (self.px_w as f32 / dpr).max(1.0),
             (self.px_h as f32 / dpr).max(1.0),
         )
+    }
+
+    pub fn frame_index(&self) -> usize {
+        self.animation.as_ref().map_or(0, |a| a.current())
     }
 }
 
@@ -39,6 +45,7 @@ pub fn from_bgra(img: RgbaImage, dpr: f32) -> Option<ReadyImage> {
         px_w,
         px_h,
         shared_with_source: false,
+        animation: None,
     })
 }
 
@@ -54,7 +61,8 @@ pub fn from_render_image(image: Arc<RenderImage>, dpr: f32) -> Option<ReadyImage
     }
     let bytes = (px_w as usize)
         .saturating_mul(px_h as usize)
-        .saturating_mul(4);
+        .saturating_mul(4)
+        .saturating_mul(image.frame_count());
     Some(ReadyImage {
         image,
         bytes,
@@ -62,6 +70,7 @@ pub fn from_render_image(image: Arc<RenderImage>, dpr: f32) -> Option<ReadyImage
         px_w,
         px_h,
         shared_with_source: false,
+        animation: None,
     })
 }
 

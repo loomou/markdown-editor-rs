@@ -216,13 +216,5 @@ pub fn raster_png(latex: &str, spec: &RasterSpec) -> Result<RasterOut, crate::Er
 }
 
 pub fn paint_ready(window: &mut Window, x: f32, y: f32, ready: &ReadyImage) {
-    paint_at(
-        window,
-        x,
-        y,
-        &ready.image,
-        ready.px_w,
-        ready.px_h,
-        ready.dpr,
-    );
+    paint_at(window, x, y, ready);
 }

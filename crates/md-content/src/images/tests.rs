@@ -1,8 +1,8 @@
 use super::keys::{cache_key, display_key};
 use super::raster::{decoded_len, raster_display};
 use super::source::{
-    decode_data_payload, detect_format, gif_frame_count, is_image_path, markdown_dest,
-    parse_retry_after, resolve, validate_image_dimensions, validate_svg_dimensions,
+    apng_frame_count, decode_data_payload, detect_format, gif_frame_count, is_image_path,
+    markdown_dest, parse_retry_after, resolve, validate_image_dimensions, validate_svg_dimensions,
     webp_frame_count,
 };
 use super::{
@@ -35,6 +35,15 @@ fn png_with_size(width: u32, height: u32) -> Vec<u8> {
 fn native_from_png(png: &[u8]) -> (Arc<RenderImage>, u32, u32) {
     let ready = crate::pixels::decode_png(png, 1.0).expect("png");
     (ready.image, ready.px_w, ready.px_h)
+}
+
+fn decoded(native: (Arc<RenderImage>, u32, u32)) -> super::DecodedSource {
+    super::DecodedSource {
+        image: native.0,
+        width: native.1,
+        height: native.2,
+        animation: None,
+    }
 }
 
 #[test]
@@ -227,7 +236,7 @@ fn retryable_source_failures_unlock_after_the_backoff_window() {
     assert!(cache.failed_sources().contains("u"));
 
     let native = native_from_png(&tiny_png());
-    cache.finish_source_inner(job, Ok(native), None, usize::MAX);
+    cache.finish_source_inner(job, Ok(decoded(native)), None, usize::MAX);
     assert!(cache.source_image("u").is_some());
     assert!(
         !cache.failed_sources().contains("u"),
@@ -419,7 +428,7 @@ fn recovered_sources_leave_the_failure_lru() {
         .begin_source_inner("u".into(), later)
         .expect("begin retry");
     let native = native_from_png(&tiny_png());
-    cache.finish_source_inner(job, Ok(native), None, usize::MAX);
+    cache.finish_source_inner(job, Ok(decoded(native)), None, usize::MAX);
     assert_eq!(
         cache.failed_entry_count(),
         0,
@@ -462,7 +471,7 @@ fn retrying_source_survives_failure_lru_eviction() {
 
     let native = native_from_png(&tiny_png());
     assert!(
-        cache.finish_source_inner(retry_job, Ok(native), None, usize::MAX),
+        cache.finish_source_inner(retry_job, Ok(decoded(native)), None, usize::MAX),
         "a completion while the retry slot is alive must be booked"
     );
     assert!(cache.source_image("retry").is_some());
@@ -539,11 +548,11 @@ fn display_drop_keeps_source_ready() {
     let native = native_from_png(&png);
     let mut cache = ImageCache::new();
     let job = cache.begin_source("k".into()).expect("begin");
-    assert!(cache.finish_source_inner(job, Ok(native.clone()), None, usize::MAX));
+    assert!(cache.finish_source_inner(job, Ok(decoded(native.clone())), None, usize::MAX));
     assert_eq!(cache.intrinsic("k"), Some((4, 3)));
     let key = display_key("k", 4.0, 3.0, 1.0);
     let djob = cache.begin_display(key.clone()).expect("begin display");
-    let ready = raster_display(&native.0, &key).expect("raster");
+    let ready = raster_display(&native.0, None, &key).expect("raster");
     assert!(cache.finish_display_inner(djob, Ok(ready), None));
     assert!(cache.display_ready(&key).is_some());
     cache.drop_display_keep_source(&key);
@@ -567,9 +576,9 @@ fn source_lru_evicts_derived_displays_and_retries_budget_pressure() {
         source_bytes,
     );
     let job = cache.begin_source("a".into()).expect("begin");
-    assert!(cache.finish_source_inner(job, Ok(native.clone()), None, source_bytes));
+    assert!(cache.finish_source_inner(job, Ok(decoded(native.clone())), None, source_bytes));
     let djob = cache.begin_display(a.clone()).expect("begin display");
-    let display = raster_display(&native.0, &a).expect("display");
+    let display = raster_display(&native.0, None, &a).expect("display");
     assert!(cache.finish_display_inner(djob, Ok(display), None));
 
     let b = display_key("b", 4.0, 3.0, 1.0);
@@ -581,7 +590,7 @@ fn source_lru_evicts_derived_displays_and_retries_budget_pressure() {
         source_bytes,
     );
     let job = cache.begin_source("b".into()).expect("begin");
-    assert!(cache.finish_source_inner(job, Ok(native.clone()), None, source_bytes));
+    assert!(cache.finish_source_inner(job, Ok(decoded(native.clone())), None, source_bytes));
     assert!(!cache.source_contains("a"));
     assert!(cache.source_contains("b"));
     assert!(cache.display_ready(&a).is_none());
@@ -597,7 +606,7 @@ fn source_lru_evicts_derived_displays_and_retries_budget_pressure() {
         source_bytes,
     );
     let job = cache.begin_source("c".into()).expect("begin");
-    assert!(cache.finish_source_inner(job, Ok(native), None, source_bytes));
+    assert!(cache.finish_source_inner(job, Ok(decoded(native)), None, source_bytes));
     assert!(cache.source_contains("c"));
     assert!(cache.source_error("c").is_some());
     cache.set_working_set_inner(
@@ -626,7 +635,7 @@ fn visible_over_budget_retries_once_offscreen_space_covers_it() {
         budget,
     );
     let job = cache.begin_source("a".into()).expect("begin");
-    assert!(cache.finish_source_inner(job, Ok(native.clone()), None, budget));
+    assert!(cache.finish_source_inner(job, Ok(decoded(native.clone())), None, budget));
 
     let b = display_key("b", 4.0, 3.0, 1.0);
     cache.set_working_set_inner(
@@ -637,7 +646,7 @@ fn visible_over_budget_retries_once_offscreen_space_covers_it() {
         budget,
     );
     let job = cache.begin_source("b".into()).expect("begin");
-    assert!(cache.finish_source_inner(job, Ok(native.clone()), None, budget));
+    assert!(cache.finish_source_inner(job, Ok(decoded(native.clone())), None, budget));
     assert!(cache.source_error("b").is_some());
     cache.set_working_set_inner(
         [a, b.clone()],
@@ -657,7 +666,7 @@ fn visible_over_budget_retries_once_offscreen_space_covers_it() {
         "once room is made, the OverBudget slots should be cleared"
     );
     let job = cache.begin_source("b".into()).expect("begin retry");
-    assert!(cache.finish_source_inner(job, Ok(native), None, budget));
+    assert!(cache.finish_source_inner(job, Ok(decoded(native)), None, budget));
     assert_eq!(cache.intrinsic("b"), Some((4, 3)));
     assert!(
         !cache.source_contains("a"),
@@ -678,7 +687,7 @@ fn image_larger_than_the_whole_budget_never_retries() {
         48,
     );
     let job = cache.begin_source("k".into()).expect("begin");
-    assert!(cache.finish_source_inner(job, Ok(native), None, 48));
+    assert!(cache.finish_source_inner(job, Ok(decoded(native)), None, 48));
     assert!(cache.source_error("k").is_some());
     cache.set_working_set_inner([k], std::iter::empty(), std::iter::empty(), None, 48);
     assert!(cache.source_contains("k"));
@@ -689,7 +698,7 @@ fn raster_downscales_from_source_pixels() {
     let png = png_with_size(400, 300);
     let native = native_from_png(&png);
     let key = display_key("k", 256.0, 192.0, 1.0);
-    let ready = raster_display(&native.0, &key).expect("raster");
+    let ready = raster_display(&native.0, None, &key).expect("raster");
     assert_eq!((ready.px_w, ready.px_h), (256, 192));
     assert!((ready.px_w as f32 / ready.px_h as f32 - 4.0 / 3.0).abs() < 1e-5);
     assert!(ready.bytes > 0);
@@ -972,6 +981,27 @@ fn webp_frame_counts_read_anmf_chunks() {
 }
 
 #[test]
+fn apng_frame_counts_read_the_actl_chunk() {
+    let animated = apng_with_canvas_and_frames(4, 4, 3);
+    assert_eq!(apng_frame_count(&animated), 3);
+    assert!(
+        validate_image_dimensions(ImageFormat::Png, &animated).is_ok(),
+        "three tiny APNG frames stay inside the cumulative decode budget"
+    );
+    let still = png_with_size(4, 3);
+    assert_eq!(apng_frame_count(&still), 1);
+    assert!(validate_image_dimensions(ImageFormat::Png, &still).is_ok());
+    let bomb = apng_with_canvas_and_frames(4, 4, 4097);
+    let err = validate_image_dimensions(ImageFormat::Png, &bomb)
+        .expect_err("an APNG over the frame cap must be refused before decode");
+    assert!(matches!(err, crate::Error::Image(_)));
+    let big = apng_with_canvas_and_frames(2000, 2000, 200);
+    let err = validate_image_dimensions(ImageFormat::Png, &big)
+        .expect_err("200 frames of 4M pixels exceed the cumulative decode budget");
+    assert!(matches!(err, crate::Error::Image(_)));
+}
+
+#[test]
 fn svg_dimensions_are_checked_before_rasterization() {
     let small = br#"<svg xmlns="http://www.w3.org/2000/svg" width="64" height="32"/>"#;
     assert!(validate_svg_dimensions(small).is_ok());
@@ -979,6 +1009,18 @@ fn svg_dimensions_are_checked_before_rasterization() {
     let bomb = br#"<svg xmlns="http://www.w3.org/2000/svg" width="40000" height="40000"/>"#;
     let err = validate_svg_dimensions(bomb).expect_err("pixel bomb must be rejected");
     assert!(matches!(err, crate::Error::Image(_)));
+}
+
+fn apng_with_canvas_and_frames(width: u32, height: u32, frames: u32) -> Vec<u8> {
+    let mut png = png_with_header_only(width, height);
+    let mut actl = Vec::new();
+    actl.extend_from_slice(&8u32.to_be_bytes());
+    actl.extend_from_slice(b"acTL");
+    actl.extend_from_slice(&frames.to_be_bytes());
+    actl.extend_from_slice(&0u32.to_be_bytes());
+    actl.extend_from_slice(&crc32(&actl[4..]).to_be_bytes());
+    png.splice(33..33, actl);
+    png
 }
 
 fn png_with_header_only(width: u32, height: u32) -> Vec<u8> {
@@ -1130,9 +1172,9 @@ fn fill_display_ready(cache: &mut ImageCache, n: usize) {
         let dest = format!("d{i}");
         let key = display_key(&dest, 4.0, 3.0, 1.0);
         let job = cache.begin_source(dest).expect("begin");
-        assert!(cache.finish_source_inner(job, Ok(native.clone()), None, usize::MAX));
+        assert!(cache.finish_source_inner(job, Ok(decoded(native.clone())), None, usize::MAX));
         let djob = cache.begin_display(key.clone()).expect("begin display");
-        let display = raster_display(&native.0, &key).expect("display");
+        let display = raster_display(&native.0, None, &key).expect("display");
         assert!(cache.finish_display_inner(djob, Ok(display), None));
     }
 }
@@ -1232,7 +1274,7 @@ fn set_working_set_does_not_evict_inflight_or_visible_display() {
     let inflight = display_key("inf", 4.0, 3.0, 1.0);
     let native = native_from_png(&tiny_png());
     let job = cache.begin_source("inf".into()).expect("begin");
-    assert!(cache.finish_source_inner(job, Ok(native), None, usize::MAX));
+    assert!(cache.finish_source_inner(job, Ok(decoded(native)), None, usize::MAX));
     assert!(cache.begin_display(inflight.clone()).is_some());
     cache.set_working_set_inner(
         [visible.clone()],

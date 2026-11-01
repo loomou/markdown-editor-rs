@@ -40,7 +40,12 @@ fn store_source(cache: &mut MediaCache, dest: &str, w: u32, h: u32) {
         .expect("source token");
     assert!(cache.images_mut().finish_source_inner(
         token,
-        Ok((native(w, h), w, h)),
+        Ok(crate::images::DecodedSource {
+            image: native(w, h),
+            width: w,
+            height: h,
+            animation: None,
+        }),
         None,
         usize::MAX
     ));

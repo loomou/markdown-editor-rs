@@ -22,6 +22,7 @@ const SCALE_MIN: f32 = 0.25;
 const SCALE_MAX: f32 = 16.0;
 const ZOOM_RASTER_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(120);
 const DENSITY_EPS: f32 = 0.05;
+const ANIMATION_MIN_TICK: std::time::Duration = std::time::Duration::from_millis(8);
 
 pub(crate) struct ZoomRaster {
     pub key: mermaid::MermaidSvgKey,
@@ -277,6 +278,55 @@ impl EditorView {
     pub(crate) fn release_media(&mut self, cx: &mut Context<'_, Self>) {
         self.drop_zoom_raster(cx);
         self.media.clear(cx);
+    }
+
+    pub(crate) fn drive_animations(&mut self, cx: &mut Context<'_, Self>) {
+        if self.animation_running.get() {
+            return;
+        }
+        if !self
+            .visible_animations
+            .iter()
+            .any(|animation| !animation.finished())
+        {
+            return;
+        }
+        self.animation_running.set(true);
+        let running = std::rc::Rc::clone(&self.animation_running);
+        cx.spawn(async move |this, cx| {
+            loop {
+                let wait = this
+                    .update(cx, |view, cx| {
+                        let mut changed = false;
+                        let mut next: Option<std::time::Duration> = None;
+                        for animation in &view.visible_animations {
+                            if animation.tick() {
+                                changed = true;
+                            }
+                            if !animation.finished() {
+                                let wait = animation.until_next();
+                                next = Some(next.map_or(wait, |current| current.min(wait)));
+                            }
+                        }
+                        if changed {
+                            cx.notify();
+                        }
+                        next
+                    })
+                    .ok()
+                    .flatten();
+                match wait {
+                    Some(wait) => {
+                        cx.background_executor()
+                            .timer(wait.max(ANIMATION_MIN_TICK))
+                            .await;
+                    }
+                    None => break,
+                }
+            }
+            running.set(false);
+        })
+        .detach();
     }
 
     #[cfg(any(test, feature = "bench-support"))]
