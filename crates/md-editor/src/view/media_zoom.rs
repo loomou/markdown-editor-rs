@@ -246,6 +246,8 @@ impl EditorView {
     }
 
     pub(crate) fn open_media_zoom(&mut self, chrome: MediaChrome, cx: &mut Context<'_, Self>) {
+        #[cfg(feature = "bench-support")]
+        probe::opened();
         self.media_zoom = Some(MediaZoom {
             block: chrome.block,
             kind: chrome.kind,
@@ -344,6 +346,31 @@ impl EditorView {
     pub(crate) fn media_account(&mut self) -> md_content::media::Account {
         let zoom_bytes = self.zoom_raster.as_ref().map_or(0, |zr| zr.image.bytes);
         self.media.account(zoom_bytes)
+    }
+
+    pub(crate) fn bench_open_first_mermaid(&mut self, cx: &mut Context<'_, Self>) {
+        let block = {
+            let doc = &self.state.doc.document;
+            doc.preorder()
+                .into_iter()
+                .find(|id| doc.kind(id.index) == Some(BlockKind::Mermaid))
+                .map(|id| id.index)
+        };
+        let Some(block) = block else {
+            return;
+        };
+        let w = self.state.theme.decoration.mermaid_max_width;
+        self.open_media_zoom(
+            MediaChrome {
+                block,
+                kind: BlockKind::Mermaid,
+                x: 0.0,
+                y: 0.0,
+                w,
+                h: 0.0,
+            },
+            cx,
+        );
     }
 
     pub(crate) fn schedule_zoom_raster(
@@ -450,6 +477,8 @@ impl EditorView {
                             }) {
                                 md_content::media::drop_image_deferred(cx, old.image.image);
                             }
+                            #[cfg(feature = "bench-support")]
+                            probe::ready();
                             cx.notify();
                         }
                         Err(err) => tracing::warn!(error = %err, "mermaid zoom raster"),
@@ -521,6 +550,8 @@ impl EditorView {
                             }) {
                                 md_content::media::drop_image_deferred(cx, old.image.image);
                             }
+                            #[cfg(feature = "bench-support")]
+                            probe::ready();
                             cx.notify();
                         }
                         Err(err) => tracing::warn!(error = %err, "svg zoom raster"),
@@ -809,6 +840,32 @@ pub(crate) fn paint_zoom(
     };
     window.paint_quad(gpui::fill(bounds, v.state.theme.paint.canvas.hsla()));
     let _ = window.paint_image(bounds, bounds, Corners::all(px(0.0)), image, 0, false);
+}
+
+#[cfg(feature = "bench-support")]
+mod probe {
+    use std::sync::Mutex;
+    use std::time::Instant;
+
+    static OPENED: Mutex<Option<Instant>> = Mutex::new(None);
+
+    pub(super) fn opened() {
+        if let Ok(mut slot) = OPENED.lock() {
+            *slot = Some(Instant::now());
+        }
+    }
+
+    pub(super) fn ready() {
+        let Ok(mut slot) = OPENED.lock() else {
+            return;
+        };
+        if let Some(at) = slot.take() {
+            crate::measure!(
+                "zoom open_to_raster={:.1}",
+                at.elapsed().as_secs_f64() * 1000.0
+            );
+        }
+    }
 }
 
 #[cfg(test)]

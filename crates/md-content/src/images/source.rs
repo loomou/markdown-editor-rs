@@ -194,9 +194,8 @@ fn decode_source(
     let img = Image::from_bytes(format, bytes)
         .to_image_data(svg)
         .map_err(|e| SourceError::Fatal(crate::Error::Image(e.to_string().into())))?;
-    let (image, width, height) = native_dims(img).ok_or_else(|| {
-        SourceError::Fatal(crate::Error::Image(md_i18n::Key::ImageEmpty.into()))
-    })?;
+    let (image, width, height) = native_dims(img)
+        .ok_or_else(|| SourceError::Fatal(crate::Error::Image(md_i18n::Key::ImageEmpty.into())))?;
     Ok(DecodedSource {
         media: SourceMedia::Bitmap {
             image,
@@ -487,12 +486,9 @@ pub(super) fn apng_frame_count(bytes: &[u8]) -> u64 {
         let tag = &bytes[i + 4..i + 8];
         if tag == b"acTL" {
             if len >= 8 && i + 16 <= bytes.len() {
-                frames = u32::from_be_bytes([
-                    bytes[i + 8],
-                    bytes[i + 9],
-                    bytes[i + 10],
-                    bytes[i + 11],
-                ]) as u64;
+                frames =
+                    u32::from_be_bytes([bytes[i + 8], bytes[i + 9], bytes[i + 10], bytes[i + 11]])
+                        as u64;
             }
             break;
         }

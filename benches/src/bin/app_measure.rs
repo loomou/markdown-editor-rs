@@ -10,9 +10,11 @@ fn main() {
 
 #[cfg(windows)]
 mod windows_impl {
+    use std::io::{BufRead, BufReader};
     use std::path::PathBuf;
-    use std::process::Command;
+    use std::process::{Child, Command, Stdio};
     use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering};
+    use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
     use windows_sys::Win32::Foundation::{CloseHandle, HWND, LPARAM};
@@ -22,7 +24,7 @@ mod windows_impl {
     use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         EnumWindows, GetWindowRect, GetWindowThreadProcessId, IsWindowVisible, PostMessageW,
-        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, SetWindowPos, WM_MOUSEWHEEL,
+        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, SetWindowPos, WM_CLOSE, WM_MOUSEWHEEL,
     };
 
     const WHEEL_DELTA: i32 = 120;
@@ -31,6 +33,7 @@ mod windows_impl {
     const RESIZE_SETTLE: Duration = Duration::from_millis(600);
     const SAMPLE_EVERY: usize = 4;
     const WINDOW_WAIT: Duration = Duration::from_secs(30);
+    const CLOSE_WAIT: Duration = Duration::from_secs(10);
 
     struct Args {
         exe: PathBuf,
@@ -166,6 +169,54 @@ mod windows_impl {
         format!("{:.1}", bytes as f64 / (1024.0 * 1024.0))
     }
 
+    #[derive(Default)]
+    struct Collected {
+        frames: Vec<(f64, f64)>,
+        atlas: Vec<u64>,
+        media: Vec<String>,
+    }
+
+    fn collect(child: &mut Child) -> Arc<Mutex<Collected>> {
+        let sink: Arc<Mutex<Collected>> = Arc::new(Mutex::new(Collected::default()));
+        let Some(stderr) = child.stderr.take() else {
+            return sink;
+        };
+        let out = Arc::clone(&sink);
+        std::thread::spawn(move || {
+            for line in BufReader::new(stderr).lines() {
+                let Ok(line) = line else { break };
+                let Some((_, rest)) = line.split_once("md-measure ") else {
+                    continue;
+                };
+                let Ok(mut sink) = out.lock() else { return };
+                if let Some(fields) = rest.strip_prefix("frame ") {
+                    let mut parts = fields.split(' ');
+                    if let (Some(interval), Some(prepaint)) = (parts.next(), parts.next())
+                        && let (Ok(interval), Ok(prepaint)) =
+                            (interval.parse::<f64>(), prepaint.parse::<f64>())
+                    {
+                        sink.frames.push((interval, prepaint));
+                        if let Some(atlas) = parts.next().and_then(|v| v.parse::<u64>().ok()) {
+                            sink.atlas.push(atlas);
+                        }
+                    }
+                } else if let Some(media) = rest.strip_prefix("media ") {
+                    sink.media.push(media.to_owned());
+                }
+            }
+        });
+        sink
+    }
+
+    fn percentile(values: &mut [f64], p: f64) -> f64 {
+        if values.is_empty() {
+            return f64::NAN;
+        }
+        values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let index = (((values.len() - 1) as f64) * p).round() as usize;
+        values[index]
+    }
+
     pub fn main() {
         let args = parse_args();
         if !args.exe.exists() {
@@ -178,8 +229,11 @@ mod windows_impl {
 
         let mut child = Command::new(&args.exe)
             .arg(&args.doc)
+            .env("MARKDOWN_EDITOR_RS_MEASURE", "1")
+            .stderr(Stdio::piped())
             .spawn()
             .expect("the editor must start");
+        let collected = collect(&mut child);
         let pid = child.id();
         TARGET_PID.store(pid, Ordering::Relaxed);
 
@@ -226,6 +280,10 @@ mod windows_impl {
         let mut peak_commit = base.commit;
         let mut peak_ws = base.working_set;
         let mut samples = 0usize;
+        if let Ok(mut sink) = collected.lock() {
+            sink.frames.clear();
+            sink.atlas.clear();
+        }
         let started = Instant::now();
 
         for pass in 0..args.passes {
@@ -264,14 +322,76 @@ mod windows_impl {
             mib(end.pagefile),
         );
 
+        let (mut intervals, mut prepaint, first) = match collected.lock() {
+            Ok(mut sink) => {
+                let first = if sink.frames.is_empty() {
+                    f64::NAN
+                } else {
+                    sink.frames.remove(0).0
+                };
+                let (intervals, paint) = sink
+                    .frames
+                    .iter()
+                    .map(|&(interval, paint)| (interval, paint))
+                    .unzip();
+                (intervals, paint, first)
+            }
+            Err(_) => (Vec::new(), Vec::new(), f64::NAN),
+        };
+        let over = intervals.iter().filter(|ms| **ms > 33.4).count();
+        let frames = intervals.len();
+        let atlas = match collected.lock() {
+            Ok(sink) => match (sink.atlas.first().copied(), sink.atlas.last().copied()) {
+                (Some(first), Some(last)) => Some((first, last)),
+                _ => None,
+            },
+            Err(_) => None,
+        };
+        eprintln!(
+            "[app-measure {}] frames={frames} first={first:.2} interval p50={:.2} p95={:.2} p99={:.2} max={:.2} dropped={over} | prepaint p50={:.2} p95={:.2} p99={:.2} max={:.2}",
+            args.label,
+            percentile(&mut intervals, 0.5),
+            percentile(&mut intervals, 0.95),
+            percentile(&mut intervals, 0.99),
+            percentile(&mut intervals, 1.0),
+            percentile(&mut prepaint, 0.5),
+            percentile(&mut prepaint, 0.95),
+            percentile(&mut prepaint, 0.99),
+            percentile(&mut prepaint, 1.0),
+        );
+        if let Some((first, last)) = atlas {
+            eprintln!(
+                "[app-measure {}] atlas {first} -> {last} uploads={}",
+                args.label,
+                last.saturating_sub(first)
+            );
+        }
+
         // SAFETY: the handle came from OpenProcess and is not used afterwards.
         unsafe { CloseHandle(handle) };
 
         if args.keep_open {
             let _ = child.wait();
         } else {
+            // SAFETY: hwnd is live and the message carries no payload.
+            unsafe { PostMessageW(hwnd, WM_CLOSE, 0, 0) };
+            let deadline = Instant::now() + CLOSE_WAIT;
+            while Instant::now() < deadline {
+                match child.try_wait() {
+                    Ok(Some(_)) => break,
+                    Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+                    Err(_) => break,
+                }
+            }
             let _ = child.kill();
             let _ = child.wait();
+            let media = match collected.lock() {
+                Ok(sink) => sink.media.clone(),
+                Err(_) => Vec::new(),
+            };
+            for line in media {
+                eprintln!("[app-measure {}] {line}", args.label);
+            }
         }
     }
 }

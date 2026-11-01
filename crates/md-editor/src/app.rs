@@ -76,15 +76,29 @@ pub fn run(doc: Doc, config: RunConfig) {
                         shell.update(cx, |s, cx| s.boot(notice, window, cx));
                         #[cfg(feature = "bench-support")]
                         crate::interact_probe::spawn(window, shell.downgrade(), cx);
+                        #[cfg(feature = "bench-support")]
+                        crate::preview_probe::spawn(window, shell.downgrade(), cx);
                         let handle = shell.clone();
                         window.on_window_should_close(cx, move |window, cx| {
                             handle.update(cx, |s, cx| s.on_window_should_close(window, cx))
                         });
                         let flush_handle = shell.clone();
                         cx.on_window_closed(move |cx, _window_id| {
+                            #[cfg(feature = "bench-support")]
+                            let flushed = flush_handle.clone();
                             flush_handle.update(cx, |s, cx| {
                                 s.flush_window_geometry();
+                                #[cfg(feature = "bench-support")]
+                                s.bench_report_media("close-before", cx);
                                 s.release_media(cx);
+                                #[cfg(feature = "bench-support")]
+                                s.bench_report_media("close-after", cx);
+                            });
+                            #[cfg(feature = "bench-support")]
+                            cx.defer(move |cx| {
+                                flushed.update(cx, |s, cx| {
+                                    s.bench_report_media("close-flushed", cx);
+                                });
                             });
                         })
                         .detach();

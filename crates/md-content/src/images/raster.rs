@@ -20,9 +20,7 @@ pub fn raster_display(
             height,
             ..
         } => raster_svg(parsed, *width, *height, key, renderer),
-        SourceMedia::Bitmap { image, animation } => {
-            raster_bitmap(image, animation.as_ref(), key)
-        }
+        SourceMedia::Bitmap { image, animation } => raster_bitmap(image, animation.as_ref(), key),
     }
 }
 

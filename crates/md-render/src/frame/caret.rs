@@ -98,13 +98,7 @@ pub(crate) fn caret_in_box(
     } else {
         &[]
     };
-    let art = shaper.artifact(
-        tree.text_of(node),
-        runs,
-        inner,
-        kind,
-        node.shape_ident(),
-    );
+    let art = shaper.artifact(tree.text_of(node), runs, inner, kind, node.shape_ident());
     let (x, row) = shaper.caret_position_for_offset(&art, offset, node.inline_align(), inner);
     let (dy, h) = shaper.caret_ink(kind, node.type_slot(), &art, row);
     let y = top + tree.style_of(node).top_border_padding() + art.row_top(row) + dy;

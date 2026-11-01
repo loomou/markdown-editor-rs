@@ -622,9 +622,7 @@ fn a_math_block_keeps_the_caret_in_place_when_it_opens(cx: &mut TestAppContext) 
 }
 
 #[gpui::test]
-fn clicking_anywhere_on_a_math_block_puts_the_caret_at_the_source_start(
-    cx: &mut TestAppContext,
-) {
+fn clicking_anywhere_on_a_math_block_puts_the_caret_at_the_source_start(cx: &mut TestAppContext) {
     let (editor, cx) = editor_with_doc("before\n\n$$\n\\frac{a}{b}\n$$\n\nafter\n", cx);
     focus_editor(&editor, cx);
     let (block, _) = leaf_of_kind(&editor, cx, BlockKind::Math);
