@@ -590,6 +590,72 @@ fn pointer_press_on_a_math_block_does_not_enter_until_click(cx: &mut TestAppCont
 }
 
 #[gpui::test]
+fn a_math_block_keeps_the_caret_in_place_when_it_opens(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc("before\n\n$$\n\\frac{a}{b}\n$$\n\nafter\n", cx);
+    focus_editor(&editor, cx);
+    let (block, _) = leaf_of_kind(&editor, cx, BlockKind::Math);
+    let caret = Cursor { block, offset: 6 };
+    cx.update(|_, app| {
+        editor.update(app, |view, _| {
+            view.place_pointer_cursor(caret, CursorMotion::Move);
+        })
+    });
+    let pressed = draw_state(&editor, cx)
+        .frame
+        .snapshot
+        .caret_device
+        .expect("a caret on the rendered formula");
+    cx.update(|_, app| {
+        editor.update(app, |view, _| {
+            view.place_cursor(caret, CursorMotion::Move);
+        })
+    });
+    let opened = draw_state(&editor, cx)
+        .frame
+        .snapshot
+        .caret_device
+        .expect("a caret in the opened source");
+    assert!(
+        (pressed.0 - opened.0).abs() < 0.5 && (pressed.1 - opened.1).abs() < 0.5,
+        "the caret must not move when the well opens: pressed {pressed:?}, opened {opened:?}"
+    );
+}
+
+#[gpui::test]
+fn clicking_anywhere_on_a_math_block_puts_the_caret_at_the_source_start(
+    cx: &mut TestAppContext,
+) {
+    let (editor, cx) = editor_with_doc("before\n\n$$\n\\frac{a}{b}\n$$\n\nafter\n", cx);
+    focus_editor(&editor, cx);
+    let (block, _) = leaf_of_kind(&editor, cx, BlockKind::Math);
+    let st = draw_state(&editor, cx);
+    let piece = st
+        .frame
+        .snapshot
+        .texts
+        .iter()
+        .find(|t| t.block == block)
+        .cloned()
+        .expect("a math piece");
+    let rev = st.frame.snapshot.geometry_revision;
+    let (ox, oy) = piece.content_origin_device;
+    let y = oy + piece.view_height * 0.5;
+    for frac in [0.1, 0.5, 0.9] {
+        let x = ox + piece.content_width * frac;
+        let hit = cx.update(|window, app| {
+            editor.update(app, |view, cx| {
+                view.hit_cursor_at(&st.frame.snapshot, rev, (x, y), window, cx)
+            })
+        });
+        assert_eq!(
+            hit,
+            Some(Cursor { block, offset: 0 }),
+            "a click at {frac} of the formula lands at the start of the source"
+        );
+    }
+}
+
+#[gpui::test]
 fn selecting_inside_an_open_math_well_keeps_source_edit(cx: &mut TestAppContext) {
     let (editor, cx) = editor_with_doc("before\n\n$$\n\\frac{a}{b}\n$$\n\nafter\n", cx);
     focus_editor(&editor, cx);

@@ -1,9 +1,17 @@
 use super::Aligned;
+use crate::snapshot::TextPiece;
 use md_content::shaper::{GpuiShaper, ShapeArtifact};
 use md_core::Px;
 use md_core::block::{BlockId, BlockKind};
 use md_core::doc::Cursor;
 use md_layout::box_tree::BoxRole;
+
+fn piece_offset(shaper: &GpuiShaper, t: &TextPiece, x: Px, row: u32) -> usize {
+    if t.kind == BlockKind::Math && !t.edit_source {
+        return 0;
+    }
+    shaper.offset_for_position(&t.art, x, row, t.align, t.content_width)
+}
 
 pub(super) fn row_at_y(art: &ShapeArtifact, y: Px) -> u32 {
     if art.bands.is_empty() {
@@ -59,13 +67,7 @@ pub(super) fn hit_test(
             let (sx, sy) = well_scroll(t.block);
             let rows = t.art.rows.max(1);
             let row = row_at_y(&t.art, y - coy + sy).min(rows - 1);
-            let off = shaper.offset_for_position(
-                &t.art,
-                (x - cox + sx).max(0.0),
-                row,
-                t.align,
-                t.content_width,
-            );
+            let off = piece_offset(shaper, t, (x - cox + sx).max(0.0), row);
             return Some(Cursor {
                 block: t.block,
                 offset: off,
@@ -103,13 +105,7 @@ pub(super) fn hit_test(
         let (sx, sy) = well_scroll(t.block);
         let rows = t.art.rows.max(1);
         let row = row_at_y(&t.art, y - coy + sy).min(rows - 1);
-        let off = shaper.offset_for_position(
-            &t.art,
-            (x - cox + sx).max(0.0),
-            row,
-            t.align,
-            t.content_width,
-        );
+        let off = piece_offset(shaper, t, (x - cox + sx).max(0.0), row);
         consider(
             &mut best,
             dy,
