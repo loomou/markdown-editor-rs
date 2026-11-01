@@ -47,4 +47,11 @@ impl Shell {
             view.state.shape_cache.byte_count(),
         )
     }
+
+    pub fn bench_media_report(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) -> md_content::media::MediaReport {
+        self.editor.update(cx, |view, _| view.media_report())
+    }
 }

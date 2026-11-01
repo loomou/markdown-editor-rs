@@ -53,3 +53,13 @@ pub fn median(values: &[usize]) -> usize {
     sorted.sort_unstable();
     sorted[sorted.len() / 2]
 }
+
+pub fn percentile(values: &[f64], q: f64) -> f64 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    let rank = ((sorted.len() - 1) as f64 * q).round() as usize;
+    sorted[rank.min(sorted.len() - 1)]
+}

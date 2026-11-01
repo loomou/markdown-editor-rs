@@ -279,6 +279,11 @@ impl EditorView {
         self.media.clear(cx);
     }
 
+    #[cfg(any(test, feature = "bench-support"))]
+    pub(crate) fn media_report(&mut self) -> md_content::media::MediaReport {
+        self.media.report()
+    }
+
     pub(crate) fn schedule_zoom_raster(
         &mut self,
         viewport: (Px, Px),
