@@ -86,6 +86,11 @@ pub use net::http_client;
 pub use raster::{paint_ready, raster_display};
 pub use source::{is_image_path, load_source, markdown_dest, resolve};
 
+#[cfg(feature = "bench-support")]
+pub fn validate_svg(bytes: &[u8]) -> Result<(), crate::Error> {
+    source::validate_svg_dimensions(bytes)
+}
+
 #[derive(Clone, Debug)]
 pub enum Resolved {
     Remote(String),

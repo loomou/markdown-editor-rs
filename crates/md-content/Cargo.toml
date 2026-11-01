@@ -44,11 +44,12 @@ merman-render = { workspace = true }
 merman-export = { workspace = true }
 ratex-parser = { workspace = true }
 ratex-layout = { workspace = true }
-ratex-render = { workspace = true }
+ratex-render = { workspace = true, optional = true }
 ratex-types = { workspace = true }
+ratex-svg = { workspace = true }
 
 [features]
-bench-support = []
+bench-support = ["dep:ratex-render"]
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }

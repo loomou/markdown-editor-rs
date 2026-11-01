@@ -5,8 +5,14 @@ use super::{
 };
 use crate::math::metrics::MathEm;
 use crate::math::raster::raster;
+use gpui::SvgRenderer;
 use md_core::block::BlockKind;
 use md_theme::DocumentTheme;
+use std::sync::Arc;
+
+fn renderer() -> SvgRenderer {
+    SvgRenderer::new(Arc::new(()))
+}
 
 #[test]
 fn layout_em_has_height_and_depth() {
@@ -21,7 +27,7 @@ fn layout_em_has_height_and_depth() {
 }
 
 #[test]
-fn heading_em_png_taller_than_body() {
+fn heading_em_raster_taller_than_body() {
     let theme = DocumentTheme::formal();
     let color = theme.type_role(BlockKind::Paragraph).color;
     let body = RasterSpec {
@@ -36,11 +42,15 @@ fn heading_em_png_taller_than_body() {
         dpr: 1.0,
         color: theme.type_role(BlockKind::Heading(1)).color,
     };
-    let b = raster("E=mc^2", &body).expect("body").image.expect("png");
-    let h = raster("E=mc^2", &heading)
+    let renderer = renderer();
+    let b = raster("E=mc^2", &body, &renderer)
+        .expect("body")
+        .image
+        .expect("raster");
+    let h = raster("E=mc^2", &heading, &renderer)
         .expect("heading")
         .image
-        .expect("png");
+        .expect("raster");
     assert!(h.px_h > b.px_h);
     assert!(heading.font_size > body.font_size);
 }
@@ -55,7 +65,7 @@ fn estimate_is_not_max_box() {
 }
 
 #[test]
-fn raster_png_matches_ceil_em() {
+fn raster_matches_ceil_em() {
     let color = DocumentTheme::formal()
         .type_role(BlockKind::Paragraph)
         .color;
@@ -67,8 +77,8 @@ fn raster_png_matches_ceil_em() {
                 dpr: 1.5,
                 color,
             };
-            let out = raster(latex, &spec).expect("layout");
-            let img = out.image.expect("png");
+            let out = raster(latex, &spec, &renderer()).expect("layout");
+            let img = out.image.expect("raster");
             let w = (out.em.css_width(16.0) * 1.5).ceil() as u32;
             let h = (out.em.css_height(16.0) * 1.5).ceil() as u32;
             assert_eq!(img.px_w, w.max(1), "{latex} display={display} width");
@@ -111,9 +121,9 @@ fn raster_gives_up_on_unparsable_latex() {
         dpr: 1.0,
         color,
     };
-    assert!(raster("a^", &spec).is_err());
-    assert!(raster("x_", &spec).is_err());
-    assert!(raster("a^2", &spec).is_ok());
+    assert!(raster("a^", &spec, &renderer()).is_err());
+    assert!(raster("x_", &spec, &renderer()).is_err());
+    assert!(raster("a^2", &spec, &renderer()).is_ok());
 }
 
 #[test]
@@ -169,6 +179,7 @@ fn successful_metric_duplicates_do_not_bump_generation() {
     let a = key_for("x", false, 16.0, color, 1.0);
     let b = key_for("x", false, 18.0, color, 1.0);
     assert!(cache.begin(a.clone()));
+    let renderer = renderer();
     let out = raster(
         "x",
         &RasterSpec {
@@ -177,6 +188,7 @@ fn successful_metric_duplicates_do_not_bump_generation() {
             dpr: 1.0,
             color,
         },
+        &renderer,
     )
     .expect("raster");
     assert!(cache.finish_inner(a, Ok(out), None));
@@ -190,6 +202,7 @@ fn successful_metric_duplicates_do_not_bump_generation() {
             dpr: 1.0,
             color,
         },
+        &renderer,
     )
     .expect("raster");
     assert!(cache.finish_inner(b, Ok(out), None));

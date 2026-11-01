@@ -20,6 +20,8 @@ mod tests;
 pub use crate::pixels::ReadyImage;
 pub use metrics::MathEm;
 pub use raster::{paint_ready, raster};
+#[cfg(feature = "bench-support")]
+pub use raster::{prepare_svg, raster_png};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MathMetricSlots {

@@ -42,6 +42,30 @@ pub fn from_bgra(img: RgbaImage, dpr: f32) -> Option<ReadyImage> {
     })
 }
 
+pub fn from_render_image(image: Arc<RenderImage>, dpr: f32) -> Option<ReadyImage> {
+    if image.frame_count() == 0 {
+        return None;
+    }
+    let size = image.size(0);
+    let px_w = u32::try_from(i32::from(size.width)).ok()?;
+    let px_h = u32::try_from(i32::from(size.height)).ok()?;
+    if px_w == 0 || px_h == 0 {
+        return None;
+    }
+    let bytes = (px_w as usize)
+        .saturating_mul(px_h as usize)
+        .saturating_mul(4);
+    Some(ReadyImage {
+        image,
+        bytes,
+        dpr,
+        px_w,
+        px_h,
+        shared_with_source: false,
+    })
+}
+
+#[cfg(any(test, feature = "bench-support"))]
 pub fn decode_png(png: &[u8], dpr: f32) -> Option<ReadyImage> {
     let mut img = image::load_from_memory(png).ok()?.into_rgba8();
     for pixel in img.as_chunks_mut::<4>().0 {

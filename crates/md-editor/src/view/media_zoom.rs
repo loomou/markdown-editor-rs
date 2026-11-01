@@ -327,6 +327,7 @@ impl EditorView {
             return;
         };
         let spec = mermaid::spec_from_theme(&theme, key);
+        let renderer = cx.svg_renderer();
         self.zoom_raster_job = Some(ZoomRasterJob {
             key: svg_key,
             density: target,
@@ -339,7 +340,7 @@ impl EditorView {
                             Some(svg) => svg,
                             None => std::sync::Arc::new(mermaid::render_sealed(&src, &spec)?),
                         };
-                        mermaid::raster_svg(&svg, css, target)
+                        mermaid::raster_svg(&svg, css, target, &renderer)
                     })
                     .await;
                 let _ = this.update(cx, |v, cx| {

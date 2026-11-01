@@ -92,10 +92,11 @@ impl EditorView {
             if !self.mermaid.begin(key) {
                 continue;
             }
+            let renderer = cx.svg_renderer();
             cx.spawn(async move |this, cx| {
                 let result = cx
                     .background_executor()
-                    .spawn(async move { mermaid::raster_with_svg(&src, &spec) })
+                    .spawn(async move { mermaid::raster_with_svg(&src, &spec, &renderer) })
                     .await;
                 let _ = this.update(cx, |v, cx| {
                     if let Ok((_, svg)) = &result {
@@ -161,10 +162,11 @@ impl EditorView {
             if !self.math.begin(key.clone()) {
                 continue;
             }
+            let renderer = cx.svg_renderer();
             cx.spawn(async move |this, cx| {
                 let result = cx
                     .background_executor()
-                    .spawn(async move { math::raster(&src, &spec) })
+                    .spawn(async move { math::raster(&src, &spec, &renderer) })
                     .await;
                 let _ = this.update(cx, |v, cx| {
                     if let Err(ref err) = result {
