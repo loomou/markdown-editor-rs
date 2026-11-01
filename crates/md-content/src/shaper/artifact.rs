@@ -51,6 +51,8 @@ pub enum ShapePart {
         dest: String,
         slot_w: Px,
         slot_h: Px,
+        raster_w: Px,
+        raster_h: Px,
         byte_start: usize,
         byte_end: usize,
         fallback: Option<Box<WrappedLine>>,

@@ -5,7 +5,7 @@ pub mod quantize;
 pub mod release;
 pub mod target;
 
-pub use blit::paint_at;
+pub use blit::{paint_at, paint_sized};
 #[cfg(any(test, feature = "bench-support"))]
 pub use image::decode_png;
 pub use image::{ReadyImage, from_bgra, from_render_image};

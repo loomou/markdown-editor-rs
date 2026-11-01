@@ -218,8 +218,8 @@ pub(super) fn collect_image_jobs(
         for part in &band.parts {
             let ShapePart::Image {
                 dest,
-                slot_w,
-                slot_h,
+                raster_w,
+                raster_h,
                 fallback,
                 ..
             } = part
@@ -233,7 +233,7 @@ pub(super) fn collect_image_jobs(
             if fallback.is_some() && !retry {
                 continue;
             }
-            let dkey = images::display_key(dest, *slot_w as f32, *slot_h as f32, sched.dpr);
+            let dkey = images::display_key(dest, *raster_w as f32, *raster_h as f32, sched.dpr);
             sched.protect.push(dkey.clone());
             if !sched.cache.source_contains(dest) || retry {
                 let entry = sched.source_jobs.entry(dest.clone()).or_default();

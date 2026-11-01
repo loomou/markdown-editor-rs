@@ -453,6 +453,63 @@ fn an_image_block_paints_the_picture_without_a_caption(cx: &mut TestAppContext) 
     });
 }
 
+fn image_boxes(art: &md_content::shaper::ShapeArtifact) -> ((f32, f32), (f32, f32)) {
+    art.bands
+        .iter()
+        .flat_map(|band| &band.parts)
+        .find_map(|part| match part {
+            ShapePart::Image {
+                slot_w,
+                slot_h,
+                raster_w,
+                raster_h,
+                ..
+            } => Some((
+                (*slot_w as f32, *slot_h as f32),
+                (*raster_w as f32, *raster_h as f32),
+            )),
+            _ => None,
+        })
+        .expect("the fixture must shape one image part")
+}
+
+#[gpui::test]
+fn a_narrower_column_reflows_but_never_resizes_the_raster(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let theme = DocumentTheme::one_dark();
+        let mut media = media_with_image(0, "big.png");
+        media.image_sizes = Rc::new(
+            [(
+                md_content::images::SourceKey::new("big.png"),
+                (2000u32, 1500u32),
+            )]
+            .into_iter()
+            .collect(),
+        );
+        let shaper = GpuiShaper::new(window, app, &theme, 1.0, ShapeCache::new(), media);
+        let narrow = image_block_artifact(&shaper, "![wide](big.png)\n", 600.0);
+        let wide = image_block_artifact(&shaper, "![wide](big.png)\n", 1200.0);
+        let (narrow_slot, narrow_raster) = image_boxes(&narrow);
+        let (wide_slot, wide_raster) = image_boxes(&wide);
+        assert_ne!(
+            narrow_slot, wide_slot,
+            "the layout box must follow the column, or the picture would overflow it"
+        );
+        assert_eq!(
+            narrow_raster, wide_raster,
+            "the raster box must not follow the viewport: resizing the window has to reflow the \
+             page without decoding the picture again"
+        );
+        assert!(
+            (wide_raster.0 - theme.decoration.image_max_width as f32).abs() < 32.0,
+            "a picture wider than the column is rastered at the column cap, not at its native \
+             2000 px; got {}",
+            wide_raster.0
+        );
+    });
+}
+
 #[gpui::test]
 fn an_inline_image_paragraph_keeps_its_text_at_the_left_edge(cx: &mut TestAppContext) {
     let cx = cx.add_empty_window();

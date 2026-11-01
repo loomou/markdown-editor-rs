@@ -136,7 +136,6 @@ impl DecorationTokens {
             BlockKind::CodeBlock | BlockKind::MetadataBlock => Some(self.code_max_height),
             BlockKind::Math => Some(self.math_max_height),
             BlockKind::Mermaid => Some(self.mermaid_max_height),
-            BlockKind::Image => Some(self.image_max_height),
             _ => None,
         }
     }

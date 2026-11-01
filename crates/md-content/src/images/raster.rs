@@ -1,7 +1,7 @@
 use super::Animation;
 use super::DisplayKey;
 use super::fit::contain_fit;
-use crate::pixels::{ReadyImage, from_bgra, paint_at, snap_css};
+use crate::pixels::{ReadyImage, from_bgra, paint_at, paint_sized, snap_css};
 use gpui::{RenderImage, Window};
 use image::imageops::FilterType;
 use image::{RgbaImage, imageops};
@@ -68,9 +68,18 @@ pub fn paint_ready(
     ready: &ReadyImage,
 ) {
     let (image_w, image_h) = ready.css_size();
-    let dx = ((slot_w - image_w).max(0.0)) * 0.5;
-    let dy = ((slot_h - image_h).max(0.0)) * 0.5;
-    paint_at(window, x + dx, y + dy, ready);
+    if image_w <= 0.0 || image_h <= 0.0 {
+        return;
+    }
+    let scale = (slot_w / image_w).min(slot_h / image_h).min(1.0);
+    let (draw_w, draw_h) = (image_w * scale, image_h * scale);
+    let dx = ((slot_w - draw_w).max(0.0)) * 0.5;
+    let dy = ((slot_h - draw_h).max(0.0)) * 0.5;
+    if scale >= 1.0 {
+        paint_at(window, x + dx, y + dy, ready);
+    } else {
+        paint_sized(window, x + dx, y + dy, draw_w, draw_h, ready);
+    }
 }
 
 pub(super) fn native_dims(img: Arc<RenderImage>) -> Option<(Arc<RenderImage>, u32, u32)> {

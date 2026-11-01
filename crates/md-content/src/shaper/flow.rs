@@ -23,6 +23,8 @@ pub(super) struct MeasuredImage {
     pub(super) dest: String,
     pub(super) slot_w: f32,
     pub(super) slot_h: f32,
+    pub(super) raster_w: f32,
+    pub(super) raster_h: f32,
     pub(super) fallback: Option<Box<WrappedLine>>,
 }
 
@@ -78,10 +80,16 @@ impl GpuiShaper {
             Some(line) => (f32::from(line.width()), role.row_advance as f32),
             None => self.image_slot(&dest, avail, true, role),
         };
+        let (raster_w, raster_h) = match &fallback {
+            Some(_) => (slot_w, slot_h),
+            None => self.image_slot(&dest, self.decoration.image_max_width, true, role),
+        };
         MeasuredImage {
             dest,
             slot_w,
             slot_h,
+            raster_w,
+            raster_h,
             fallback,
         }
     }
@@ -122,12 +130,16 @@ impl GpuiShaper {
                 .cloned()
                 .unwrap_or_default();
             let (slot_w, slot_h) = self.image_slot(&dest, avail, false, role);
+            let (raster_w, raster_h) =
+                self.image_slot(&dest, self.decoration.image_max_width, false, role);
             let ix = ((avail as f32 - slot_w) * 0.5).max(0.0);
             flow.pending.push(Pending::Image {
                 x: ix,
                 dest,
                 slot_w,
                 slot_h,
+                raster_w,
+                raster_h,
                 start: 0,
                 end: 0,
                 fallback: None,
@@ -248,6 +260,8 @@ impl GpuiShaper {
                             dest: measured.dest,
                             slot_w: measured.slot_w,
                             slot_h: measured.slot_h,
+                            raster_w: measured.raster_w,
+                            raster_h: measured.raster_h,
                             start,
                             end,
                             fallback: measured.fallback,

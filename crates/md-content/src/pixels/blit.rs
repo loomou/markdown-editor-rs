@@ -14,6 +14,18 @@ pub fn paint_at(window: &mut Window, x: f32, y: f32, ready: &ReadyImage) {
         return;
     }
     let (ox, oy, dw, dh) = blit_rect(x, y, ready.px_w, ready.px_h, ready.dpr);
+    emit(window, ox, oy, dw, dh, ready);
+}
+
+pub fn paint_sized(window: &mut Window, x: f32, y: f32, w: f32, h: f32, ready: &ReadyImage) {
+    if w <= 0.0 || h <= 0.0 {
+        return;
+    }
+    let dpr = ready.dpr.max(0.25);
+    emit(window, snap_px(x, dpr), snap_px(y, dpr), w, h, ready);
+}
+
+fn emit(window: &mut Window, ox: f32, oy: f32, dw: f32, dh: f32, ready: &ReadyImage) {
     let bounds = Bounds {
         origin: point(px(ox), px(oy)),
         size: size(px(dw), px(dh)),
