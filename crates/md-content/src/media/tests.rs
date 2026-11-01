@@ -206,3 +206,125 @@ fn one_working_set_covers_every_kind(cx: &mut gpui::TestAppContext) {
     assert_eq!(stats.math_bytes, 1600, "the visible formula stays");
     assert_eq!(stats.source_bytes, 1600, "the visible source stays");
 }
+
+#[gpui::test]
+fn a_released_image_outlives_the_update_that_released_it(cx: &mut gpui::TestAppContext) {
+    let image = native(8, 8);
+    let weak = Arc::downgrade(&image);
+    cx.update(|cx| {
+        super::drop_image_deferred(cx, image);
+        assert!(
+            weak.upgrade().is_some(),
+            "dropping the atlas entry inside an update would miss the window that is taken out of the app"
+        );
+    });
+    assert!(
+        weak.upgrade().is_none(),
+        "the release must run once the update is over"
+    );
+}
+
+#[gpui::test]
+fn an_evicted_raster_is_released_after_the_update_ends(cx: &mut gpui::TestAppContext) {
+    let mut cache = MediaCache::with_total_bytes(1);
+    store_math(&mut cache, "x", 20, 20);
+    let key = math_key_for("x", false, 16.0, ThemeColor::new(0.0, 0.0, 0.0, 1.0), 1.0);
+    let held = cache
+        .math()
+        .ready_snapshot()
+        .get(&key)
+        .cloned()
+        .expect("ready raster");
+    let weak = Arc::downgrade(&held.image);
+    drop(held);
+
+    cx.update(|cx| {
+        cache.enforce(cx);
+        assert_eq!(cache.stats().math_bytes, 0, "the ledger drops the entry");
+        assert!(
+            weak.upgrade().is_some(),
+            "but the allocation is still held until the update ends"
+        );
+    });
+    assert!(weak.upgrade().is_none());
+}
+
+#[test]
+fn a_quiet_cache_owes_exactly_what_it_holds() {
+    let mut cache = MediaCache::new();
+    store_math(&mut cache, "x", 10, 10);
+    store_source(&mut cache, "a.png", 20, 20);
+    store_display(&mut cache, "a.png", 4, 4);
+
+    assert_eq!(cache.resident_bytes(), cache.stats().total());
+    assert_eq!(cache.resident_bytes(), 2_064);
+}
+
+#[test]
+fn a_raster_held_outside_the_cache_is_not_written_off_early() {
+    let mut cache = MediaCache::with_total_bytes(1);
+    store_math(&mut cache, "x", 20, 20);
+    let key = math_key_for("x", false, 16.0, ThemeColor::new(0.0, 0.0, 0.0, 1.0), 1.0);
+    let held = cache
+        .math()
+        .ready_snapshot()
+        .get(&key)
+        .cloned()
+        .expect("ready raster");
+    assert_eq!(cache.resident_bytes(), 1_600);
+
+    cache.enforce_inner(None);
+    assert_eq!(cache.stats().math_bytes, 0, "the cache let the entry go");
+    assert_eq!(
+        cache.resident_bytes(),
+        1_600,
+        "the pixels are still resident, so the account must still show them"
+    );
+
+    drop(held);
+    assert_eq!(
+        cache.resident_bytes(),
+        0,
+        "and the account closes once the last reference is gone"
+    );
+}
+
+#[test]
+fn a_preview_outside_the_cache_is_reported_as_an_exception() {
+    let mut cache = MediaCache::with_total_bytes(1_000);
+    store_math(&mut cache, "x", 10, 10);
+    let preview = ready(20, 20);
+    cache.track(&preview.image, preview.bytes);
+
+    let report = cache.report();
+    assert_eq!(report.budget, 1_000);
+    assert_eq!(report.cache_bytes, 400);
+    assert_eq!(report.resident_bytes, 2_000);
+    assert_eq!(report.over_budget, 1_000);
+    assert_eq!(
+        report.untracked_bytes(),
+        1_600,
+        "a preview is resident without being something the cache can evict"
+    );
+
+    drop(preview);
+    let report = cache.report();
+    assert_eq!(report.resident_bytes, 400);
+    assert_eq!(report.over_budget, 0);
+}
+
+#[gpui::test]
+fn closing_settles_every_layer_once_the_update_ends(cx: &mut gpui::TestAppContext) {
+    let mut cache = MediaCache::new();
+    store_math(&mut cache, "x", 10, 10);
+    store_source(&mut cache, "a.png", 10, 10);
+    store_display(&mut cache, "a.png", 10, 10);
+    assert_eq!(cache.resident_bytes(), 1_200);
+
+    cx.update(|cx| cache.clear(cx));
+    assert_eq!(
+        cache.resident_bytes(),
+        0,
+        "every layer is released and the account closes"
+    );
+}

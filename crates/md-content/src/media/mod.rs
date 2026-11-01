@@ -1,7 +1,11 @@
 use crate::images::{DisplayKey, ImageCache};
 use crate::math::{MathCache, MathKey};
 use crate::mermaid::{MermaidCache, MermaidKey};
-use gpui::App;
+use crate::pixels::AllocationLedger;
+use gpui::{App, RenderImage};
+use std::sync::Arc;
+
+pub use crate::pixels::drop_image_deferred;
 
 pub const DEFAULT_TOTAL_BYTES: usize = 352 * 1024 * 1024;
 
@@ -55,11 +59,26 @@ pub struct MediaWorkingSet {
     pub image_warm_sources: Vec<String>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MediaReport {
+    pub budget: usize,
+    pub cache_bytes: usize,
+    pub resident_bytes: usize,
+    pub over_budget: usize,
+}
+
+impl MediaReport {
+    pub fn untracked_bytes(self) -> usize {
+        self.resident_bytes.saturating_sub(self.cache_bytes)
+    }
+}
+
 pub struct MediaCache {
     mermaid: MermaidCache,
     math: MathCache,
     images: ImageCache,
     total_bytes: usize,
+    ledger: AllocationLedger,
 }
 
 impl MediaCache {
@@ -73,6 +92,7 @@ impl MediaCache {
             math: MathCache::new(),
             images: ImageCache::new(),
             total_bytes,
+            ledger: AllocationLedger::new(),
         }
     }
 
@@ -117,6 +137,39 @@ impl MediaCache {
         }
     }
 
+    pub fn track(&mut self, image: &Arc<RenderImage>, bytes: usize) {
+        self.ledger.track(image, bytes);
+    }
+
+    pub fn settle(&mut self) -> usize {
+        let MediaCache {
+            mermaid,
+            math,
+            images,
+            ledger,
+            ..
+        } = self;
+        mermaid.for_each_allocation(&mut |image, bytes| ledger.track(image, bytes));
+        math.for_each_allocation(&mut |image, bytes| ledger.track(image, bytes));
+        images.for_each_allocation(&mut |image, bytes| ledger.track(image, bytes));
+        ledger.settle()
+    }
+
+    pub fn resident_bytes(&mut self) -> usize {
+        self.settle()
+    }
+
+    pub fn report(&mut self) -> MediaReport {
+        let cache_bytes = self.stats().total();
+        let resident_bytes = self.settle();
+        MediaReport {
+            budget: self.total_bytes,
+            cache_bytes,
+            resident_bytes,
+            over_budget: resident_bytes.saturating_sub(self.total_bytes),
+        }
+    }
+
     pub fn submit_working_set(&mut self, set: MediaWorkingSet, cx: &mut App) {
         self.mermaid
             .set_working_set(set.mermaid_hot, set.mermaid_warm, cx);
@@ -135,6 +188,7 @@ impl MediaCache {
         self.mermaid.clear(cx);
         self.math.clear(cx);
         self.images.clear(cx);
+        self.settle();
     }
 
     pub fn enforce(&mut self, cx: &mut App) -> usize {
@@ -142,6 +196,7 @@ impl MediaCache {
     }
 
     pub(super) fn enforce_inner(&mut self, mut cx: Option<&mut App>) -> usize {
+        self.settle();
         let before = self.stats().total();
         if before <= self.total_bytes {
             return 0;
@@ -163,6 +218,7 @@ impl MediaCache {
                 MediaLayer::Source => self.images.shrink_source_to(target, cx),
             }
         }
+        self.settle();
         before.saturating_sub(self.stats().total())
     }
 }

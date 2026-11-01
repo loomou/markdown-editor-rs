@@ -82,7 +82,10 @@ pub fn run(doc: Doc, config: RunConfig) {
                         });
                         let flush_handle = shell.clone();
                         cx.on_window_closed(move |cx, _window_id| {
-                            flush_handle.update(cx, |s, _| s.flush_window_geometry());
+                            flush_handle.update(cx, |s, cx| {
+                                s.flush_window_geometry();
+                                s.release_media(cx);
+                            });
                         })
                         .detach();
                         shell

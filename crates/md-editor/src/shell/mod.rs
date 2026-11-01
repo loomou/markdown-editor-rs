@@ -285,6 +285,10 @@ impl Shell {
         self.geometry_saved_at = Some(std::time::Instant::now());
     }
 
+    pub(crate) fn release_media(&mut self, cx: &mut Context<'_, Self>) {
+        self.editor.update(cx, |view, cx| view.release_media(cx));
+    }
+
     fn note_recent_file(&mut self, path: Option<&std::path::Path>) {
         let Some(path) = path else {
             return;

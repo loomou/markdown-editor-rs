@@ -101,7 +101,7 @@ fn plain_svg_still_paints_vector_content(cx: &mut gpui::TestAppContext) {
 
 #[test]
 fn usvg_default_resolver_does_read_local_files() {
-    let path = marker_path();
+    let path = marker_path("usvg-default");
     std::fs::write(&path, tiny_png_bytes()).unwrap();
     let source = svg_referencing(&path.to_string_lossy());
     let tree = usvg::Tree::from_data(&source, &usvg::Options::default()).unwrap();
@@ -130,7 +130,7 @@ fn usvg_default_resolver_does_read_local_files() {
 
 #[gpui::test]
 fn svg_with_external_file_href_is_refused(cx: &mut gpui::TestAppContext) {
-    let path = marker_path();
+    let path = marker_path("refused");
     std::fs::write(&path, tiny_png_bytes()).unwrap();
     let source = svg_referencing(&path.to_string_lossy());
     let future = cx.update(|app| images::load_source(data_url(&source), false, app));
@@ -222,12 +222,8 @@ fn small_svgz_still_loads(cx: &mut gpui::TestAppContext) {
     );
 }
 
-fn marker_path() -> std::path::PathBuf {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("fixtures");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir.join("external-svg-marker.png")
+fn marker_path(tag: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("md-content-svg-marker-{tag}.png"))
 }
 
 fn tiny_png_bytes() -> Vec<u8> {

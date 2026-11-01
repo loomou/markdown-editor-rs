@@ -3,8 +3,8 @@ use super::{
     MAX_PREPARE_ENTRIES, MathCache, MathKey, MathMetrics, MathPrepareKey, PreparedMath, RasterOut,
     Slot, WARM_EXTRA_ENTRIES, metric,
 };
-use crate::pixels::ReadyImage;
-use gpui::App;
+use crate::pixels::{ReadyImage, drop_image_deferred};
+use gpui::{App, RenderImage};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -180,7 +180,7 @@ impl MathCache {
     pub fn clear(&mut self, cx: &mut App) {
         for slot in self.map.values() {
             if let Slot::Ready(img) = slot {
-                cx.drop_image(img.image.clone(), None);
+                drop_image_deferred(cx, img.image.clone());
             }
         }
         self.map.clear();
@@ -201,6 +201,14 @@ impl MathCache {
 
     pub fn metrics_snapshot(&self) -> Rc<MathMetrics> {
         Rc::clone(&self.metrics)
+    }
+
+    pub(crate) fn for_each_allocation(&self, f: &mut dyn FnMut(&Arc<RenderImage>, usize)) {
+        for slot in self.map.values() {
+            if let Slot::Ready(img) = slot {
+                f(&img.image, img.bytes);
+            }
+        }
     }
 
     pub fn metrics_gen(&self) -> u64 {
@@ -245,7 +253,7 @@ impl MathCache {
                 Some(Slot::Ready(img)) => {
                     self.bytes = self.bytes.saturating_sub(img.bytes);
                     if let Some(cx) = cx.as_deref_mut() {
-                        cx.drop_image(img.image, None);
+                        drop_image_deferred(cx, img.image);
                     }
                     Rc::make_mut(&mut self.ready).remove(&victim);
                 }

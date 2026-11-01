@@ -269,9 +269,14 @@ impl EditorView {
     pub(crate) fn drop_zoom_raster(&mut self, cx: &mut Context<'_, Self>) {
         self.zoom_raster_job = None;
         if let Some(zr) = self.zoom_raster.take() {
-            cx.drop_image(zr.image.image, None);
+            md_content::media::drop_image_deferred(cx, zr.image.image);
             cx.notify();
         }
+    }
+
+    pub(crate) fn release_media(&mut self, cx: &mut Context<'_, Self>) {
+        self.drop_zoom_raster(cx);
+        self.media.clear(cx);
     }
 
     pub(crate) fn schedule_zoom_raster(
@@ -361,12 +366,13 @@ impl EditorView {
                     }
                     match result {
                         Ok(image) => {
+                            v.media.track(&image.image, image.bytes);
                             if let Some(old) = v.zoom_raster.replace(ZoomRaster {
                                 key: svg_key,
                                 density: target,
                                 image,
                             }) {
-                                cx.drop_image(old.image.image, None);
+                                md_content::media::drop_image_deferred(cx, old.image.image);
                             }
                             cx.notify();
                         }
