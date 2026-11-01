@@ -553,3 +553,29 @@ fn an_inline_image_paragraph_keeps_its_text_at_the_left_edge(cx: &mut TestAppCon
         );
     });
 }
+
+#[gpui::test]
+fn a_formula_keeps_its_height_and_lets_the_page_scroll(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let theme = DocumentTheme::one_dark();
+        let shaper = GpuiShaper::new(window, app, &theme, 1.0, ShapeCache::new(), media());
+        let natural = theme.decoration.math_max_height * 3.0;
+        assert_eq!(
+            shaper.well_view_height(BlockKind::Math, false, natural),
+            natural,
+            "a formula taller than the old cap has to keep its height; capping the well would \
+             put a second scrollbar inside the card"
+        );
+        assert_eq!(
+            shaper.well_view_height(BlockKind::Math, true, natural),
+            theme.decoration.code_max_height,
+            "the source editor still scrolls inside its card, the way a code block does"
+        );
+        assert_eq!(
+            shaper.well_view_height(BlockKind::Mermaid, false, natural),
+            theme.decoration.mermaid_max_height,
+            "a diagram keeps the card cap until its raster stops sharing that constant"
+        );
+    });
+}

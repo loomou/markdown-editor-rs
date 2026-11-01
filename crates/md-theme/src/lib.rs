@@ -310,7 +310,9 @@ mod tests {
         assert_eq!(
             dark.decoration
                 .well_max_height(md_core::block::BlockKind::Math, false),
-            Some(420.0)
+            None,
+            "a formula scales to the column and the page scrolls; capping the well would put a \
+             second scrollbar inside the card"
         );
         assert_eq!(
             dark.decoration

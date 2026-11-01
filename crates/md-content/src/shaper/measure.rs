@@ -64,7 +64,6 @@ impl GpuiShaper {
         } else {
             match kind {
                 BlockKind::CodeBlock | BlockKind::MetadataBlock => self.decoration.code_max_height,
-                BlockKind::Math => self.decoration.math_max_height,
                 BlockKind::Mermaid => self.decoration.mermaid_max_height,
                 _ => return height,
             }
