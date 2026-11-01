@@ -4,7 +4,7 @@ use super::fit::contain_fit;
 use crate::pixels::{ReadyImage, from_bgra, paint_at, paint_sized, snap_css};
 use gpui::{RenderImage, Window};
 use image::imageops::FilterType;
-use image::{RgbaImage, imageops};
+use image::{ImageBuffer, Rgba, imageops};
 use std::sync::Arc;
 
 pub fn raster_display(
@@ -49,11 +49,10 @@ pub fn raster_display(
             animation,
         });
     }
-    let raw = source
+    let bytes = source
         .as_bytes(0)
-        .ok_or_else(|| crate::Error::Image(md_i18n::Key::ImageNoPixels.into()))?
-        .to_vec();
-    let img = RgbaImage::from_raw(iw, ih, raw)
+        .ok_or_else(|| crate::Error::Image(md_i18n::Key::ImageNoPixels.into()))?;
+    let img = ImageBuffer::<Rgba<u8>, _>::from_raw(iw, ih, bytes)
         .ok_or_else(|| crate::Error::Image(md_i18n::Key::ImageBadPixels.into()))?;
     let out = imageops::resize(&img, px_w, px_h, FilterType::Triangle);
     from_bgra(out, dpr).ok_or_else(|| crate::Error::Image(md_i18n::Key::ImageRasterFailed.into()))
