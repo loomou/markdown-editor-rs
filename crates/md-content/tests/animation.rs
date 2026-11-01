@@ -46,9 +46,9 @@ fn gif(frames: usize, delay_ms: u32) -> Vec<u8> {
 #[gpui::test]
 fn an_animated_gif_keeps_every_frame_and_its_delay(cx: &mut gpui::TestAppContext) {
     let decoded = load(cx, &data_url("image/gif", &gif(3, 100)));
-    assert_eq!(decoded.image.frame_count(), 3);
+    assert_eq!(decoded.bitmap().expect("a bitmap source").frame_count(), 3);
     assert_eq!((decoded.width, decoded.height), (4, 4));
-    let animation = decoded.animation.expect("a multi-frame GIF is an animation");
+    let animation = decoded.animation().cloned().expect("a multi-frame GIF is an animation");
     assert_eq!(animation.frame_count(), 3);
     assert_eq!(animation.frame_at(Duration::from_millis(50)), 0);
     assert_eq!(animation.frame_at(Duration::from_millis(150)), 1);
@@ -66,9 +66,9 @@ fn an_animated_webp_keeps_every_frame(cx: &mut gpui::TestAppContext) {
         .decode(ANIMATED_WEBP)
         .expect("webp");
     let decoded = load(cx, &data_url("image/webp", &bytes));
-    assert_eq!(decoded.image.frame_count(), 3);
+    assert_eq!(decoded.bitmap().expect("a bitmap source").frame_count(), 3);
     assert_eq!((decoded.width, decoded.height), (4, 4));
-    let animation = decoded.animation.expect("an animated WebP is an animation");
+    let animation = decoded.animation().cloned().expect("an animated WebP is an animation");
     assert_eq!(animation.frame_count(), 3);
 }
 
@@ -78,9 +78,9 @@ fn an_apng_keeps_every_frame(cx: &mut gpui::TestAppContext) {
         .decode(APNG)
         .expect("apng");
     let decoded = load(cx, &data_url("image/png", &bytes));
-    assert_eq!(decoded.image.frame_count(), 3);
+    assert_eq!(decoded.bitmap().expect("a bitmap source").frame_count(), 3);
     assert_eq!((decoded.width, decoded.height), (4, 4));
-    let animation = decoded.animation.expect("an APNG is an animation");
+    let animation = decoded.animation().cloned().expect("an APNG is an animation");
     assert_eq!(animation.frame_count(), 3);
 }
 
@@ -91,8 +91,8 @@ fn a_still_image_reports_no_animation(cx: &mut gpui::TestAppContext) {
         .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
         .expect("png");
     let decoded = load(cx, &data_url("image/png", &buf));
-    assert!(decoded.animation.is_none());
-    assert_eq!(decoded.image.frame_count(), 1);
+    assert!(decoded.animation().is_none());
+    assert_eq!(decoded.bitmap().expect("a bitmap source").frame_count(), 1);
 }
 
 #[test]
@@ -113,7 +113,7 @@ fn a_display_raster_shares_the_animated_source() {
         dpr_q: images::dpr_q(1.0),
     };
     let ready =
-        images::raster_display(&source, Some(Arc::clone(&animation)), &key).expect("raster");
+        images::raster_bitmap(&source, Some(&animation), &key).expect("raster");
     assert_eq!(
         ready.bytes, 0,
         "an animated raster must not copy the frames the source already owns"

@@ -143,10 +143,12 @@ fn clear_must_reject_an_old_source_result(cx: &mut gpui::TestAppContext) {
         let accepted_old = cache.finish_source(
             old,
             Ok(images::DecodedSource {
-                image,
+                media: images::SourceMedia::Bitmap {
+                    image,
+                    animation: None,
+                },
                 width: 2,
                 height: 2,
-                animation: None,
             }),
             app,
         );

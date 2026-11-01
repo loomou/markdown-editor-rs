@@ -24,14 +24,20 @@ const ZOOM_RASTER_DEBOUNCE: std::time::Duration = std::time::Duration::from_mill
 const DENSITY_EPS: f32 = 0.05;
 const ANIMATION_MIN_TICK: std::time::Duration = std::time::Duration::from_millis(8);
 
+#[derive(Clone, PartialEq)]
+pub(crate) enum ZoomKey {
+    Mermaid(mermaid::MermaidSvgKey),
+    Svg(String),
+}
+
 pub(crate) struct ZoomRaster {
-    pub key: mermaid::MermaidSvgKey,
+    pub key: ZoomKey,
     pub density: f32,
     pub image: md_content::mermaid::ReadyImage,
 }
 
 pub(crate) struct ZoomRasterJob {
-    pub key: mermaid::MermaidSvgKey,
+    pub key: ZoomKey,
     pub density: f32,
     #[expect(dead_code)]
     pub task: gpui::Task<()>,
@@ -346,18 +352,26 @@ impl EditorView {
         scale: f64,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(z) = self.media_zoom.as_ref() else {
+        let Some((kind, block, slot_w, user_scale)) = self
+            .media_zoom
+            .as_ref()
+            .map(|z| (z.kind, z.block, z.slot_w, z.user_scale))
+        else {
             return;
         };
-        if z.kind != BlockKind::Mermaid {
+        if kind == BlockKind::Image {
+            self.schedule_svg_zoom(block, scale, cx);
+            return;
+        }
+        if kind != BlockKind::Mermaid {
             return;
         }
         let theme = self.state.theme;
         let theme_fp = mermaid::theme_fingerprint(&theme);
         let Some(key) = mermaid::key_for(
             &self.state.doc.document,
-            z.block,
-            z.slot_w,
+            block,
+            slot_w,
             theme.decoration.mermaid_max_width,
             theme.decoration.mermaid_max_height,
             scale,
@@ -370,32 +384,33 @@ impl EditorView {
         };
         let css = doc.css_size();
         let Some(target) =
-            zoom_target_density(css, viewport, z.user_scale, scale.max(0.25) as f32, doc.dpr)
+            zoom_target_density(css, viewport, user_scale, scale.max(0.25) as f32, doc.dpr)
         else {
             self.drop_zoom_raster(cx);
             return;
         };
-        let svg_key = key.svg_key();
+        let mermaid_key = key.svg_key();
+        let zoom_key = ZoomKey::Mermaid(mermaid_key);
         if let Some(zr) = &self.zoom_raster
-            && zr.key == svg_key
+            && zr.key == zoom_key
             && zr.density >= target - DENSITY_EPS
         {
             return;
         }
         if let Some(job) = &self.zoom_raster_job
-            && job.key == svg_key
+            && job.key == zoom_key
             && job.density >= target - DENSITY_EPS
         {
             return;
         }
-        let svg = self.media.mermaid().svg(&svg_key);
-        let Some(src) = self.state.doc.text(z.block).map(|s| s.to_string()) else {
+        let svg = self.media.mermaid().svg(&mermaid_key);
+        let Some(src) = self.state.doc.text(block).map(|s| s.to_string()) else {
             return;
         };
         let spec = mermaid::spec_from_theme(&theme, key);
         let renderer = cx.svg_renderer();
         self.zoom_raster_job = Some(ZoomRasterJob {
-            key: svg_key,
+            key: zoom_key.clone(),
             density: target,
             task: cx.spawn(async move |this, cx| {
                 cx.background_executor().timer(ZOOM_RASTER_DEBOUNCE).await;
@@ -420,7 +435,7 @@ impl EditorView {
                             scale,
                             mermaid::theme_fingerprint(&v.state.theme),
                         )
-                        .is_some_and(|k| k.svg_key() == svg_key)
+                        .is_some_and(|k| ZoomKey::Mermaid(k.svg_key()) == zoom_key)
                     });
                     if !same {
                         return;
@@ -429,7 +444,7 @@ impl EditorView {
                         Ok(image) => {
                             v.media.track(&image.image, image.bytes);
                             if let Some(old) = v.zoom_raster.replace(ZoomRaster {
-                                key: svg_key,
+                                key: zoom_key,
                                 density: target,
                                 image,
                             }) {
@@ -438,6 +453,77 @@ impl EditorView {
                             cx.notify();
                         }
                         Err(err) => tracing::warn!(error = %err, "mermaid zoom raster"),
+                    }
+                });
+            }),
+        });
+    }
+
+    fn schedule_svg_zoom(&mut self, block: BlockId, scale: f64, cx: &mut Context<'_, Self>) {
+        let Some(dest) = self.doc_maps.block_image_dest.get(&block).cloned() else {
+            return;
+        };
+        let Some(md_content::images::SourceMedia::Svg {
+            parsed,
+            width,
+            height,
+            ..
+        }) = self.media.images().source_media(&dest)
+        else {
+            self.drop_zoom_raster(cx);
+            return;
+        };
+        let density = scale.max(0.25) as f32;
+        let key = ZoomKey::Svg(dest.clone());
+        if let Some(zr) = &self.zoom_raster
+            && zr.key == key
+            && zr.density >= density - DENSITY_EPS
+        {
+            return;
+        }
+        if let Some(job) = &self.zoom_raster_job
+            && job.key == key
+            && job.density >= density - DENSITY_EPS
+        {
+            return;
+        }
+        let renderer = cx.svg_renderer();
+        let px_w = (width as f32 * density).ceil().max(1.0) as u32;
+        let px_h = (height as f32 * density).ceil().max(1.0) as u32;
+        self.zoom_raster_job = Some(ZoomRasterJob {
+            key: key.clone(),
+            density,
+            task: cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(ZOOM_RASTER_DEBOUNCE).await;
+                let result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        md_content::images::raster_svg_px(&parsed, px_w, px_h, density, renderer)
+                    })
+                    .await;
+                let _ = this.update(cx, |v, cx| {
+                    let same = v.media_zoom.as_ref().is_some_and(|z| {
+                        v.doc_maps
+                            .block_image_dest
+                            .get(&z.block)
+                            .is_some_and(|open| *open == dest)
+                    });
+                    if !same {
+                        return;
+                    }
+                    match result {
+                        Ok(image) => {
+                            v.media.track(&image.image, image.bytes);
+                            if let Some(old) = v.zoom_raster.replace(ZoomRaster {
+                                key,
+                                density,
+                                image,
+                            }) {
+                                md_content::media::drop_image_deferred(cx, old.image.image);
+                            }
+                            cx.notify();
+                        }
+                        Err(err) => tracing::warn!(error = %err, "svg zoom raster"),
                     }
                 });
             }),
@@ -546,14 +632,18 @@ impl EditorView {
             }
             BlockKind::Image => {
                 let dest = self.doc_maps.block_image_dest.get(&z.block)?;
-                if let Some(img) = self.media.images().source_image(dest) {
-                    let sz = img.size(0);
-                    let dpr = scale.max(0.25) as f32;
-                    let w = (sz.width.0.max(0) as f32 / dpr).max(1.0);
-                    let h = (sz.height.0.max(0) as f32 / dpr).max(1.0);
-                    Some((w, h))
-                } else {
-                    None
+                match self.media.images().source_media(dest) {
+                    Some(md_content::images::SourceMedia::Bitmap { image, .. }) => {
+                        let sz = image.size(0);
+                        let dpr = scale.max(0.25) as f32;
+                        let w = (sz.width.0.max(0) as f32 / dpr).max(1.0);
+                        let h = (sz.height.0.max(0) as f32 / dpr).max(1.0);
+                        Some((w, h))
+                    }
+                    Some(md_content::images::SourceMedia::Svg { width, height, .. }) => {
+                        Some((width as f32, height as f32))
+                    }
+                    None => None,
                 }
             }
             _ => None,
@@ -578,7 +668,7 @@ impl EditorView {
                     mermaid::theme_fingerprint(theme),
                 )?;
                 if let Some(zr) = &self.zoom_raster
-                    && zr.key == key.svg_key()
+                    && zr.key == ZoomKey::Mermaid(key.svg_key())
                 {
                     return Some((zr.image.image.clone(), zr.image.css_size()));
                 }
@@ -587,12 +677,23 @@ impl EditorView {
             }
             BlockKind::Image => {
                 let dest = self.doc_maps.block_image_dest.get(&z.block)?;
-                let img = self.media.images().source_image(dest)?;
-                let sz = img.size(0);
-                let dpr = scale.max(0.25) as f32;
-                let w = (sz.width.0.max(0) as f32 / dpr).max(1.0);
-                let h = (sz.height.0.max(0) as f32 / dpr).max(1.0);
-                Some((img, (w, h)))
+                match self.media.images().source_media(dest) {
+                    Some(md_content::images::SourceMedia::Bitmap { image, .. }) => {
+                        let sz = image.size(0);
+                        let dpr = scale.max(0.25) as f32;
+                        let w = (sz.width.0.max(0) as f32 / dpr).max(1.0);
+                        let h = (sz.height.0.max(0) as f32 / dpr).max(1.0);
+                        Some((image, (w, h)))
+                    }
+                    Some(md_content::images::SourceMedia::Svg { width, height, .. }) => {
+                        let zr = self.zoom_raster.as_ref()?;
+                        if zr.key != ZoomKey::Svg(dest.clone()) {
+                            return None;
+                        }
+                        Some((zr.image.image.clone(), (width as f32, height as f32)))
+                    }
+                    None => None,
+                }
             }
             _ => None,
         }

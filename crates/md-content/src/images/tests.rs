@@ -1,5 +1,5 @@
 use super::keys::{cache_key, display_key};
-use super::raster::{decoded_len, raster_display};
+use super::raster::{decoded_len, raster_bitmap};
 use super::source::{
     apng_frame_count, decode_data_payload, detect_format, gif_frame_count, is_image_path,
     markdown_dest, parse_retry_after, resolve, validate_image_dimensions, validate_svg_dimensions,
@@ -39,10 +39,12 @@ fn native_from_png(png: &[u8]) -> (Arc<RenderImage>, u32, u32) {
 
 fn decoded(native: (Arc<RenderImage>, u32, u32)) -> super::DecodedSource {
     super::DecodedSource {
-        image: native.0,
+        media: super::SourceMedia::Bitmap {
+            image: native.0,
+            animation: None,
+        },
         width: native.1,
         height: native.2,
-        animation: None,
     }
 }
 
@@ -552,7 +554,7 @@ fn display_drop_keeps_source_ready() {
     assert_eq!(cache.intrinsic("k"), Some((4, 3)));
     let key = display_key("k", 4.0, 3.0, 1.0);
     let djob = cache.begin_display(key.clone()).expect("begin display");
-    let ready = raster_display(&native.0, None, &key).expect("raster");
+    let ready = raster_bitmap(&native.0, None, &key).expect("raster");
     assert!(cache.finish_display_inner(djob, Ok(ready), None));
     assert!(cache.display_ready(&key).is_some());
     cache.drop_display_keep_source(&key);
@@ -578,7 +580,7 @@ fn source_lru_evicts_derived_displays_and_retries_budget_pressure() {
     let job = cache.begin_source("a".into()).expect("begin");
     assert!(cache.finish_source_inner(job, Ok(decoded(native.clone())), None, source_bytes));
     let djob = cache.begin_display(a.clone()).expect("begin display");
-    let display = raster_display(&native.0, None, &a).expect("display");
+    let display = raster_bitmap(&native.0, None, &a).expect("display");
     assert!(cache.finish_display_inner(djob, Ok(display), None));
 
     let b = display_key("b", 4.0, 3.0, 1.0);
@@ -698,7 +700,7 @@ fn raster_downscales_from_source_pixels() {
     let png = png_with_size(400, 300);
     let native = native_from_png(&png);
     let key = display_key("k", 256.0, 192.0, 1.0);
-    let ready = raster_display(&native.0, None, &key).expect("raster");
+    let ready = raster_bitmap(&native.0, None, &key).expect("raster");
     assert_eq!((ready.px_w, ready.px_h), (256, 192));
     assert!((ready.px_w as f32 / ready.px_h as f32 - 4.0 / 3.0).abs() < 1e-5);
     assert!(ready.bytes > 0);
@@ -1174,7 +1176,7 @@ fn fill_display_ready(cache: &mut ImageCache, n: usize) {
         let job = cache.begin_source(dest).expect("begin");
         assert!(cache.finish_source_inner(job, Ok(decoded(native.clone())), None, usize::MAX));
         let djob = cache.begin_display(key.clone()).expect("begin display");
-        let display = raster_display(&native.0, None, &key).expect("display");
+        let display = raster_bitmap(&native.0, None, &key).expect("display");
         assert!(cache.finish_display_inner(djob, Ok(display), None));
     }
 }

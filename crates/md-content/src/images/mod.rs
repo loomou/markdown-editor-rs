@@ -34,21 +34,72 @@ pub mod animation;
 
 pub use animation::Animation;
 
+#[derive(Clone)]
+pub enum SourceMedia {
+    Bitmap {
+        image: Arc<RenderImage>,
+        animation: Option<Arc<Animation>>,
+    },
+    Svg {
+        parsed: Arc<gpui::ParsedSvg>,
+        width: u32,
+        height: u32,
+        source_bytes: usize,
+    },
+}
+
+impl SourceMedia {
+    pub fn image(&self) -> Option<&Arc<RenderImage>> {
+        match self {
+            SourceMedia::Bitmap { image, .. } => Some(image),
+            SourceMedia::Svg { .. } => None,
+        }
+    }
+
+    pub fn animation(&self) -> Option<&Arc<Animation>> {
+        match self {
+            SourceMedia::Bitmap { animation, .. } => animation.as_ref(),
+            SourceMedia::Svg { .. } => None,
+        }
+    }
+
+    pub fn bytes(&self) -> usize {
+        match self {
+            SourceMedia::Bitmap { image, .. } => raster::decoded_len(image),
+            SourceMedia::Svg { source_bytes, .. } => *source_bytes,
+        }
+    }
+}
+
 pub struct DecodedSource {
-    pub image: Arc<RenderImage>,
+    pub media: SourceMedia,
     pub width: u32,
     pub height: u32,
-    pub animation: Option<Arc<Animation>>,
+}
+
+impl DecodedSource {
+    pub fn bitmap(&self) -> Option<&Arc<RenderImage>> {
+        self.media.image()
+    }
+
+    pub fn animation(&self) -> Option<&Arc<Animation>> {
+        self.media.animation()
+    }
 }
 
 impl std::fmt::Debug for DecodedSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DecodedSource")
-            .field("width", &self.width)
+        let mut out = f.debug_struct("DecodedSource");
+        out.field("width", &self.width)
             .field("height", &self.height)
-            .field("frames", &self.image.frame_count())
-            .field("animated", &self.animation.is_some())
-            .finish()
+            .field("bytes", &self.media.bytes());
+        match &self.media {
+            SourceMedia::Bitmap { image, animation } => out
+                .field("frames", &image.frame_count())
+                .field("animated", &animation.is_some()),
+            SourceMedia::Svg { .. } => out.field("svg", &true),
+        }
+        .finish()
     }
 }
 
@@ -104,12 +155,12 @@ pub(crate) use fit::width_fit;
 pub(crate) use keys::quantized_slot;
 pub use keys::{cache_key, display_key};
 pub use net::http_client;
-pub use raster::{paint_ready, raster_display};
+pub use raster::{paint_ready, raster_bitmap, raster_display, raster_svg_px};
 pub use source::{is_image_path, load_source, markdown_dest, resolve};
 
 #[cfg(feature = "bench-support")]
 pub fn validate_svg(bytes: &[u8]) -> Result<(), crate::Error> {
-    source::validate_svg_dimensions(bytes)
+    source::validate_svg_dimensions(bytes).map(|_| ())
 }
 
 #[derive(Clone, Debug)]
@@ -159,8 +210,7 @@ enum SourceSlot {
         seq: u64,
     },
     Ready {
-        image: Arc<RenderImage>,
-        animation: Option<Arc<Animation>>,
+        media: SourceMedia,
     },
     Failed(crate::Error),
     Retryable {

@@ -41,10 +41,12 @@ fn store_source(cache: &mut MediaCache, dest: &str, w: u32, h: u32) {
     assert!(cache.images_mut().finish_source_inner(
         token,
         Ok(crate::images::DecodedSource {
-            image: native(w, h),
+            media: crate::images::SourceMedia::Bitmap {
+                image: native(w, h),
+                animation: None,
+            },
             width: w,
             height: h,
-            animation: None,
         }),
         None,
         usize::MAX

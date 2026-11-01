@@ -1,4 +1,3 @@
-use super::raster::decoded_len;
 use super::{
     DecodedSource, DisplayKey, DisplaySlot, DisplayToken, ImageCache, MAX_DISPLAY_BYTES,
     MAX_DISPLAY_ENTRIES, MAX_FAILED_ENTRIES, MAX_IN_FLIGHT, MAX_SOURCE_BYTES, SourceError,
@@ -63,16 +62,23 @@ impl ImageCache {
         self.sizes.get(dest).copied()
     }
 
+    pub fn source_media(&self, dest: &str) -> Option<super::SourceMedia> {
+        match self.source.get(dest) {
+            Some(SourceSlot::Ready { media }) => Some(media.clone()),
+            _ => None,
+        }
+    }
+
     pub fn source_image(&self, dest: &str) -> Option<Arc<RenderImage>> {
         match self.source.get(dest) {
-            Some(SourceSlot::Ready { image, .. }) => Some(Arc::clone(image)),
+            Some(SourceSlot::Ready { media }) => media.image().cloned(),
             _ => None,
         }
     }
 
     pub fn source_animation(&self, dest: &str) -> Option<Arc<super::Animation>> {
         match self.source.get(dest) {
-            Some(SourceSlot::Ready { animation, .. }) => animation.clone(),
+            Some(SourceSlot::Ready { media }) => media.animation().cloned(),
             _ => None,
         }
     }
@@ -136,7 +142,7 @@ impl ImageCache {
         let now = Instant::now();
         match result {
             Ok(decoded) if decoded.width > 0 && decoded.height > 0 => {
-                let n = decoded_len(&decoded.image);
+                let n = decoded.media.bytes();
                 self.evict_source(n, source_budget, cx);
                 if self.source_bytes.saturating_add(n) > source_budget {
                     self.source.insert(
@@ -153,8 +159,7 @@ impl ImageCache {
                 self.source.insert(
                     key.clone(),
                     SourceSlot::Ready {
-                        image: decoded.image,
-                        animation: decoded.animation,
+                        media: decoded.media,
                     },
                 );
                 self.record_source_size(key.clone(), decoded.width, decoded.height);
@@ -332,8 +337,8 @@ impl ImageCache {
             .source_visible
             .iter()
             .filter_map(|key| match self.source.get(key) {
-                Some(SourceSlot::Ready { image, .. }) => {
-                    pinned = pinned.saturating_add(decoded_len(image));
+                Some(SourceSlot::Ready { media }) => {
+                    pinned = pinned.saturating_add(media.bytes());
                     Some(key.clone())
                 }
                 _ => None,
@@ -369,7 +374,9 @@ impl ImageCache {
 
     pub fn clear(&mut self, cx: &mut App) {
         for slot in self.source.values() {
-            if let SourceSlot::Ready { image, .. } = slot {
+            if let SourceSlot::Ready { media } = slot
+                && let Some(image) = media.image()
+            {
                 drop_image_deferred(cx, image.clone());
             }
         }
@@ -486,10 +493,12 @@ impl ImageCache {
 
     pub(super) fn remove_source(&mut self, key: &SourceKey, mut cx: Option<&mut App>) {
         match self.source.remove(key) {
-            Some(SourceSlot::Ready { image, .. }) => {
-                self.source_bytes = self.source_bytes.saturating_sub(decoded_len(&image));
-                if let Some(cx) = cx.as_deref_mut() {
-                    drop_image_deferred(cx, image);
+            Some(SourceSlot::Ready { media }) => {
+                self.source_bytes = self.source_bytes.saturating_sub(media.bytes());
+                if let Some(cx) = cx.as_deref_mut()
+                    && let Some(image) = media.image()
+                {
+                    drop_image_deferred(cx, image.clone());
                 }
             }
             Some(SourceSlot::InFlight { .. }) => {
@@ -550,8 +559,10 @@ impl ImageCache {
 
     pub(crate) fn for_each_allocation(&self, f: &mut dyn FnMut(&Arc<RenderImage>, usize)) {
         for slot in self.source.values() {
-            if let SourceSlot::Ready { image, .. } = slot {
-                f(image, decoded_len(image));
+            if let SourceSlot::Ready { media } = slot
+                && let Some(image) = media.image()
+            {
+                f(image, media.bytes());
             }
         }
         for slot in self.display.values() {

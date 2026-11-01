@@ -1,17 +1,81 @@
 use super::Animation;
 use super::DisplayKey;
+use super::SourceMedia;
 use super::fit::contain_fit;
 use crate::pixels::{ReadyImage, from_bgra, paint_at, paint_sized, snap_css};
-use gpui::{RenderImage, Window};
+use gpui::{DevicePixels, RenderImage, Size, SvgRenderer, SvgSize, Window};
 use image::imageops::FilterType;
 use image::{ImageBuffer, Rgba, imageops};
 use std::sync::Arc;
 
 pub fn raster_display(
+    media: &SourceMedia,
+    key: &DisplayKey,
+    renderer: SvgRenderer,
+) -> Result<ReadyImage, crate::Error> {
+    match media {
+        SourceMedia::Svg {
+            parsed,
+            width,
+            height,
+            ..
+        } => raster_svg(parsed, *width, *height, key, renderer),
+        SourceMedia::Bitmap { image, animation } => {
+            raster_bitmap(image, animation.as_ref(), key)
+        }
+    }
+}
+
+fn raster_svg(
+    parsed: &Arc<gpui::ParsedSvg>,
+    width: u32,
+    height: u32,
+    key: &DisplayKey,
+    renderer: SvgRenderer,
+) -> Result<ReadyImage, crate::Error> {
+    let (slot_w, slot_h) = key.raster_slot();
+    let dpr = key.raster_dpr();
+    let (fw, fh) = contain_fit(width as f32, height as f32, slot_w, slot_h);
+    let px_w = (snap_css(fw, dpr) * dpr).ceil().max(1.0) as u32;
+    let px_h = (snap_css(fh, dpr) * dpr).ceil().max(1.0) as u32;
+    raster_svg_px(parsed, px_w, px_h, dpr, renderer)
+}
+
+pub fn raster_svg_px(
+    parsed: &Arc<gpui::ParsedSvg>,
+    px_w: u32,
+    px_h: u32,
+    dpr: f32,
+    renderer: SvgRenderer,
+) -> Result<ReadyImage, crate::Error> {
+    let image = renderer
+        .render_parsed(
+            parsed,
+            SvgSize::ExactSize(Size::new(
+                DevicePixels(px_w as i32),
+                DevicePixels(px_h as i32),
+            )),
+        )
+        .map_err(|e| crate::Error::Image(e.to_string().into()))?;
+    Ok(ReadyImage {
+        image,
+        bytes: (px_w as usize)
+            .saturating_mul(px_h as usize)
+            .saturating_mul(4),
+        dpr,
+        px_w,
+        px_h,
+        shared_with_source: false,
+        animation: None,
+    })
+}
+
+pub fn raster_bitmap(
     source: &Arc<RenderImage>,
-    animation: Option<Arc<Animation>>,
+    animation: Option<&Arc<Animation>>,
     key: &DisplayKey,
 ) -> Result<ReadyImage, crate::Error> {
+    let animation = animation.cloned();
     if source.frame_count() == 0 {
         return Err(crate::Error::Image(md_i18n::Key::ImageEmpty.into()));
     }
