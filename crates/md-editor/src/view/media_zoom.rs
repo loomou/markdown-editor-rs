@@ -284,6 +284,12 @@ impl EditorView {
         self.media.report()
     }
 
+    #[cfg(any(test, feature = "bench-support"))]
+    pub(crate) fn media_account(&mut self) -> md_content::media::Account {
+        let zoom_bytes = self.zoom_raster.as_ref().map_or(0, |zr| zr.image.bytes);
+        self.media.account(zoom_bytes)
+    }
+
     pub(crate) fn schedule_zoom_raster(
         &mut self,
         viewport: (Px, Px),

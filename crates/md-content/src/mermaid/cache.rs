@@ -279,6 +279,14 @@ impl MermaidCache {
         self.bytes
     }
 
+    pub(crate) fn entries(&self) -> usize {
+        self.map.len()
+    }
+
+    pub(crate) fn svg_bytes(&self) -> usize {
+        self.svgs.values().map(|svg| svg.as_str().len()).sum()
+    }
+
     pub(crate) fn shrink_to(&mut self, bytes: usize, cx: Option<&mut App>) {
         self.evict(cx, MAX_ENTRIES, bytes);
     }

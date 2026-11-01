@@ -328,3 +328,32 @@ fn closing_settles_every_layer_once_the_update_ends(cx: &mut gpui::TestAppContex
         "every layer is released and the account closes"
     );
 }
+
+#[test]
+fn an_account_names_the_layer_every_byte_came_from() {
+    let mut cache = MediaCache::with_total_bytes(1 << 20);
+    store_source(&mut cache, "a.png", 10, 10);
+    store_display(&mut cache, "a.png", 10, 10);
+    store_math(&mut cache, "x", 10, 10);
+
+    let account = cache.account(300);
+    assert_eq!(account.source_bytes, 400);
+    assert_eq!(account.source_entries, 1);
+    assert_eq!(account.display_bytes, 400);
+    assert_eq!(account.display_entries, 1);
+    assert_eq!(account.math_bytes, 400);
+    assert_eq!(account.math_entries, 1);
+    assert_eq!(account.mermaid_bytes, 0);
+    assert_eq!(account.mermaid_entries, 0);
+    assert_eq!(account.zoom_bytes, 300);
+    assert_eq!(account.cache_bytes, 1_200);
+    assert_eq!(account.resident_bytes, 1_200);
+    assert_eq!(
+        account.media_bytes(),
+        1_500,
+        "a preview counts toward what the document holds"
+    );
+    assert_eq!(account.cache_bytes, 1_200, "but the cache cannot evict it");
+    assert_eq!(account.entries(), 3);
+    assert_eq!(account.untracked_bytes(), 0);
+}

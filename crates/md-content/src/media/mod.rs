@@ -73,6 +73,44 @@ impl MediaReport {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Account {
+    pub display_bytes: usize,
+    pub display_entries: usize,
+    pub source_bytes: usize,
+    pub source_entries: usize,
+    pub mermaid_bytes: usize,
+    pub mermaid_entries: usize,
+    pub mermaid_svg_bytes: usize,
+    pub math_bytes: usize,
+    pub math_entries: usize,
+    pub zoom_bytes: usize,
+    pub cache_bytes: usize,
+    pub resident_bytes: usize,
+    pub over_budget: usize,
+}
+
+impl Account {
+    pub fn media_bytes(self) -> usize {
+        self.display_bytes
+            .saturating_add(self.source_bytes)
+            .saturating_add(self.mermaid_bytes)
+            .saturating_add(self.math_bytes)
+            .saturating_add(self.zoom_bytes)
+    }
+
+    pub fn entries(self) -> usize {
+        self.display_entries
+            .saturating_add(self.source_entries)
+            .saturating_add(self.mermaid_entries)
+            .saturating_add(self.math_entries)
+    }
+
+    pub fn untracked_bytes(self) -> usize {
+        self.resident_bytes.saturating_sub(self.cache_bytes)
+    }
+}
+
 pub struct MediaCache {
     mermaid: MermaidCache,
     math: MathCache,
@@ -165,6 +203,31 @@ impl MediaCache {
         MediaReport {
             budget: self.total_bytes,
             cache_bytes,
+            resident_bytes,
+            over_budget: resident_bytes.saturating_sub(self.total_bytes),
+        }
+    }
+
+    pub fn account(&mut self, zoom_bytes: usize) -> Account {
+        let stats = self.stats();
+        let display_entries = self.images.display_entries();
+        let source_entries = self.images.source_entries();
+        let mermaid_entries = self.mermaid.entries();
+        let mermaid_svg_bytes = self.mermaid.svg_bytes();
+        let math_entries = self.math.entries();
+        let resident_bytes = self.settle();
+        Account {
+            display_bytes: stats.display_bytes,
+            display_entries,
+            source_bytes: stats.source_bytes,
+            source_entries,
+            mermaid_bytes: stats.mermaid_bytes,
+            mermaid_entries,
+            mermaid_svg_bytes,
+            math_bytes: stats.math_bytes,
+            math_entries,
+            zoom_bytes,
+            cache_bytes: stats.total(),
             resident_bytes,
             over_budget: resident_bytes.saturating_sub(self.total_bytes),
         }

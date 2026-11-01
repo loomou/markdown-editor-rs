@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use md_bench::corpus::{self, Shape};
 
@@ -128,7 +128,7 @@ fn main() {
 
 const GALLERY_DOCS: [usize; 2] = [120, 1200];
 
-fn dump_gallery(media: &PathBuf) -> usize {
+fn dump_gallery(media: &Path) -> usize {
     let count = GALLERY_DOCS[1];
     let mut bytes = 0usize;
     for index in 0..count {

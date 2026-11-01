@@ -516,6 +516,20 @@ impl ImageCache {
         self.source_bytes
     }
 
+    pub(crate) fn source_entries(&self) -> usize {
+        self.source
+            .values()
+            .filter(|slot| matches!(slot, SourceSlot::Ready { .. }))
+            .count()
+    }
+
+    pub(crate) fn display_entries(&self) -> usize {
+        self.display
+            .values()
+            .filter(|slot| matches!(slot, DisplaySlot::Ready(_)))
+            .count()
+    }
+
     pub(crate) fn display_bytes(&self) -> usize {
         self.display_bytes
     }

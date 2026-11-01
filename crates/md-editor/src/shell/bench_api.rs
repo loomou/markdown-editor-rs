@@ -54,4 +54,11 @@ impl Shell {
     ) -> md_content::media::MediaReport {
         self.editor.update(cx, |view, _| view.media_report())
     }
+
+    pub fn bench_media_account(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) -> md_content::media::Account {
+        self.editor.update(cx, |view, _| view.media_account())
+    }
 }

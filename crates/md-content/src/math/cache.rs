@@ -305,6 +305,10 @@ impl MathCache {
         self.bytes.saturating_add(self.prepared_bytes)
     }
 
+    pub(crate) fn entries(&self) -> usize {
+        self.map.len().saturating_add(self.prepared.len())
+    }
+
     pub(crate) fn shrink_to(&mut self, bytes: usize, cx: Option<&mut App>) {
         self.evict(cx, MAX_ENTRIES, bytes.saturating_sub(self.prepared_bytes));
         if self.bytes.saturating_add(self.prepared_bytes) > bytes {
