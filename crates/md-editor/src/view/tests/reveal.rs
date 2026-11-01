@@ -122,7 +122,7 @@ fn revealed_inline_image_popover_stays_empty_when_loading_fails(cx: &mut TestApp
     );
 
     cx.run_until_parked();
-    let failed = cx.update(|_, app| editor.read(app).images.failed_sources());
+    let failed = cx.update(|_, app| editor.read(app).media.images().failed_sources());
     assert!(
         failed.contains(popover.dest.as_str()),
         "a source that failed to load should enter failed_sources: {:?}",
@@ -238,7 +238,7 @@ fn revealed_inline_math_leaves_the_line_and_moves_to_a_popover(cx: &mut TestAppC
     assert!(w > 0.0 && h > 0.0, "the plate must have a size: {w}x{h}");
 
     cx.run_until_parked();
-    let ready = cx.update(|_, app| editor.read(app).math.ready_snapshot());
+    let ready = cx.update(|_, app| editor.read(app).media.math().ready_snapshot());
     assert!(
         ready.contains_key(&plan.key),
         "the popover key should hit the inline copy of the rasterized image"

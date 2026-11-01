@@ -12,6 +12,7 @@ use ratex_types::display_item::DisplayList;
 use ratex_types::math_style::MathStyle;
 
 const MAX_RASTER_PIXELS: u64 = 8 * 1024 * 1024;
+#[cfg(any(test, feature = "bench-support"))]
 const MAX_RASTER_BYTES: u64 = MAX_RASTER_PIXELS * 4;
 
 struct LaidOut {
@@ -53,6 +54,7 @@ pub(super) fn layout_em(latex: &str, display: bool, color: ThemeColor) -> Option
     layout_formula(latex, display, color).map(|laid_out| laid_out.em)
 }
 
+#[cfg(any(test, feature = "bench-support"))]
 pub(super) fn raster_dimensions(
     list: &DisplayList,
     spec: &super::RasterSpec,
@@ -78,18 +80,31 @@ pub(super) fn raster_dimensions(
     Some((u32::try_from(width).ok()?, u32::try_from(height).ok()?))
 }
 
-struct Prepared {
-    em: MathEm,
-    svg: String,
-    px: (u32, u32),
+pub struct PreparedMath {
+    pub em: MathEm,
+    pub svg: String,
+    pub css: (f32, f32),
 }
 
-fn prepare(latex: &str, spec: &RasterSpec) -> Result<Prepared, crate::Error> {
+impl PreparedMath {
+    pub fn bytes(&self) -> usize {
+        self.svg.len()
+    }
+}
+
+fn prepare(latex: &str, spec: &RasterSpec) -> Result<PreparedMath, crate::Error> {
     let laid_out = layout_formula(latex, spec.display, spec.color)
         .ok_or_else(|| crate::Error::Math(md_i18n::Key::FormulaParseFailed.into()))?;
-    let Some((px_w, px_h)) = raster_dimensions(&laid_out.list, spec) else {
+    if !spec.font_size.is_finite() || spec.font_size <= 0.0 {
         return Err(crate::Error::Math(md_i18n::Key::FormulaRenderFailed.into()));
-    };
+    }
+    let css = (
+        laid_out.list.width as f32 * spec.font_size + 2.0 * MATH_PAD,
+        (laid_out.list.height + laid_out.list.depth) as f32 * spec.font_size + 2.0 * MATH_PAD,
+    );
+    if !css.0.is_finite() || !css.1.is_finite() || css.0 <= 0.0 || css.1 <= 0.0 {
+        return Err(crate::Error::Math(md_i18n::Key::FormulaRenderFailed.into()));
+    }
     let svg = ratex_svg::render_to_svg(
         &laid_out.list,
         &ratex_svg::SvgOptions {
@@ -99,11 +114,15 @@ fn prepare(latex: &str, spec: &RasterSpec) -> Result<Prepared, crate::Error> {
             ..ratex_svg::SvgOptions::default()
         },
     );
-    Ok(Prepared {
+    Ok(PreparedMath {
         em: laid_out.em,
         svg,
-        px: (px_w, px_h),
+        css,
     })
+}
+
+pub fn prepare_for(latex: &str, spec: &RasterSpec) -> Result<PreparedMath, crate::Error> {
+    prepare(latex, spec)
 }
 
 pub fn raster(
@@ -111,11 +130,36 @@ pub fn raster(
     spec: &RasterSpec,
     renderer: &SvgRenderer,
 ) -> Result<RasterOut, crate::Error> {
-    let prepared = prepare(latex, spec)?;
-    let size = Size::new(
-        DevicePixels(prepared.px.0 as i32),
-        DevicePixels(prepared.px.1 as i32),
-    );
+    let prepared = std::sync::Arc::new(prepare(latex, spec)?);
+    raster_prepared(&prepared, spec, renderer)
+}
+
+pub(super) fn target_px(css: (f32, f32), dpr: f32) -> Option<(u32, u32)> {
+    let want_w = (css.0 * dpr).ceil().max(1.0);
+    let want_h = (css.1 * dpr).ceil().max(1.0);
+    if !want_w.is_finite() || !want_h.is_finite() {
+        return None;
+    }
+    if want_w > crate::pixels::GPUI_MAX_EDGE as f32 || want_h > crate::pixels::GPUI_MAX_EDGE as f32
+    {
+        return None;
+    }
+    if want_w * want_h > MAX_RASTER_PIXELS as f32 {
+        return None;
+    }
+    Some((want_w as u32, want_h as u32))
+}
+
+pub fn raster_prepared(
+    prepared: &std::sync::Arc<PreparedMath>,
+    spec: &RasterSpec,
+    renderer: &SvgRenderer,
+) -> Result<RasterOut, crate::Error> {
+    let dpr = spec.dpr.max(0.25);
+    let Some((px_w, px_h)) = target_px(prepared.css, dpr) else {
+        return Err(crate::Error::Math(md_i18n::Key::FormulaRenderFailed.into()));
+    };
+    let size = Size::new(DevicePixels(px_w as i32), DevicePixels(px_h as i32));
     let image = renderer
         .parse_svg(prepared.svg.as_bytes())
         .ok()
@@ -124,18 +168,19 @@ pub fn raster(
                 .render_parsed(&parsed, SvgSize::ExactSize(size))
                 .ok()
         })
-        .and_then(|image| from_render_image(image, spec.dpr.max(0.25)));
+        .and_then(|image| from_render_image(image, dpr));
     Ok(RasterOut {
         em: prepared.em,
         image,
+        prepared: Some(std::sync::Arc::clone(prepared)),
     })
 }
 
 #[cfg(feature = "bench-support")]
 pub fn prepare_svg(latex: &str, spec: &RasterSpec) -> Option<(String, u32, u32)> {
-    prepare(latex, spec)
-        .ok()
-        .map(|prepared| (prepared.svg, prepared.px.0, prepared.px.1))
+    let prepared = prepare(latex, spec).ok()?;
+    let (px_w, px_h) = target_px(prepared.css, spec.dpr.max(0.25))?;
+    Some((prepared.svg, px_w, px_h))
 }
 
 #[cfg(feature = "bench-support")]
@@ -166,6 +211,7 @@ pub fn raster_png(latex: &str, spec: &RasterSpec) -> Result<RasterOut, crate::Er
     Ok(RasterOut {
         em: laid_out.em,
         image,
+        prepared: None,
     })
 }
 

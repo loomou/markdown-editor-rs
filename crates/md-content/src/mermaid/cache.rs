@@ -138,7 +138,7 @@ impl MermaidCache {
         self.finish_inner(key, result, Some(cx));
     }
 
-    pub(super) fn finish_inner(
+    pub(crate) fn finish_inner(
         &mut self,
         key: MermaidKey,
         result: Result<ReadyImage, crate::Error>,
@@ -265,6 +265,14 @@ impl MermaidCache {
             };
             Rc::make_mut(&mut self.fitted).remove(&victim);
         }
+    }
+
+    pub(crate) fn bytes(&self) -> usize {
+        self.bytes
+    }
+
+    pub(crate) fn shrink_to(&mut self, bytes: usize, cx: Option<&mut App>) {
+        self.evict(cx, MAX_ENTRIES, bytes);
     }
 
     #[cfg(test)]

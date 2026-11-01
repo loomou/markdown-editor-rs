@@ -268,12 +268,12 @@ impl EditorView {
         let scale = f64::from(window.scale_factor());
         self.doc_maps.sync(&self.state.doc);
         let media = ShapeMedia {
-            mermaid_fitted: self.mermaid.fitted_snapshot(),
-            math_metrics: self.math.metrics_snapshot(),
-            math_gen: self.math.metrics_gen(),
-            image_sizes: self.images.sizes_snapshot(),
-            image_failed: self.images.failed_sources(),
-            image_gen: self.images.sizes_gen(),
+            mermaid_fitted: self.media.mermaid().fitted_snapshot(),
+            math_metrics: self.media.math().metrics_snapshot(),
+            math_gen: self.media.math().metrics_gen(),
+            image_sizes: self.media.images().sizes_snapshot(),
+            image_failed: self.media.images().failed_sources(),
+            image_gen: self.media.images().sizes_gen(),
             link_dests: Rc::clone(&self.doc_maps.link_dests),
             link_raw: Rc::clone(&self.doc_maps.link_raw),
             block_image_dest: Rc::clone(&self.doc_maps.block_image_dest),

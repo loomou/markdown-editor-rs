@@ -40,10 +40,8 @@ impl EditorView {
     pub(crate) fn replace_document(&mut self, mut doc: Doc, cx: &mut Context<'_, Self>) {
         doc.enable_trailing_blank();
         self.discard_recovery_files(cx);
-        self.mermaid.clear(cx);
         self.drop_zoom_raster(cx);
-        self.math.clear(cx);
-        self.images.clear(cx);
+        self.media.clear(cx);
         let first = doc.first_text_leaf().unwrap_or(0);
         doc.set_read_only(self.reading);
         self.reading_step = None;

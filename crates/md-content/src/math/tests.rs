@@ -1,7 +1,7 @@
 use super::raster::{layout_em, raster_dimensions};
 use super::{
     MAX_BYTES, MAX_ENTRIES, MAX_METRIC_ENTRIES, MathCache, RasterOut, RasterSpec,
-    WARM_EXTRA_ENTRIES, key_for, metric,
+    WARM_EXTRA_ENTRIES, key_for, metric, raster_prepared, spec_from_key,
 };
 use crate::math::metrics::MathEm;
 use crate::math::raster::raster;
@@ -127,7 +127,7 @@ fn raster_gives_up_on_unparsable_latex() {
 }
 
 #[test]
-fn raster_rejects_a_formula_that_exceeds_the_pixel_budget() {
+fn the_legacy_png_path_rejects_a_formula_that_exceeds_the_pixel_budget() {
     let color = DocumentTheme::formal()
         .type_role(BlockKind::Paragraph)
         .color;
@@ -265,6 +265,7 @@ fn dummy_out(img: crate::pixels::ReadyImage) -> RasterOut {
             depth: 0.0,
         },
         image: Some(img),
+        prepared: None,
     }
 }
 
@@ -483,4 +484,72 @@ fn bytes_are_bounded_by_the_hard_budget_only() {
     );
     assert!(cache.byte_count() <= MAX_BYTES);
     assert!(cache.entry_count() <= WARM_EXTRA_ENTRIES);
+}
+
+#[test]
+fn one_prepared_document_serves_every_density() {
+    let color = DocumentTheme::formal()
+        .type_role(BlockKind::Paragraph)
+        .color;
+    let renderer = renderer();
+    let mut cache = MathCache::new();
+    let base = key_for("x^2+y^2", false, 16.0, color, 1.0);
+    let dense = key_for("x^2+y^2", false, 16.0, color, 2.0);
+    assert_eq!(
+        base.prepare_key(),
+        dense.prepare_key(),
+        "density must not enter the prepare identity"
+    );
+
+    assert!(cache.begin(base.clone()));
+    let out = raster("x^2+y^2", &spec_from_key(&base, color), &renderer).expect("raster");
+    let base_px = out.image.as_ref().expect("image").px_w;
+    assert!(cache.finish_inner(base, Ok(out), None));
+
+    let prepared = cache
+        .prepared(&dense)
+        .expect("the document a density produced serves the next one");
+    let dense_out =
+        raster_prepared(&prepared, &spec_from_key(&dense, color), &renderer).expect("raster");
+    let dense_px = dense_out.image.expect("image").px_w;
+    assert!(
+        dense_px.abs_diff(base_px * 2) <= 1,
+        "density 2 must land on twice the pixels: {base_px} then {dense_px}"
+    );
+}
+
+#[gpui::test]
+fn clear_forgets_every_prepared_document(cx: &mut gpui::TestAppContext) {
+    let color = DocumentTheme::formal()
+        .type_role(BlockKind::Paragraph)
+        .color;
+    let renderer = renderer();
+    let mut cache = MathCache::new();
+    let key = key_for("x", false, 16.0, color, 1.0);
+    assert!(cache.begin(key.clone()));
+    let out = raster("x", &spec_from_key(&key, color), &renderer).expect("raster");
+    assert!(cache.finish_inner(key.clone(), Ok(out), None));
+    assert!(cache.prepared(&key).is_some());
+
+    cx.update(|cx| cache.clear(cx));
+    assert!(cache.prepared(&key).is_none());
+    assert_eq!(cache.prepared_count(), 0);
+}
+
+#[test]
+fn the_pixel_target_refuses_a_formula_it_cannot_fit() {
+    assert_eq!(
+        super::raster::target_px((100.0, 20.0), 2.0),
+        Some((200, 40))
+    );
+    assert_eq!(
+        super::raster::target_px((100_000.0, 34.0), 1.0),
+        None,
+        "an edge past the gpui limit must be refused, not silently squashed"
+    );
+    assert_eq!(
+        super::raster::target_px((4_000.0, 4_000.0), 1.0),
+        None,
+        "the pixel budget still applies"
+    );
 }

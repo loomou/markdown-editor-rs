@@ -109,7 +109,7 @@ impl ImageCache {
         self.finish_source_inner(token, result, Some(cx), MAX_SOURCE_BYTES)
     }
 
-    pub(super) fn finish_source_inner(
+    pub(crate) fn finish_source_inner(
         &mut self,
         token: SourceToken,
         result: Result<(Arc<RenderImage>, u32, u32), SourceError>,
@@ -241,7 +241,7 @@ impl ImageCache {
         self.finish_display_inner(token, result, Some(cx))
     }
 
-    pub(super) fn finish_display_inner(
+    pub(crate) fn finish_display_inner(
         &mut self,
         token: DisplayToken,
         result: Result<ReadyImage, crate::Error>,
@@ -281,7 +281,7 @@ impl ImageCache {
         self.set_working_set_inner(hot, hot_sources, warm_sources, Some(cx), MAX_SOURCE_BYTES);
     }
 
-    pub(super) fn set_working_set_inner(
+    pub(crate) fn set_working_set_inner(
         &mut self,
         hot: impl IntoIterator<Item = DisplayKey>,
         hot_sources: impl IntoIterator<Item = String>,
@@ -512,9 +512,20 @@ impl ImageCache {
         }
     }
 
-    #[cfg(test)]
-    pub(super) fn source_bytes(&self) -> usize {
+    pub(crate) fn source_bytes(&self) -> usize {
         self.source_bytes
+    }
+
+    pub(crate) fn display_bytes(&self) -> usize {
+        self.display_bytes
+    }
+
+    pub(crate) fn shrink_source_to(&mut self, bytes: usize, cx: Option<&mut App>) {
+        self.evict_source(0, bytes, cx);
+    }
+
+    pub(crate) fn shrink_display_to(&mut self, bytes: usize, cx: Option<&mut App>) {
+        self.evict_display(cx, MAX_DISPLAY_ENTRIES, bytes);
     }
 
     #[cfg(test)]

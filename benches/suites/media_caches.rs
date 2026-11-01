@@ -102,6 +102,7 @@ fn math_media(tree: &BoxTree, nodes: &[LayoutBoxId], app: &mut App) -> ShapeMedi
                         depth: 0.25,
                     },
                     image: None,
+                    prepared: None,
                 }),
                 app,
             );

@@ -7,9 +7,8 @@ use gpui::{
     ParentElement, Render, Styled, Window, div,
 };
 use md_content::gpui_theme::ThemeColorExt;
-use md_content::images::{self, ImageCache};
-use md_content::math::MathCache;
-use md_content::mermaid::MermaidCache;
+use md_content::images;
+use md_content::media::MediaCache;
 use md_core::Px;
 use md_core::block::{BlockId, BlockKind};
 use md_core::doc::{Cursor, Doc};
@@ -138,11 +137,9 @@ impl EditorView {
             find_bar: None,
             search_open: false,
             search: Default::default(),
-            mermaid: MermaidCache::new(),
+            media: MediaCache::new(),
             zoom_raster: None,
             zoom_raster_job: None,
-            math: MathCache::new(),
-            images: ImageCache::new(),
             remote_images: false,
             doc_maps: DocShapeMaps::empty(),
             well_scroll: HashMap::new(),
@@ -185,7 +182,7 @@ impl EditorView {
             return;
         }
         self.remote_images = allow;
-        self.images.clear(cx);
+        self.media.clear(cx);
         cx.notify();
     }
 

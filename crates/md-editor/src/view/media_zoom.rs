@@ -299,7 +299,7 @@ impl EditorView {
         ) else {
             return;
         };
-        let Some(doc) = self.mermaid.image(&key) else {
+        let Some(doc) = self.media.mermaid().image(&key) else {
             return;
         };
         let css = doc.css_size();
@@ -322,7 +322,7 @@ impl EditorView {
         {
             return;
         }
-        let svg = self.mermaid.svg(&svg_key);
+        let svg = self.media.mermaid().svg(&svg_key);
         let Some(src) = self.state.doc.text(z.block).map(|s| s.to_string()) else {
             return;
         };
@@ -472,11 +472,14 @@ impl EditorView {
                     scale,
                     mermaid::theme_fingerprint(theme),
                 )?;
-                self.mermaid.image(&key).map(|ready| ready.css_size())
+                self.media
+                    .mermaid()
+                    .image(&key)
+                    .map(|ready| ready.css_size())
             }
             BlockKind::Image => {
                 let dest = self.doc_maps.block_image_dest.get(&z.block)?;
-                if let Some(img) = self.images.source_image(dest) {
+                if let Some(img) = self.media.images().source_image(dest) {
                     let sz = img.size(0);
                     let dpr = scale.max(0.25) as f32;
                     let w = (sz.width.0.max(0) as f32 / dpr).max(1.0);
@@ -512,12 +515,12 @@ impl EditorView {
                 {
                     return Some((zr.image.image.clone(), zr.image.css_size()));
                 }
-                let ready = self.mermaid.image(&key)?;
+                let ready = self.media.mermaid().image(&key)?;
                 Some((ready.image.clone(), ready.css_size()))
             }
             BlockKind::Image => {
                 let dest = self.doc_maps.block_image_dest.get(&z.block)?;
-                let img = self.images.source_image(dest)?;
+                let img = self.media.images().source_image(dest)?;
                 let sz = img.size(0);
                 let dpr = scale.max(0.25) as f32;
                 let w = (sz.width.0.max(0) as f32 / dpr).max(1.0);

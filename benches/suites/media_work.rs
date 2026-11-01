@@ -308,6 +308,39 @@ fn math_stage_bench(c: &mut Criterion) {
             },
         );
 
+        let dense: Vec<(String, gpui::Size<gpui::DevicePixels>)> = prepared
+            .iter()
+            .map(|(svg, px_w, px_h)| {
+                (
+                    svg.clone(),
+                    gpui::Size::new(
+                        gpui::DevicePixels(*px_w as i32 * 2),
+                        gpui::DevicePixels(*px_h as i32 * 2),
+                    ),
+                )
+            })
+            .collect();
+        group.throughput(Throughput::Elements(dense.len() as u64));
+        group.bench_with_input(
+            BenchmarkId::new("dense", human(size)),
+            &dense,
+            |b, dense| {
+                b.iter(|| {
+                    let mut ok = 0usize;
+                    for (svg, target) in dense {
+                        if let Ok(parsed) = renderer.parse_svg(svg.as_bytes())
+                            && renderer
+                                .render_parsed(&parsed, gpui::SvgSize::ExactSize(*target))
+                                .is_ok()
+                        {
+                            ok += 1;
+                        }
+                    }
+                    ok
+                })
+            },
+        );
+
         group.throughput(Throughput::Elements(sampled.len() as u64));
         group.bench_with_input(
             BenchmarkId::new("png", human(size)),

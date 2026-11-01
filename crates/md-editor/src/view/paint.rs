@@ -120,10 +120,10 @@ impl EditorElement {
         ) = {
             let v = self.state.read(cx);
             (
-                v.math.ready_snapshot(),
-                v.images.ready_snapshot(),
-                v.math.failed_snapshot(),
-                v.images.failed_sources(),
+                v.media.math().ready_snapshot(),
+                v.media.images().ready_snapshot(),
+                v.media.math().failed_snapshot(),
+                v.media.images().failed_sources(),
                 v.well_scroll.clone(),
                 Rc::clone(&v.doc_maps.block_code_lang),
                 v.state.paint_fault,
@@ -303,8 +303,11 @@ impl EditorElement {
                         mermaid_theme_fp,
                     ) {
                         Some(key) => (
-                            v.mermaid.image(&key),
-                            v.mermaid.failed_error(&key).map(mermaid::fail_label),
+                            v.media.mermaid().image(&key),
+                            v.media
+                                .mermaid()
+                                .failed_error(&key)
+                                .map(mermaid::fail_label),
                         ),
                         None => (None, None),
                     }
