@@ -10,6 +10,9 @@ const WARM_EXTRA_ENTRIES: usize = 192;
 
 const MAX_METRIC_ENTRIES: usize = 4096;
 
+const MAX_PREPARE_ENTRIES: usize = 256;
+const MAX_PREPARE_BYTES: usize = 16 * 1024 * 1024;
+
 mod cache;
 mod metrics;
 mod raster;
@@ -19,7 +22,9 @@ mod tests;
 
 pub use crate::pixels::ReadyImage;
 pub use metrics::MathEm;
-pub use raster::{paint_ready, raster};
+pub use raster::{PreparedMath, paint_ready, prepare_for, raster, raster_prepared};
+#[cfg(feature = "bench-support")]
+pub use raster::{prepare_svg, raster_png};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MathMetricSlots {
@@ -78,6 +83,23 @@ impl MathKey {
     pub fn dpr(&self) -> f32 {
         crate::pixels::dpr_from_q(self.dpr_q)
     }
+
+    pub fn prepare_key(&self) -> MathPrepareKey {
+        MathPrepareKey {
+            latex: self.latex.clone(),
+            display: self.display,
+            em_bits: self.em_bits,
+            color_bits: self.color_bits,
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub struct MathPrepareKey {
+    pub latex: String,
+    pub display: bool,
+    pub em_bits: u32,
+    pub color_bits: u32,
 }
 
 pub struct RasterSpec {
@@ -90,6 +112,7 @@ pub struct RasterSpec {
 pub struct RasterOut {
     pub em: MathEm,
     pub image: Option<ReadyImage>,
+    pub prepared: Option<std::sync::Arc<PreparedMath>>,
 }
 
 enum Slot {
@@ -110,6 +133,9 @@ pub struct MathCache {
     metrics_gen: u64,
     ready: Rc<HashMap<MathKey, ReadyImage>>,
     failed: Rc<HashSet<MathKey>>,
+    prepared: HashMap<MathPrepareKey, std::sync::Arc<PreparedMath>>,
+    prepared_order: VecDeque<MathPrepareKey>,
+    prepared_bytes: usize,
 }
 
 pub fn key_for(latex: &str, display: bool, font_size: f32, color: ThemeColor, dpr: f64) -> MathKey {

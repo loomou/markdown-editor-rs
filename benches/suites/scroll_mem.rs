@@ -1,7 +1,7 @@
 use gpui::{AppContext, BenchAppContext};
 use md_bench::gpui_support::{FrameCase, large_cases, mount_shell};
 use md_bench::mem;
-use md_bench::scroll_probe::{Sample, median, sample};
+use md_bench::scroll_probe::{Sample, median, percentile, sample};
 
 const WARMUP_FRAMES: usize = 8;
 const STEPS: usize = 300;
@@ -78,12 +78,15 @@ fn scroll_mem(case: &FrameCase, cx: &mut BenchAppContext<'_, '_>) {
     let mut peak_shape_bytes = base.shape_bytes;
     let mut peak_step = 0usize;
     let mut samples: Vec<Sample> = Vec::with_capacity(STEPS);
+    let mut step_ms: Vec<f64> = Vec::with_capacity(STEPS);
     let mut wraps = 0usize;
 
     for index in 0..STEPS {
         let before = cx.read_entity(&shell, |shell, app| shell.bench_frame_metrics(app).0);
+        let started = std::time::Instant::now();
         cx.update_entity(&shell, |shell, cx| shell.bench_scroll_to(before + step, cx));
         cx.run_until_idle();
+        step_ms.push(started.elapsed().as_secs_f64() * 1000.0);
         let deep = index % SAMPLE_EVERY == 0 || index + TAIL >= STEPS;
         let s = sample(&shell, cx, deep);
         if s.ws > peak_ws {
@@ -137,9 +140,13 @@ fn scroll_mem(case: &FrameCase, cx: &mut BenchAppContext<'_, '_>) {
     };
 
     eprintln!(
-        "[scroll-mem {}] summary step_px={step:.0} wraps={wraps} base={} | peak@step{peak_step}: {peak_mem} materialized={peak_materialized} shapes={peak_shapes} shape-bytes={peak_shape_bytes} | steady(tail{TAIL}): {steady_mem} materialized={steady_materialized} shapes={steady_shapes}",
+        "[scroll-mem {}] summary step_px={step:.0} wraps={wraps} base={} | peak@step{peak_step}: {peak_mem} materialized={peak_materialized} shapes={peak_shapes} shape-bytes={peak_shape_bytes} | steady(tail{TAIL}): {steady_mem} materialized={steady_materialized} shapes={steady_shapes} | step-ms p50={:.2} p95={:.2} p99={:.2} max={:.2}",
         case.label,
         mem_text(&base),
+        percentile(&step_ms, 0.5),
+        percentile(&step_ms, 0.95),
+        percentile(&step_ms, 0.99),
+        percentile(&step_ms, 1.0),
     );
 
     cx.bench_renderer(shell, move |shell, _window, cx| {

@@ -167,8 +167,8 @@ fn transient_server_errors_retry_after_the_backoff_window(cx: &mut TestAppContex
     let (due, failed) = cx.update(|_, app| {
         let v = editor.read(app);
         (
-            v.images.source_retry_due(url),
-            v.images.failed_sources().contains(url),
+            v.media.images().source_retry_due(url),
+            v.media.images().failed_sources().contains(url),
         )
     });
     assert!(!due, "no retry inside the backoff window");
@@ -191,8 +191,8 @@ fn transient_server_errors_retry_after_the_backoff_window(cx: &mut TestAppContex
     let (ready, failed) = cx.update(|_, app| {
         let v = editor.read(app);
         (
-            v.images.source_image(url).is_some(),
-            v.images.failed_sources().contains(url),
+            v.media.images().source_image(url).is_some(),
+            v.media.images().failed_sources().contains(url),
         )
     });
     assert_eq!(

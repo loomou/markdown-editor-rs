@@ -570,6 +570,8 @@ fn place_line(ctx: &Ctx<'_>, flow: &mut BandFlow<'_>, planned: Planned) {
                         dest: measured.dest,
                         slot_w: measured.slot_w,
                         slot_h: measured.slot_h,
+                        raster_w: measured.raster_w,
+                        raster_h: measured.raster_h,
                         start: base + start,
                         end: base + end,
                         fallback: measured.fallback,

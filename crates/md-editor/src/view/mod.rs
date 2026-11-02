@@ -4,8 +4,8 @@ use self::table_toolbar::TableChrome;
 use crate::keymap::Keymap;
 use gpui::{AnyWindowHandle, WeakEntity};
 use md_content::images::{self, ImageCache};
-use md_content::math::{self, MathCache};
-use md_content::mermaid::MermaidCache;
+use md_content::math;
+use md_content::media::MediaCache;
 use md_core::Px;
 use md_core::block::{BlockId, BlockKind, TableCellAlign};
 use md_core::doc::{Cursor, Doc};
@@ -459,11 +459,11 @@ pub struct EditorView {
     pub(crate) search_open: bool,
     pub(crate) search: SearchState,
 
-    mermaid: MermaidCache,
+    media: MediaCache,
+    animation_running: std::rc::Rc<std::cell::Cell<bool>>,
+    visible_animations: Vec<std::sync::Arc<md_content::images::Animation>>,
     pub(crate) zoom_raster: Option<media_zoom::ZoomRaster>,
     pub(crate) zoom_raster_job: Option<media_zoom::ZoomRasterJob>,
-    math: MathCache,
-    images: ImageCache,
     remote_images: bool,
     doc_maps: DocShapeMaps,
     well_scroll: HashMap<BlockId, WellScroll>,
@@ -512,7 +512,7 @@ struct DocShapeMaps {
 }
 
 struct DisplayJob {
-    source: std::sync::Arc<gpui::RenderImage>,
+    media: md_content::images::SourceMedia,
     blocks: Vec<BlockId>,
 }
 

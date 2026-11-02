@@ -1,10 +1,10 @@
-use super::raster::decoded_len;
 use super::{
-    DisplayKey, DisplaySlot, DisplayToken, ImageCache, MAX_DISPLAY_BYTES, MAX_DISPLAY_ENTRIES,
-    MAX_FAILED_ENTRIES, MAX_IN_FLIGHT, MAX_SOURCE_BYTES, SourceError, SourceKey, SourceSlot,
-    SourceToken, WARM_DISPLAY_EXTRA, WARM_SOURCE_IN_FLIGHT, source_retry_delay,
+    DecodedSource, DisplayKey, DisplaySlot, DisplayToken, ImageCache, MAX_DISPLAY_BYTES,
+    MAX_DISPLAY_ENTRIES, MAX_FAILED_ENTRIES, MAX_IN_FLIGHT, MAX_SOURCE_BYTES, SourceError,
+    SourceKey, SourceSlot, SourceToken, WARM_DISPLAY_EXTRA, WARM_SOURCE_IN_FLIGHT,
+    source_retry_delay,
 };
-use crate::pixels::ReadyImage;
+use crate::pixels::{ReadyImage, drop_image_deferred};
 use gpui::{App, RenderImage};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
@@ -62,9 +62,23 @@ impl ImageCache {
         self.sizes.get(dest).copied()
     }
 
+    pub fn source_media(&self, dest: &str) -> Option<super::SourceMedia> {
+        match self.source.get(dest) {
+            Some(SourceSlot::Ready { media }) => Some(media.clone()),
+            _ => None,
+        }
+    }
+
     pub fn source_image(&self, dest: &str) -> Option<Arc<RenderImage>> {
         match self.source.get(dest) {
-            Some(SourceSlot::Ready { image }) => Some(Arc::clone(image)),
+            Some(SourceSlot::Ready { media }) => media.image().cloned(),
+            _ => None,
+        }
+    }
+
+    pub fn source_animation(&self, dest: &str) -> Option<Arc<super::Animation>> {
+        match self.source.get(dest) {
+            Some(SourceSlot::Ready { media }) => media.animation().cloned(),
             _ => None,
         }
     }
@@ -103,16 +117,16 @@ impl ImageCache {
     pub fn finish_source(
         &mut self,
         token: SourceToken,
-        result: Result<(Arc<RenderImage>, u32, u32), SourceError>,
+        result: Result<DecodedSource, SourceError>,
         cx: &mut App,
     ) -> bool {
         self.finish_source_inner(token, result, Some(cx), MAX_SOURCE_BYTES)
     }
 
-    pub(super) fn finish_source_inner(
+    pub(crate) fn finish_source_inner(
         &mut self,
         token: SourceToken,
-        result: Result<(Arc<RenderImage>, u32, u32), SourceError>,
+        result: Result<DecodedSource, SourceError>,
         cx: Option<&mut App>,
         source_budget: usize,
     ) -> bool {
@@ -127,8 +141,8 @@ impl ImageCache {
         self.source_inflight = self.source_inflight.saturating_sub(1);
         let now = Instant::now();
         match result {
-            Ok((image, width, height)) if width > 0 && height > 0 => {
-                let n = decoded_len(&image);
+            Ok(decoded) if decoded.width > 0 && decoded.height > 0 => {
+                let n = decoded.media.bytes();
                 self.evict_source(n, source_budget, cx);
                 if self.source_bytes.saturating_add(n) > source_budget {
                     self.source.insert(
@@ -142,8 +156,13 @@ impl ImageCache {
                     return true;
                 }
                 self.source_bytes = self.source_bytes.saturating_add(n);
-                self.source.insert(key.clone(), SourceSlot::Ready { image });
-                self.record_source_size(key.clone(), width, height);
+                self.source.insert(
+                    key.clone(),
+                    SourceSlot::Ready {
+                        media: decoded.media,
+                    },
+                );
+                self.record_source_size(key.clone(), decoded.width, decoded.height);
                 self.clear_failure_projection(&key);
                 self.touch_source(key);
                 true
@@ -241,7 +260,7 @@ impl ImageCache {
         self.finish_display_inner(token, result, Some(cx))
     }
 
-    pub(super) fn finish_display_inner(
+    pub(crate) fn finish_display_inner(
         &mut self,
         token: DisplayToken,
         result: Result<ReadyImage, crate::Error>,
@@ -281,7 +300,7 @@ impl ImageCache {
         self.set_working_set_inner(hot, hot_sources, warm_sources, Some(cx), MAX_SOURCE_BYTES);
     }
 
-    pub(super) fn set_working_set_inner(
+    pub(crate) fn set_working_set_inner(
         &mut self,
         hot: impl IntoIterator<Item = DisplayKey>,
         hot_sources: impl IntoIterator<Item = String>,
@@ -318,8 +337,8 @@ impl ImageCache {
             .source_visible
             .iter()
             .filter_map(|key| match self.source.get(key) {
-                Some(SourceSlot::Ready { image }) => {
-                    pinned = pinned.saturating_add(decoded_len(image));
+                Some(SourceSlot::Ready { media }) => {
+                    pinned = pinned.saturating_add(media.bytes());
                     Some(key.clone())
                 }
                 _ => None,
@@ -355,15 +374,17 @@ impl ImageCache {
 
     pub fn clear(&mut self, cx: &mut App) {
         for slot in self.source.values() {
-            if let SourceSlot::Ready { image, .. } = slot {
-                cx.drop_image(image.clone(), None);
+            if let SourceSlot::Ready { media } = slot
+                && let Some(image) = media.image()
+            {
+                drop_image_deferred(cx, image.clone());
             }
         }
         for slot in self.display.values() {
             if let DisplaySlot::Ready(img) = slot
                 && !img.shared_with_source
             {
-                cx.drop_image(img.image.clone(), None);
+                drop_image_deferred(cx, img.image.clone());
             }
         }
         self.source.clear();
@@ -472,10 +493,12 @@ impl ImageCache {
 
     pub(super) fn remove_source(&mut self, key: &SourceKey, mut cx: Option<&mut App>) {
         match self.source.remove(key) {
-            Some(SourceSlot::Ready { image }) => {
-                self.source_bytes = self.source_bytes.saturating_sub(decoded_len(&image));
-                if let Some(cx) = cx.as_deref_mut() {
-                    cx.drop_image(image, None);
+            Some(SourceSlot::Ready { media }) => {
+                self.source_bytes = self.source_bytes.saturating_sub(media.bytes());
+                if let Some(cx) = cx.as_deref_mut()
+                    && let Some(image) = media.image()
+                {
+                    drop_image_deferred(cx, image.clone());
                 }
             }
             Some(SourceSlot::InFlight { .. }) => {
@@ -499,7 +522,7 @@ impl ImageCache {
                     if let Some(cx) = cx.as_deref_mut()
                         && !image.shared_with_source
                     {
-                        cx.drop_image(image.image, None);
+                        drop_image_deferred(cx, image.image);
                     }
                 }
                 Some(DisplaySlot::InFlight { .. }) => {
@@ -512,9 +535,49 @@ impl ImageCache {
         }
     }
 
-    #[cfg(test)]
-    pub(super) fn source_bytes(&self) -> usize {
+    pub(crate) fn source_bytes(&self) -> usize {
         self.source_bytes
+    }
+
+    pub(crate) fn source_entries(&self) -> usize {
+        self.source
+            .values()
+            .filter(|slot| matches!(slot, SourceSlot::Ready { .. }))
+            .count()
+    }
+
+    pub(crate) fn display_entries(&self) -> usize {
+        self.display
+            .values()
+            .filter(|slot| matches!(slot, DisplaySlot::Ready(_)))
+            .count()
+    }
+
+    pub(crate) fn display_bytes(&self) -> usize {
+        self.display_bytes
+    }
+
+    pub(crate) fn for_each_allocation(&self, f: &mut dyn FnMut(&Arc<RenderImage>, usize)) {
+        for slot in self.source.values() {
+            if let SourceSlot::Ready { media } = slot
+                && let Some(image) = media.image()
+            {
+                f(image, media.bytes());
+            }
+        }
+        for slot in self.display.values() {
+            if let DisplaySlot::Ready(img) = slot {
+                f(&img.image, img.bytes);
+            }
+        }
+    }
+
+    pub(crate) fn shrink_source_to(&mut self, bytes: usize, cx: Option<&mut App>) {
+        self.evict_source(0, bytes, cx);
+    }
+
+    pub(crate) fn shrink_display_to(&mut self, bytes: usize, cx: Option<&mut App>) {
+        self.evict_display(cx, MAX_DISPLAY_ENTRIES, bytes);
     }
 
     #[cfg(test)]
@@ -556,7 +619,7 @@ impl ImageCache {
                     if let Some(cx) = cx.as_deref_mut()
                         && !img.shared_with_source
                     {
-                        cx.drop_image(img.image, None);
+                        drop_image_deferred(cx, img.image);
                     }
                 }
                 Some(DisplaySlot::InFlight { .. }) => unreachable!(),

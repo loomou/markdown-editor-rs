@@ -122,7 +122,7 @@ fn revealed_inline_image_popover_stays_empty_when_loading_fails(cx: &mut TestApp
     );
 
     cx.run_until_parked();
-    let failed = cx.update(|_, app| editor.read(app).images.failed_sources());
+    let failed = cx.update(|_, app| editor.read(app).media.images().failed_sources());
     assert!(
         failed.contains(popover.dest.as_str()),
         "a source that failed to load should enter failed_sources: {:?}",
@@ -238,7 +238,7 @@ fn revealed_inline_math_leaves_the_line_and_moves_to_a_popover(cx: &mut TestAppC
     assert!(w > 0.0 && h > 0.0, "the plate must have a size: {w}x{h}");
 
     cx.run_until_parked();
-    let ready = cx.update(|_, app| editor.read(app).math.ready_snapshot());
+    let ready = cx.update(|_, app| editor.read(app).media.math().ready_snapshot());
     assert!(
         ready.contains_key(&plan.key),
         "the popover key should hit the inline copy of the rasterized image"
@@ -587,6 +587,70 @@ fn pointer_press_on_a_math_block_does_not_enter_until_click(cx: &mut TestAppCont
         })
     });
     assert_block_stays_rendered(&editor, cx, BlockKind::Math);
+}
+
+#[gpui::test]
+fn a_math_block_keeps_the_caret_in_place_when_it_opens(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc("before\n\n$$\n\\frac{a}{b}\n$$\n\nafter\n", cx);
+    focus_editor(&editor, cx);
+    let (block, _) = leaf_of_kind(&editor, cx, BlockKind::Math);
+    let caret = Cursor { block, offset: 6 };
+    cx.update(|_, app| {
+        editor.update(app, |view, _| {
+            view.place_pointer_cursor(caret, CursorMotion::Move);
+        })
+    });
+    let pressed = draw_state(&editor, cx)
+        .frame
+        .snapshot
+        .caret_device
+        .expect("a caret on the rendered formula");
+    cx.update(|_, app| {
+        editor.update(app, |view, _| {
+            view.place_cursor(caret, CursorMotion::Move);
+        })
+    });
+    let opened = draw_state(&editor, cx)
+        .frame
+        .snapshot
+        .caret_device
+        .expect("a caret in the opened source");
+    assert!(
+        (pressed.0 - opened.0).abs() < 0.5 && (pressed.1 - opened.1).abs() < 0.5,
+        "the caret must not move when the well opens: pressed {pressed:?}, opened {opened:?}"
+    );
+}
+
+#[gpui::test]
+fn clicking_anywhere_on_a_math_block_puts_the_caret_at_the_source_start(cx: &mut TestAppContext) {
+    let (editor, cx) = editor_with_doc("before\n\n$$\n\\frac{a}{b}\n$$\n\nafter\n", cx);
+    focus_editor(&editor, cx);
+    let (block, _) = leaf_of_kind(&editor, cx, BlockKind::Math);
+    let st = draw_state(&editor, cx);
+    let piece = st
+        .frame
+        .snapshot
+        .texts
+        .iter()
+        .find(|t| t.block == block)
+        .cloned()
+        .expect("a math piece");
+    let rev = st.frame.snapshot.geometry_revision;
+    let (ox, oy) = piece.content_origin_device;
+    let y = oy + piece.view_height * 0.5;
+    for frac in [0.1, 0.5, 0.9] {
+        let x = ox + piece.content_width * frac;
+        let hit = cx.update(|window, app| {
+            editor.update(app, |view, cx| {
+                view.hit_cursor_at(&st.frame.snapshot, rev, (x, y), window, cx)
+            })
+        });
+        assert_eq!(
+            hit,
+            Some(Cursor { block, offset: 0 }),
+            "a click at {frac} of the formula lands at the start of the source"
+        );
+    }
 }
 
 #[gpui::test]

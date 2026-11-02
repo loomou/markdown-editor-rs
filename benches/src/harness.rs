@@ -14,6 +14,12 @@ pub fn doc(text: &str) -> Doc {
     doc
 }
 
+pub fn doc_with_path(text: &str, path: std::path::PathBuf) -> Doc {
+    let mut doc = Doc::with_path(load_markdown(text, editor_options()), Some(path));
+    doc.enable_trailing_blank();
+    doc
+}
+
 pub fn document_theme() -> DocumentTheme {
     DocumentTheme::one_dark()
 }

@@ -14,6 +14,25 @@ fn svg_data(svg: &str) -> images::Resolved {
     .unwrap()
 }
 
+fn render_native(
+    cx: &mut gpui::TestAppContext,
+    decoded: &images::DecodedSource,
+) -> std::sync::Arc<gpui::RenderImage> {
+    let renderer = cx.update(|app| app.svg_renderer());
+    let images::SourceMedia::Svg {
+        parsed,
+        width,
+        height,
+        ..
+    } = &decoded.media
+    else {
+        panic!("an svg source must stay a parsed document, not a bitmap");
+    };
+    images::raster_svg_px(parsed, *width, *height, 1.0, renderer)
+        .expect("raster")
+        .image
+}
+
 #[gpui::test]
 fn svg_source_uses_bgra_channels(cx: &mut gpui::TestAppContext) {
     let resolved = svg_data(
@@ -21,7 +40,9 @@ fn svg_source_uses_bgra_channels(cx: &mut gpui::TestAppContext) {
          <rect width='2' height='2' fill='red'/></svg>",
     );
     let future = cx.update(|app| images::load_source(resolved, false, app));
-    let (source, width, height) = futures::executor::block_on(future).unwrap();
+    let decoded = futures::executor::block_on(future).unwrap();
+    let (width, height) = (decoded.width, decoded.height);
+    let source = render_native(cx, &decoded);
     let pixel = &source.as_bytes(0).unwrap()[..4];
     println!("red SVG source={width}x{height}, first pixel={pixel:?}");
     assert_eq!(
@@ -48,7 +69,11 @@ fn png_source_stays_bgra(cx: &mut gpui::TestAppContext) {
     )
     .unwrap();
     let future = cx.update(|app| images::load_source(resolved, false, app));
-    let (source, _, _) = futures::executor::block_on(future).unwrap();
+    let decoded = futures::executor::block_on(future).unwrap();
+    let source = decoded
+        .bitmap()
+        .expect("a png source stays a bitmap")
+        .clone();
     let pixel = &source.as_bytes(0).unwrap()[..4];
     assert_eq!(pixel, &[0, 0, 255, 255], "the PNG BGRA convention holds");
 }
@@ -66,7 +91,8 @@ fn svg_embedded_png_is_painted(cx: &mut gpui::TestAppContext) {
          <image xlink:href='data:image/png;base64,{encoded}' width='2' height='2'/></svg>"
     ));
     let future = cx.update(|app| images::load_source(resolved, false, app));
-    let (image, _, _) = futures::executor::block_on(future).unwrap();
+    let decoded = futures::executor::block_on(future).unwrap();
+    let image = render_native(cx, &decoded);
     let pixel = &image.as_bytes(0).unwrap()[..4];
     println!("embedded PNG SVG pixel={pixel:?}");
     assert_eq!(
@@ -90,7 +116,8 @@ fn plain_svg_still_paints_vector_content(cx: &mut gpui::TestAppContext) {
             app,
         )
     });
-    let (image, _, _) = futures::executor::block_on(future).unwrap();
+    let decoded = futures::executor::block_on(future).unwrap();
+    let image = render_native(cx, &decoded);
     let pixel = &image.as_bytes(0).unwrap()[..4];
     assert_eq!(
         pixel,
@@ -101,7 +128,7 @@ fn plain_svg_still_paints_vector_content(cx: &mut gpui::TestAppContext) {
 
 #[test]
 fn usvg_default_resolver_does_read_local_files() {
-    let path = marker_path();
+    let path = marker_path("usvg-default");
     std::fs::write(&path, tiny_png_bytes()).unwrap();
     let source = svg_referencing(&path.to_string_lossy());
     let tree = usvg::Tree::from_data(&source, &usvg::Options::default()).unwrap();
@@ -130,7 +157,7 @@ fn usvg_default_resolver_does_read_local_files() {
 
 #[gpui::test]
 fn svg_with_external_file_href_is_refused(cx: &mut gpui::TestAppContext) {
-    let path = marker_path();
+    let path = marker_path("refused");
     std::fs::write(&path, tiny_png_bytes()).unwrap();
     let source = svg_referencing(&path.to_string_lossy());
     let future = cx.update(|app| images::load_source(data_url(&source), false, app));
@@ -146,8 +173,14 @@ fn plain_svg_still_loads(cx: &mut gpui::TestAppContext) {
     let source = b"<svg xmlns='http://www.w3.org/2000/svg' width='4' height='4'>\
                    <rect width='4' height='4' fill='red'/></svg>";
     let future = cx.update(|app| images::load_source(data_url(source), false, app));
-    let (image, _, _) = futures::executor::block_on(future)
+    let decoded = futures::executor::block_on(future)
         .expect("a plain SVG without external references must still load");
+    assert_eq!(
+        (decoded.width, decoded.height),
+        (4, 4),
+        "the parsed document keeps the size the svg declares"
+    );
+    let image = render_native(cx, &decoded);
     assert!(image.size(0).width > gpui::DevicePixels(0));
 }
 
@@ -212,8 +245,9 @@ fn small_svgz_still_loads(cx: &mut gpui::TestAppContext) {
     );
     let future =
         cx.update(|app| images::load_source(images::resolve(&input, None).unwrap(), false, app));
-    let (image, _, _) = futures::executor::block_on(future)
+    let decoded = futures::executor::block_on(future)
         .expect("a small SVGZ must still load through the bounded decompress path");
+    let image = render_native(cx, &decoded);
     let pixel = &image.as_bytes(0).unwrap()[..4];
     assert_eq!(
         pixel,
@@ -222,12 +256,8 @@ fn small_svgz_still_loads(cx: &mut gpui::TestAppContext) {
     );
 }
 
-fn marker_path() -> std::path::PathBuf {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("fixtures");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir.join("external-svg-marker.png")
+fn marker_path(tag: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("md-content-svg-marker-{tag}.png"))
 }
 
 fn tiny_png_bytes() -> Vec<u8> {

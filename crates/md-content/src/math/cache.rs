@@ -1,11 +1,13 @@
 use super::{
-    MAX_BYTES, MAX_ENTRIES, MAX_IN_FLIGHT, MAX_METRIC_ENTRIES, MathCache, MathKey, MathMetrics,
-    RasterOut, Slot, WARM_EXTRA_ENTRIES, metric,
+    MAX_BYTES, MAX_ENTRIES, MAX_IN_FLIGHT, MAX_METRIC_ENTRIES, MAX_PREPARE_BYTES,
+    MAX_PREPARE_ENTRIES, MathCache, MathKey, MathMetrics, MathPrepareKey, PreparedMath, RasterOut,
+    Slot, WARM_EXTRA_ENTRIES, metric,
 };
-use crate::pixels::ReadyImage;
-use gpui::App;
+use crate::pixels::{ReadyImage, drop_image_deferred};
+use gpui::{App, RenderImage};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
+use std::sync::Arc;
 
 impl MathCache {
     pub fn new() -> Self {
@@ -21,7 +23,18 @@ impl MathCache {
             metrics_gen: 0,
             ready: Rc::new(HashMap::new()),
             failed: Rc::new(HashSet::new()),
+            prepared: HashMap::new(),
+            prepared_order: VecDeque::new(),
+            prepared_bytes: 0,
         }
+    }
+
+    pub fn prepared(&self, key: &MathKey) -> Option<Arc<PreparedMath>> {
+        self.prepared.get(&key.prepare_key()).cloned()
+    }
+
+    pub fn prepared_count(&self) -> usize {
+        self.prepared.len()
     }
 
     pub fn contains(&self, key: &MathKey) -> bool {
@@ -98,7 +111,7 @@ impl MathCache {
         self.finish_inner(key, result, Some(cx))
     }
 
-    pub(super) fn finish_inner(
+    pub(crate) fn finish_inner(
         &mut self,
         key: MathKey,
         result: Result<RasterOut, crate::Error>,
@@ -112,7 +125,10 @@ impl MathCache {
         }
         self.inflight = self.inflight.saturating_sub(1);
         let changed = match result {
-            Ok(out) => {
+            Ok(mut out) => {
+                if let Some(prepared) = out.prepared.take() {
+                    self.store_prepared(key.prepare_key(), prepared);
+                }
                 let metrics_changed = match metric(&self.metrics, &key.latex, key.display) {
                     Some(Some(prev)) => {
                         prev.width.to_bits() != out.em.width.to_bits()
@@ -164,7 +180,7 @@ impl MathCache {
     pub fn clear(&mut self, cx: &mut App) {
         for slot in self.map.values() {
             if let Slot::Ready(img) = slot {
-                cx.drop_image(img.image.clone(), None);
+                drop_image_deferred(cx, img.image.clone());
             }
         }
         self.map.clear();
@@ -178,10 +194,21 @@ impl MathCache {
         self.metrics_gen = 0;
         self.ready = Rc::new(HashMap::new());
         self.failed = Rc::new(HashSet::new());
+        self.prepared.clear();
+        self.prepared_order.clear();
+        self.prepared_bytes = 0;
     }
 
     pub fn metrics_snapshot(&self) -> Rc<MathMetrics> {
         Rc::clone(&self.metrics)
+    }
+
+    pub(crate) fn for_each_allocation(&self, f: &mut dyn FnMut(&Arc<RenderImage>, usize)) {
+        for slot in self.map.values() {
+            if let Slot::Ready(img) = slot {
+                f(&img.image, img.bytes);
+            }
+        }
     }
 
     pub fn metrics_gen(&self) -> u64 {
@@ -226,7 +253,7 @@ impl MathCache {
                 Some(Slot::Ready(img)) => {
                     self.bytes = self.bytes.saturating_sub(img.bytes);
                     if let Some(cx) = cx.as_deref_mut() {
-                        cx.drop_image(img.image, None);
+                        drop_image_deferred(cx, img.image);
                     }
                     Rc::make_mut(&mut self.ready).remove(&victim);
                 }
@@ -270,6 +297,46 @@ impl MathCache {
                 if slots.is_empty() {
                     metrics.remove(&latex);
                 }
+            }
+        }
+    }
+
+    pub(crate) fn bytes(&self) -> usize {
+        self.bytes.saturating_add(self.prepared_bytes)
+    }
+
+    pub(crate) fn entries(&self) -> usize {
+        self.map.len().saturating_add(self.prepared.len())
+    }
+
+    pub(crate) fn shrink_to(&mut self, bytes: usize, cx: Option<&mut App>) {
+        self.evict(cx, MAX_ENTRIES, bytes.saturating_sub(self.prepared_bytes));
+        if self.bytes.saturating_add(self.prepared_bytes) > bytes {
+            self.trim_prepared(bytes.saturating_sub(self.bytes));
+        }
+    }
+
+    fn store_prepared(&mut self, key: MathPrepareKey, prepared: Arc<PreparedMath>) {
+        let bytes = prepared.bytes();
+        match self.prepared.insert(key.clone(), prepared) {
+            Some(previous) => {
+                self.prepared_bytes = self.prepared_bytes.saturating_sub(previous.bytes())
+            }
+            None => self.prepared_order.push_back(key),
+        }
+        self.prepared_bytes = self.prepared_bytes.saturating_add(bytes);
+        self.trim_prepared(MAX_PREPARE_BYTES);
+    }
+
+    fn trim_prepared(&mut self, max_bytes: usize) {
+        while self.prepared.len() > MAX_PREPARE_ENTRIES
+            || (self.prepared_bytes > max_bytes && !self.prepared_order.is_empty())
+        {
+            let Some(victim) = self.prepared_order.pop_front() else {
+                break;
+            };
+            if let Some(prepared) = self.prepared.remove(&victim) {
+                self.prepared_bytes = self.prepared_bytes.saturating_sub(prepared.bytes());
             }
         }
     }

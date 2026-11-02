@@ -70,6 +70,14 @@ impl BoxNode {
         }
     }
 
+    pub fn caret_shape_kind(&self) -> BlockKind {
+        if self.kind == BlockKind::Math {
+            BlockKind::CodeBlock
+        } else {
+            self.shape_kind()
+        }
+    }
+
     pub fn shape_ident(&self) -> ShapeIdentity {
         let index = self
             .id

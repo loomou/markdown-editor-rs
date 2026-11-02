@@ -1,7 +1,7 @@
 use super::raster::native_dims;
 use super::{
-    DataEncoding, MAX_FETCH, MAX_IMAGE_PIXELS, MAX_SOURCE_BYTES, Resolved, SOURCE_RETRY_BASE,
-    SOURCE_RETRY_MAX, SourceError, SourceLoad,
+    Animation, DataEncoding, DecodedSource, MAX_FETCH, MAX_IMAGE_PIXELS, MAX_SOURCE_BYTES,
+    Resolved, SOURCE_RETRY_BASE, SOURCE_RETRY_MAX, SourceError, SourceLoad, SourceMedia, animation,
 };
 use futures::AsyncReadExt;
 use gpui::{App, Image, ImageFormat, http_client};
@@ -138,15 +138,8 @@ fn load_remote(url: String, cx: &mut App) -> SourceLoad {
                 "unsupported image format".to_owned().into(),
             ))
         })?;
-        validate_image_dimensions(format, &bytes)?;
-        Image::from_bytes(format, bytes)
-            .to_image_data(svg)
-            .map_err(|e| SourceError::Fatal(crate::Error::Image(e.to_string().into())))
-            .and_then(|img| {
-                native_dims(img).ok_or_else(|| {
-                    SourceError::Fatal(crate::Error::Image(md_i18n::Key::ImageEmpty.into()))
-                })
-            })
+        let svg_size = validate_image_dimensions(format, &bytes)?;
+        decode_source(format, bytes, svg, svg_size)
     })
 }
 
@@ -154,6 +147,63 @@ pub(super) fn parse_retry_after(headers: &http_client::http::HeaderMap) -> Optio
     let value = headers.get("Retry-After")?.to_str().ok()?;
     let secs: u64 = value.trim().parse().ok()?;
     Some(Duration::from_secs(secs).clamp(SOURCE_RETRY_BASE, SOURCE_RETRY_MAX))
+}
+
+fn decode_source(
+    format: ImageFormat,
+    bytes: Vec<u8>,
+    svg: gpui::SvgRenderer,
+    svg_size: Option<(u32, u32)>,
+) -> Result<DecodedSource, SourceError> {
+    if let Some((image, delays, loops)) = animation::decode_animated(format, &bytes) {
+        let size = image.size(0);
+        let width = u32::try_from(i32::from(size.width)).unwrap_or(0);
+        let height = u32::try_from(i32::from(size.height)).unwrap_or(0);
+        if width == 0 || height == 0 {
+            return Err(SourceError::Fatal(crate::Error::Image(
+                md_i18n::Key::ImageEmpty.into(),
+            )));
+        }
+        return Ok(DecodedSource {
+            media: SourceMedia::Bitmap {
+                image,
+                animation: Some(Arc::new(Animation::new(delays, loops))),
+            },
+            width,
+            height,
+        });
+    }
+    if format == ImageFormat::Svg {
+        let parsed = svg
+            .parse_svg(&bytes)
+            .map_err(|e| SourceError::Fatal(crate::Error::Image(e.to_string().into())))?;
+        let (width, height) = svg_size.ok_or_else(|| {
+            SourceError::Fatal(crate::Error::Image(md_i18n::Key::ImageEmpty.into()))
+        })?;
+        return Ok(DecodedSource {
+            media: SourceMedia::Svg {
+                parsed: Arc::new(parsed),
+                width,
+                height,
+                source_bytes: bytes.len(),
+            },
+            width,
+            height,
+        });
+    }
+    let img = Image::from_bytes(format, bytes)
+        .to_image_data(svg)
+        .map_err(|e| SourceError::Fatal(crate::Error::Image(e.to_string().into())))?;
+    let (image, width, height) = native_dims(img)
+        .ok_or_else(|| SourceError::Fatal(crate::Error::Image(md_i18n::Key::ImageEmpty.into())))?;
+    Ok(DecodedSource {
+        media: SourceMedia::Bitmap {
+            image,
+            animation: None,
+        },
+        width,
+        height,
+    })
 }
 
 fn decode_bytes_from_path(path: PathBuf, format: Option<ImageFormat>, cx: &mut App) -> SourceLoad {
@@ -171,15 +221,8 @@ fn decode_bytes_from_path(path: PathBuf, format: Option<ImageFormat>, cx: &mut A
                 "unsupported image format".to_owned().into(),
             ))
         })?;
-        validate_image_dimensions(format, &bytes)?;
-        Image::from_bytes(format, bytes)
-            .to_image_data(svg)
-            .map_err(|e| SourceError::Fatal(crate::Error::Image(e.to_string().into())))
-            .and_then(|img| {
-                native_dims(img).ok_or_else(|| {
-                    SourceError::Fatal(crate::Error::Image(md_i18n::Key::ImageEmpty.into()))
-                })
-            })
+        let svg_size = validate_image_dimensions(format, &bytes)?;
+        decode_source(format, bytes, svg, svg_size)
     })
 }
 
@@ -199,15 +242,8 @@ fn decode_data(
             )));
         }
         let bytes = decompress_svgz_bounded(bytes)?;
-        validate_image_dimensions(format, &bytes)?;
-        Image::from_bytes(format, bytes)
-            .to_image_data(svg)
-            .map_err(|e| SourceError::Fatal(crate::Error::Image(e.to_string().into())))
-            .and_then(|img| {
-                native_dims(img).ok_or_else(|| {
-                    SourceError::Fatal(crate::Error::Image(md_i18n::Key::ImageEmpty.into()))
-                })
-            })
+        let svg_size = validate_image_dimensions(format, &bytes)?;
+        decode_source(format, bytes, svg, svg_size)
     })
 }
 
@@ -337,7 +373,7 @@ fn svg_depth_within_limit(bytes: &[u8]) -> bool {
     true
 }
 
-pub(super) fn validate_svg_dimensions(bytes: &[u8]) -> Result<(), crate::Error> {
+pub(super) fn validate_svg_dimensions(bytes: &[u8]) -> Result<(u32, u32), crate::Error> {
     if !svg_depth_within_limit(bytes) {
         return Err(crate::Error::Image(md_i18n::Key::ImageTooLarge.into()));
     }
@@ -352,15 +388,17 @@ pub(super) fn validate_svg_dimensions(bytes: &[u8]) -> Result<(), crate::Error> 
     if pixels > MAX_IMAGE_PIXELS as f64 {
         return Err(crate::Error::Image(md_i18n::Key::ImageTooLarge.into()));
     }
-    Ok(())
+    let width = size.width().round().max(1.0) as u32;
+    let height = size.height().round().max(1.0) as u32;
+    Ok((width, height))
 }
 
 pub(super) fn validate_image_dimensions(
     format: ImageFormat,
     bytes: &[u8],
-) -> Result<(), crate::Error> {
+) -> Result<Option<(u32, u32)>, crate::Error> {
     if format == ImageFormat::Svg {
-        return validate_svg_dimensions(bytes);
+        return validate_svg_dimensions(bytes).map(Some);
     }
     let (width, height) = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
@@ -377,7 +415,7 @@ pub(super) fn validate_image_dimensions(
         return Err(crate::Error::Image(md_i18n::Key::ImageTooLarge.into()));
     }
     validate_decoded_budget(format, bytes, pixels)?;
-    Ok(())
+    Ok(None)
 }
 
 const MAX_ANIMATION_FRAMES: u64 = 4096;
@@ -392,6 +430,7 @@ fn validate_decoded_budget(
     let frames = match format {
         ImageFormat::Gif => gif_frame_count(bytes).unwrap_or(u64::MAX),
         ImageFormat::Webp => webp_frame_count(bytes).unwrap_or(u64::MAX),
+        ImageFormat::Png => apng_frame_count(bytes),
         _ => 1,
     };
     if frames > MAX_ANIMATION_FRAMES {
@@ -434,6 +473,35 @@ pub(super) fn gif_frame_count(bytes: &[u8]) -> Option<u64> {
         }
     }
     None
+}
+
+pub(super) fn apng_frame_count(bytes: &[u8]) -> u64 {
+    if bytes.len() < 8 || &bytes[..8] != b"\x89PNG\r\n\x1a\n" {
+        return 1;
+    }
+    let mut i = 8;
+    let mut frames = 0u64;
+    while i + 8 <= bytes.len() {
+        let len = u32::from_be_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]) as usize;
+        let tag = &bytes[i + 4..i + 8];
+        if tag == b"acTL" {
+            if len >= 8 && i + 16 <= bytes.len() {
+                frames =
+                    u32::from_be_bytes([bytes[i + 8], bytes[i + 9], bytes[i + 10], bytes[i + 11]])
+                        as u64;
+            }
+            break;
+        }
+        if tag == b"IDAT" || tag == b"IEND" {
+            break;
+        }
+        let next = i + 12 + len;
+        if next > bytes.len() {
+            break;
+        }
+        i = next;
+    }
+    frames.max(1)
 }
 
 fn color_table_len(packed: u8) -> usize {

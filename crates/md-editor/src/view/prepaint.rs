@@ -248,9 +248,14 @@ impl EditorElement {
                 height: viewport.1,
                 dpr: scale,
             };
-            v.schedule_mermaid(&frame.texts, viewfinder, cx);
-            v.schedule_math(&frame.texts, &frame.cells, math_popover.as_ref(), scale, cx);
-            v.schedule_images(&frame.texts, &frame.cells, popover.as_ref(), viewfinder, cx);
+            v.schedule_media(
+                &frame.texts,
+                &frame.cells,
+                math_popover.as_ref(),
+                popover.as_ref(),
+                viewfinder,
+                cx,
+            );
             v.schedule_zoom_raster(frame.viewport, scale, cx);
         });
         let refresh = self
@@ -304,12 +309,12 @@ impl EditorElement {
         self.state.update(cx, |v, _| {
             v.doc_maps.sync(&v.state.doc);
             ShapeMedia {
-                mermaid_fitted: v.mermaid.fitted_snapshot(),
-                math_metrics: v.math.metrics_snapshot(),
-                math_gen: v.math.metrics_gen(),
-                image_sizes: v.images.sizes_snapshot(),
-                image_failed: v.images.failed_sources(),
-                image_gen: v.images.sizes_gen(),
+                mermaid_fitted: v.media.mermaid().fitted_snapshot(),
+                math_metrics: v.media.math().metrics_snapshot(),
+                math_gen: v.media.math().metrics_gen(),
+                image_sizes: v.media.images().sizes_snapshot(),
+                image_failed: v.media.images().failed_sources(),
+                image_gen: v.media.images().sizes_gen(),
                 link_dests: Rc::clone(&v.doc_maps.link_dests),
                 link_raw: Rc::clone(&v.doc_maps.link_raw),
                 block_image_dest: Rc::clone(&v.doc_maps.block_image_dest),
@@ -970,10 +975,11 @@ impl EditorElement {
     fn record_frame_stats(&mut self, frame: &Frame, started: std::time::Instant, cx: &mut App) {
         let diag = self.state.read(cx).state.diag.clone();
 
-        let (fps, frame_ms) = {
+        let (fps, frame_ms, interval_ms) = {
             let now = std::time::Instant::now();
             let ms = now.duration_since(started).as_secs_f64() * 1000.0;
-            let f = self.state.update(cx, |v, _cx| {
+            let (f, interval) = self.state.update(cx, |v, _cx| {
+                let previous = v.state.frame_times.back().copied();
                 v.state.frame_times.push_back(now);
 
                 while let Some(&front) = v.state.frame_times.front() {
@@ -983,10 +989,14 @@ impl EditorElement {
                         break;
                     }
                 }
-                v.state.frame_times.len() as u32
+                let interval = previous.map(|at| now.duration_since(at).as_secs_f64() * 1000.0);
+                (v.state.frame_times.len() as u32, interval)
             });
-            (f, ms)
+            (f, ms, interval)
         };
+        if let Some(interval_ms) = interval_ms {
+            crate::measure!("frame {interval_ms:.3} {frame_ms:.3}");
+        }
 
         let (store_n, last_n) = self
             .state
@@ -1030,8 +1040,8 @@ impl EditorElement {
         cx: &mut App,
     ) -> (Option<ImagePopover>, Option<MathPopover>) {
         let v = self.state.read(cx);
-        let sizes = v.images.sizes_snapshot();
-        let metrics = v.math.metrics_snapshot();
+        let sizes = v.media.images().sizes_snapshot();
+        let metrics = v.media.math().metrics_snapshot();
         let input = popover::PopoverInput {
             theme: gear.theme,
             shaper: gear.shaper,
@@ -1506,12 +1516,12 @@ mod tests {
             let v = editor.read(app);
             let theme = v.state.theme;
             let media = ShapeMedia {
-                mermaid_fitted: v.mermaid.fitted_snapshot(),
-                math_metrics: v.math.metrics_snapshot(),
-                math_gen: v.math.metrics_gen(),
-                image_sizes: v.images.sizes_snapshot(),
-                image_failed: v.images.failed_sources(),
-                image_gen: v.images.sizes_gen(),
+                mermaid_fitted: v.media.mermaid().fitted_snapshot(),
+                math_metrics: v.media.math().metrics_snapshot(),
+                math_gen: v.media.math().metrics_gen(),
+                image_sizes: v.media.images().sizes_snapshot(),
+                image_failed: v.media.images().failed_sources(),
+                image_gen: v.media.images().sizes_gen(),
                 link_dests: Rc::clone(&v.doc_maps.link_dests),
                 link_raw: Rc::clone(&v.doc_maps.link_raw),
                 block_image_dest: Rc::clone(&v.doc_maps.block_image_dest),

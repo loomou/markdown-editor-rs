@@ -1,5 +1,3 @@
-use super::RasterSpec;
-
 pub(super) fn strip_init(src: &str) -> String {
     let mut out = String::with_capacity(src.len());
     let mut rest = src;
@@ -89,7 +87,7 @@ fn root_svg_tag(svg: &str) -> Option<(usize, usize, &str)> {
     None
 }
 
-fn root_length(svg: &str, name: &str) -> Option<f32> {
+pub(super) fn root_length(svg: &str, name: &str) -> Option<f32> {
     let (_, _, tag) = root_svg_tag(svg)?;
     for quote in ['"', '\''] {
         let needle = format!("{name}={quote}");
@@ -106,51 +104,4 @@ fn root_length(svg: &str, name: &str) -> Option<f32> {
     None
 }
 
-const ZOOM_TARGET_CSS: f32 = 1600.0;
-const ZOOM_EXTRA_MAX: f32 = 2.0;
 pub const MAX_RASTER_PIXELS: f64 = 8.0 * 1024.0 * 1024.0;
-
-struct RasterFit {
-    contain: f32,
-    raster_dpr: f32,
-}
-
-fn raster_fit(svg: &str, spec: &RasterSpec) -> RasterFit {
-    let Some((_, _, w, h)) = first_viewbox(svg) else {
-        let requested_dpr = spec.dpr.max(0.25);
-        let raster_dpr = match (root_length(svg, "width"), root_length(svg, "height")) {
-            (Some(w), Some(h)) if w > 0.0 && h > 0.0 => {
-                let max_dpr = (MAX_RASTER_PIXELS / (f64::from(w) * f64::from(h))).sqrt() as f32;
-                requested_dpr.min(max_dpr).max(f32::MIN_POSITIVE)
-            }
-            _ => 0.25,
-        };
-        return RasterFit {
-            contain: 1.0,
-            raster_dpr,
-        };
-    };
-    let contain = (spec.fit_w as f32 / w.max(1.0))
-        .min(spec.fit_h as f32 / h.max(1.0))
-        .clamp(f32::MIN_POSITIVE, 1.0);
-    let css = (w * contain).max(h * contain).max(1.0);
-    let extra = (ZOOM_TARGET_CSS / css).clamp(1.0, ZOOM_EXTRA_MAX);
-    let requested_dpr = spec.dpr.max(0.25) * extra;
-    let max_scale = (MAX_RASTER_PIXELS / (f64::from(w) * f64::from(h))).sqrt() as f32;
-    let raster_dpr = requested_dpr
-        .min(max_scale / contain)
-        .max(f32::MIN_POSITIVE);
-    RasterFit {
-        contain,
-        raster_dpr,
-    }
-}
-
-pub(super) fn raster_scale(svg: &str, spec: &RasterSpec) -> f32 {
-    let fit = raster_fit(svg, spec);
-    fit.raster_dpr * fit.contain
-}
-
-pub(super) fn raster_dpr(svg: &str, spec: &RasterSpec) -> f32 {
-    raster_fit(svg, spec).raster_dpr
-}

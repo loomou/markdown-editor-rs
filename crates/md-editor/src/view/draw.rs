@@ -118,6 +118,8 @@ pub(super) fn paint_artifact(
                     dest,
                     slot_w,
                     slot_h,
+                    raster_w,
+                    raster_h,
                     fallback,
                     ..
                 } => {
@@ -141,7 +143,7 @@ pub(super) fn paint_artifact(
                         let _ = line.paint(origin, row_h, p.align, None, window, cx);
                         continue;
                     }
-                    let key = images::display_key(dest, *slot_w as f32, *slot_h as f32, p.dpr);
+                    let key = images::display_key(dest, *raster_w as f32, *raster_h as f32, p.dpr);
                     if let Some(ready) = p.images.get(&key) {
                         images::paint_ready(window, x, y0, *slot_w as f32, *slot_h as f32, ready);
                     } else {

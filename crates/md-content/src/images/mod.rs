@@ -30,8 +30,80 @@ fn source_retry_delay(attempt: u32) -> Duration {
         .min(SOURCE_RETRY_MAX)
 }
 
-type SourceLoad =
-    Pin<Box<dyn Future<Output = Result<(Arc<RenderImage>, u32, u32), SourceError>> + Send>>;
+pub mod animation;
+
+pub use animation::Animation;
+
+#[derive(Clone)]
+pub enum SourceMedia {
+    Bitmap {
+        image: Arc<RenderImage>,
+        animation: Option<Arc<Animation>>,
+    },
+    Svg {
+        parsed: Arc<gpui::ParsedSvg>,
+        width: u32,
+        height: u32,
+        source_bytes: usize,
+    },
+}
+
+impl SourceMedia {
+    pub fn image(&self) -> Option<&Arc<RenderImage>> {
+        match self {
+            SourceMedia::Bitmap { image, .. } => Some(image),
+            SourceMedia::Svg { .. } => None,
+        }
+    }
+
+    pub fn animation(&self) -> Option<&Arc<Animation>> {
+        match self {
+            SourceMedia::Bitmap { animation, .. } => animation.as_ref(),
+            SourceMedia::Svg { .. } => None,
+        }
+    }
+
+    pub fn bytes(&self) -> usize {
+        match self {
+            SourceMedia::Bitmap { image, .. } => raster::decoded_len(image),
+            SourceMedia::Svg { source_bytes, .. } => *source_bytes,
+        }
+    }
+}
+
+pub struct DecodedSource {
+    pub media: SourceMedia,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl DecodedSource {
+    pub fn bitmap(&self) -> Option<&Arc<RenderImage>> {
+        self.media.image()
+    }
+
+    pub fn animation(&self) -> Option<&Arc<Animation>> {
+        self.media.animation()
+    }
+}
+
+impl std::fmt::Debug for DecodedSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut out = f.debug_struct("DecodedSource");
+        out.field("width", &self.width)
+            .field("height", &self.height)
+            .field("bytes", &self.media.bytes());
+        match &self.media {
+            SourceMedia::Bitmap { image, animation } => out
+                .field("frames", &image.frame_count())
+                .field("animated", &animation.is_some()),
+            SourceMedia::Svg { .. } => out.field("svg", &true),
+        }
+        .finish()
+    }
+}
+
+type SourceLoad = Pin<Box<dyn Future<Output = Result<DecodedSource, SourceError>> + Send>>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SourceError {
@@ -83,8 +155,13 @@ pub(crate) use fit::width_fit;
 pub(crate) use keys::quantized_slot;
 pub use keys::{cache_key, display_key};
 pub use net::http_client;
-pub use raster::{paint_ready, raster_display};
+pub use raster::{paint_ready, raster_bitmap, raster_display, raster_svg_px};
 pub use source::{is_image_path, load_source, markdown_dest, resolve};
+
+#[cfg(feature = "bench-support")]
+pub fn validate_svg(bytes: &[u8]) -> Result<(), crate::Error> {
+    source::validate_svg_dimensions(bytes).map(|_| ())
+}
 
 #[derive(Clone, Debug)]
 pub enum Resolved {
@@ -133,7 +210,7 @@ enum SourceSlot {
         seq: u64,
     },
     Ready {
-        image: Arc<RenderImage>,
+        media: SourceMedia,
     },
     Failed(crate::Error),
     Retryable {

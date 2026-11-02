@@ -21,7 +21,6 @@ futures = { workspace = true }
 smallvec = { workspace = true }
 usvg = { workspace = true }
 flate2 = { workspace = true }
-resvg = { workspace = true }
 
 tree-sitter-highlight = { workspace = true }
 tree-sitter-rust = { workspace = true }
@@ -41,14 +40,14 @@ tree-sitter-yaml = { workspace = true }
 merman = { workspace = true }
 merman-core = { workspace = true }
 merman-render = { workspace = true }
-merman-export = { workspace = true }
 ratex-parser = { workspace = true }
 ratex-layout = { workspace = true }
-ratex-render = { workspace = true }
+ratex-render = { workspace = true, optional = true }
 ratex-types = { workspace = true }
+ratex-svg = { workspace = true }
 
 [features]
-bench-support = []
+bench-support = ["dep:ratex-render"]
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }

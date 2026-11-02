@@ -218,8 +218,8 @@ pub(super) fn collect_image_jobs(
         for part in &band.parts {
             let ShapePart::Image {
                 dest,
-                slot_w,
-                slot_h,
+                raster_w,
+                raster_h,
                 fallback,
                 ..
             } = part
@@ -233,19 +233,19 @@ pub(super) fn collect_image_jobs(
             if fallback.is_some() && !retry {
                 continue;
             }
-            let dkey = images::display_key(dest, *slot_w as f32, *slot_h as f32, sched.dpr);
+            let dkey = images::display_key(dest, *raster_w as f32, *raster_h as f32, sched.dpr);
             sched.protect.push(dkey.clone());
             if !sched.cache.source_contains(dest) || retry {
                 let entry = sched.source_jobs.entry(dest.clone()).or_default();
                 if !entry.contains(&block) {
                     entry.push(block);
                 }
-            } else if let Some(source) = sched.cache.source_image(dest) {
+            } else if let Some(media) = sched.cache.source_media(dest) {
                 let entry = sched
                     .display_jobs
                     .entry(dkey)
                     .or_insert_with(|| DisplayJob {
-                        source,
+                        media,
                         blocks: Vec::new(),
                     });
                 if !entry.blocks.contains(&block) {
@@ -267,12 +267,12 @@ pub(super) fn collect_popover_job(popover: &ImagePopover, sched: &mut ImageSched
         return;
     };
     sched.protect.push(plan.key.clone());
-    if let Some(source) = sched.cache.source_image(dest) {
+    if let Some(media) = sched.cache.source_media(dest) {
         sched
             .display_jobs
             .entry(plan.key.clone())
             .or_insert_with(|| DisplayJob {
-                source,
+                media,
                 blocks: Vec::new(),
             });
     }

@@ -6,6 +6,11 @@ pub mod app_icon;
 #[cfg(feature = "bench-support")]
 pub mod interact_probe;
 
+#[cfg(feature = "bench-support")]
+pub mod preview_probe;
+
+pub mod measure;
+
 pub mod shell;
 pub mod view;
 

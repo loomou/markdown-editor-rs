@@ -3,9 +3,9 @@ use super::{DisplayKey, Resolved};
 use crate::pixels::{WIDTH_QUANT, dpr_from_q, dpr_q as quantise_dpr};
 use std::path::Path;
 
-pub fn display_key(dest: &str, slot_w: f32, slot_h: f32, dpr: f64) -> DisplayKey {
-    let width_q = quantized_axis(slot_w);
-    let height_q = quantized_axis(slot_h);
+pub fn display_key(dest: &str, box_w: f32, box_h: f32, dpr: f64) -> DisplayKey {
+    let width_q = quantized_axis(box_w);
+    let height_q = quantized_axis(box_h);
     let dpr_q = quantise_dpr(dpr);
     DisplayKey {
         dest: dest.to_string(),
@@ -15,8 +15,8 @@ pub fn display_key(dest: &str, slot_w: f32, slot_h: f32, dpr: f64) -> DisplayKey
     }
 }
 
-fn quantized_axis(slot: f32) -> u32 {
-    (f64::from(slot).max(0.0) / WIDTH_QUANT).floor().max(1.0) as u32
+fn quantized_axis(axis: f32) -> u32 {
+    (f64::from(axis).max(0.0) / WIDTH_QUANT).floor().max(1.0) as u32
 }
 
 pub(crate) fn quantized_slot(slot_w: f32, slot_h: f32) -> (f32, f32) {

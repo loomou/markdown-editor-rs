@@ -2,8 +2,8 @@ use super::{
     MAX_BYTES, MAX_ENTRIES, MAX_FITTED_ENTRIES, MAX_IN_FLIGHT, MAX_SVG_ENTRIES, MermaidCache,
     MermaidKey, MermaidSvgKey, Slot, WARM_EXTRA_ENTRIES, WARM_IN_FLIGHT,
 };
-use crate::pixels::ReadyImage;
-use gpui::App;
+use crate::pixels::{ReadyImage, drop_image_deferred};
+use gpui::{App, RenderImage};
 use md_core::block::BlockId;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
@@ -46,6 +46,14 @@ impl MermaidCache {
 
     pub fn contains(&self, key: &MermaidKey) -> bool {
         self.map.contains_key(key)
+    }
+
+    pub(crate) fn for_each_allocation(&self, f: &mut dyn FnMut(&Arc<RenderImage>, usize)) {
+        for slot in self.map.values() {
+            if let Slot::Ready(img) = slot {
+                f(&img.image, img.bytes);
+            }
+        }
     }
 
     pub fn image(&self, key: &MermaidKey) -> Option<ReadyImage> {
@@ -138,7 +146,7 @@ impl MermaidCache {
         self.finish_inner(key, result, Some(cx));
     }
 
-    pub(super) fn finish_inner(
+    pub(crate) fn finish_inner(
         &mut self,
         key: MermaidKey,
         result: Result<ReadyImage, crate::Error>,
@@ -178,7 +186,7 @@ impl MermaidCache {
     pub fn clear(&mut self, cx: &mut App) {
         for slot in self.map.values() {
             if let Slot::Ready(img) = slot {
-                cx.drop_image(img.image.clone(), None);
+                drop_image_deferred(cx, img.image.clone());
             }
         }
         self.map.clear();
@@ -225,7 +233,7 @@ impl MermaidCache {
                 Some(Slot::Ready(img)) => {
                     self.bytes = self.bytes.saturating_sub(img.bytes);
                     if let Some(cx) = cx.as_deref_mut() {
-                        cx.drop_image(img.image, None);
+                        drop_image_deferred(cx, img.image);
                     }
                 }
                 Some(Slot::Failed(_)) => {}
@@ -265,6 +273,22 @@ impl MermaidCache {
             };
             Rc::make_mut(&mut self.fitted).remove(&victim);
         }
+    }
+
+    pub(crate) fn bytes(&self) -> usize {
+        self.bytes
+    }
+
+    pub(crate) fn entries(&self) -> usize {
+        self.map.len()
+    }
+
+    pub(crate) fn svg_bytes(&self) -> usize {
+        self.svgs.values().map(|svg| svg.as_str().len()).sum()
+    }
+
+    pub(crate) fn shrink_to(&mut self, bytes: usize, cx: Option<&mut App>) {
+        self.evict(cx, MAX_ENTRIES, bytes);
     }
 
     #[cfg(test)]

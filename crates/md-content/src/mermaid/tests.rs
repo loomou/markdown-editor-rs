@@ -1,15 +1,19 @@
-use super::raster::render_png;
-use super::svg::{
-    MAX_RASTER_PIXELS, first_viewbox, pad_svg_viewbox, raster_dpr, raster_scale, strip_init,
-};
+use super::raster::target_for;
+use super::svg::{MAX_RASTER_PIXELS, first_viewbox, pad_svg_viewbox, strip_init};
 use super::{
     FAIL_LABEL_CAP, MAX_ENTRIES, MAX_FITTED_ENTRIES, MAX_IN_FLIGHT, MermaidCache, MermaidKey,
     RasterSpec, WARM_EXTRA_ENTRIES, fail_label, fit_rect,
 };
 use crate::mermaid::raster::raster;
 use crate::mermaid::theme::{spec_from_theme, theme_fingerprint};
-use crate::pixels::from_bgra;
+use crate::pixels::{GPUI_MAX_EDGE, from_bgra};
+use gpui::SvgRenderer;
 use image::RgbaImage;
+use std::sync::Arc;
+
+fn renderer() -> SvgRenderer {
+    SvgRenderer::new(Arc::new(()))
+}
 
 #[test]
 fn strip_init_drops_directive() {
@@ -196,9 +200,9 @@ fn raster_svg_keeps_css_size_and_hits_the_density() {
     let theme = md_theme::DocumentTheme::one_dark();
     let spec = spec_for(theme, 804, 420);
     let src = "flowchart TD\n  A0-->B0\n  B0-->C0\n";
-    let (doc, sealed) = super::raster::raster_with_svg(src, &spec).expect("raster");
+    let (doc, sealed) = super::raster::raster_with_svg(src, &spec, &renderer()).expect("raster");
     let css = doc.css_size();
-    let zoomed = super::raster::raster_svg(&sealed, css, 3.0).expect("zoom raster");
+    let zoomed = super::raster::raster_svg(&sealed, css, 3.0, &renderer()).expect("zoom raster");
     let (zw, zh) = zoomed.css_size();
     assert!(
         (zw - css.0).abs() < 1.0 && (zh - css.1).abs() < 1.0,
@@ -213,69 +217,64 @@ fn raster_svg_keeps_css_size_and_hits_the_density() {
 }
 
 #[test]
-fn raster_scale_keeps_small_diagram_layout_native() {
+fn a_small_diagram_keeps_its_native_density() {
     let spec = spec_fit(804, 420);
     let svg = r#"<svg viewBox="0 0 94 278"></svg>"#;
-    let scale = raster_scale(svg, &spec);
-    let dpr = raster_dpr(svg, &spec);
-    assert!(
-        (scale / dpr - 1.0).abs() < 0.02,
-        "small diagrams must not be shrunk by contain: scale={scale} dpr={dpr}"
-    );
-    assert!(
-        dpr > spec.dpr + 0.5,
-        "small diagrams must pack extra pixels for the zoom popover, dpr={dpr}"
-    );
-    assert!(
-        dpr <= spec.dpr * 2.0,
-        "document diagrams pre-rasterize at most 2x: dpr={dpr}"
-    );
+    let target = target_for(svg, spec.fit_w as f32, spec.fit_h as f32, spec.dpr);
+    assert_eq!(target.css, (94.0, 278.0));
+    assert_eq!(target.density, spec.dpr);
+    assert_eq!(target.px_w, (94.0 * spec.dpr).ceil() as u32);
 }
 
 #[test]
-fn raster_scale_obeys_the_pixel_budget() {
+fn a_diagram_wider_than_the_slot_is_contained_before_it_is_rastered() {
+    let spec = spec_fit(804, 420);
+    let svg = r#"<svg viewBox="0 0 1600 900"></svg>"#;
+    let target = target_for(svg, spec.fit_w as f32, spec.fit_h as f32, spec.dpr);
+    let contain = (804.0_f32 / 1600.0).min(420.0 / 900.0);
+    assert!(
+        (target.css.0 - 1600.0 * contain).abs() < 0.01,
+        "css={:?}",
+        target.css
+    );
+    assert!((target.css.1 - 420.0).abs() < 0.01, "css={:?}", target.css);
+    assert_eq!(target.density, spec.dpr);
+}
+
+#[test]
+fn a_diagram_over_the_pixel_budget_reports_the_density_it_can_deliver() {
     let mut spec = spec_fit(10_000, 10_000);
     spec.dpr = 4.0;
     let svg = r#"<svg viewBox="0 0 10000 10000"></svg>"#;
-    let scale = raster_scale(svg, &spec);
-    let dpr = raster_dpr(svg, &spec);
-    let pixels = 10_000.0_f64 * 10_000.0 * f64::from(scale).powi(2);
-    assert!(
-        pixels <= MAX_RASTER_PIXELS * 1.0001,
-        "pixels={pixels} limit={MAX_RASTER_PIXELS}"
-    );
-    assert!((scale / dpr - 1.0).abs() < 0.001, "scale={scale} dpr={dpr}");
+    let target = target_for(svg, spec.fit_w as f32, spec.fit_h as f32, spec.dpr);
+    let pixels = u64::from(target.px_w) * u64::from(target.px_h);
+    assert!(pixels <= MAX_RASTER_PIXELS as u64, "pixels={pixels}");
+    assert!(target.density < spec.dpr, "density={}", target.density);
+    let css_w = target.px_w as f32 / target.density;
+    assert!((css_w - 10_000.0).abs() < 1.0, "css drifted to {css_w}");
 }
 
 #[test]
-fn raster_scale_downsizes_when_wider_than_slot() {
-    let spec = spec_fit(804, 420);
-    let svg = r#"<svg viewBox="0 0 1600 900"></svg>"#;
-    let scale = raster_scale(svg, &spec);
-    let dpr = raster_dpr(svg, &spec);
-    let contain = (804.0_f32 / 1600.0).min(420.0 / 900.0);
-    assert!(
-        (scale / dpr - contain).abs() < 0.02,
-        "a large diagram's contain should align to the slot: scale={scale} dpr={dpr} contain={contain}"
-    );
+fn a_diagram_caps_its_long_edge_before_the_pixel_budget() {
+    let spec = spec_fit(40_000, 100);
+    let svg = r#"<svg viewBox="0 0 20000 10"></svg>"#;
+    let target = target_for(svg, spec.fit_w as f32, spec.fit_h as f32, spec.dpr);
+    assert_eq!(target.px_w, GPUI_MAX_EDGE);
+    assert_eq!(target.px_h, (10.0 * spec.dpr).ceil() as u32);
 }
 
 #[test]
-fn raster_scale_budgets_a_root_without_viewbox() {
-    let mut spec = spec_fit(10_000, 10_000);
-    spec.dpr = 4.0;
-    let svg = r#"<svg width="10000" height="10000"></svg>"#;
-    let scale = raster_scale(svg, &spec);
-    let pixels = 10_000.0_f64 * 10_000.0 * f64::from(scale).powi(2);
-    assert!(
-        pixels <= MAX_RASTER_PIXELS * 1.0001,
-        "no-viewBox pixels={pixels} limit={MAX_RASTER_PIXELS}"
+fn a_diagram_without_a_viewbox_falls_back_to_the_slot() {
+    let spec = spec_fit(10_000, 10_000);
+    let target = target_for(
+        "<svg></svg>",
+        spec.fit_w as f32,
+        spec.fit_h as f32,
+        spec.dpr,
     );
-    let unknown = raster_scale("<svg></svg>", &spec);
-    assert_eq!(
-        unknown, 0.25,
-        "unknown intrinsic size uses the minimum multiplier"
-    );
+    assert_eq!(target.css, (10_000.0, 10_000.0));
+    let pixels = u64::from(target.px_w) * u64::from(target.px_h);
+    assert!(pixels <= MAX_RASTER_PIXELS as u64, "pixels={pixels}");
 }
 
 #[test]
@@ -292,30 +291,63 @@ fn paint_rect_contains_a_stale_large_bitmap() {
 fn mixed_flowchart_css_size_stays_near_native() {
     let spec = spec_fit(804, 420);
     let src = "flowchart TD\n  A0-->B0\n  B0-->C0\n";
-    let ready = raster(src, &spec).expect("raster");
+    let ready = raster(src, &spec, &renderer()).expect("raster");
     let (cw, ch) = ready.css_size();
     assert!(ch > 240.0 && ch < 320.0, "css_h={ch}");
     assert!(cw > 80.0 && cw < 160.0, "css_w={cw}");
     assert!(
-        ready.px_h as f32 > ch * 1.5 && ready.px_h as f32 <= ch * 2.1,
-        "the raster must use denser pixels than css: px_h={} css_h={ch}",
-        ready.px_h
+        (ready.dpr - spec.dpr).abs() < 0.01,
+        "the raster must carry the density it is shown at: dpr={} spec={}",
+        ready.dpr,
+        spec.dpr
+    );
+    assert!(
+        (ready.px_h as f32 - ch * spec.dpr).abs() <= 1.0,
+        "px_h={} css_h={ch} dpr={}",
+        ready.px_h,
+        spec.dpr
     );
 }
 
 #[test]
 fn raster_leaves_the_diagram_background_transparent() {
     let spec = spec_fit(804, 420);
-    let png = render_png("flowchart TD\n  A0-->B0\n", &spec).expect("png");
-    let img = image::load_from_memory(&png).expect("decode").into_rgba8();
-    let (w, h) = img.dimensions();
+    let ready = raster("flowchart TD\n  A0-->B0\n", &spec, &renderer()).expect("raster");
+    let (w, h) = (ready.px_w as usize, ready.px_h as usize);
+    let bytes = ready.image.as_bytes(0).expect("pixels");
     for (x, y) in [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)] {
         assert_eq!(
-            img.get_pixel(x, y).0[3],
+            bytes[(y * w + x) * 4 + 3],
             0,
             "corner pixel ({x},{y}) is opaque"
         );
     }
+}
+
+#[test]
+fn a_rendered_diagram_paints_across_the_slot_it_was_fitted_to() {
+    let spec = spec_fit(804, 420);
+    let ready = raster("flowchart TD\n  A0-->B0\n  B0-->C0\n", &spec, &renderer()).expect("raster");
+    let (w, h) = (ready.px_w as usize, ready.px_h as usize);
+    let bytes = ready.image.as_bytes(0).expect("pixels");
+    let mut min_x = w;
+    let mut max_x = 0;
+    let mut painted = 0usize;
+    for y in 0..h {
+        for x in 0..w {
+            if bytes[(y * w + x) * 4 + 3] > 0 {
+                min_x = min_x.min(x);
+                max_x = max_x.max(x);
+                painted += 1;
+            }
+        }
+    }
+    assert!(painted > 0, "the diagram painted nothing");
+    let ink_w = max_x + 1 - min_x;
+    assert!(
+        ink_w * 2 > w,
+        "ink {ink_w} of {w} wide, the diagram was not scaled to its slot"
+    );
 }
 
 #[test]
