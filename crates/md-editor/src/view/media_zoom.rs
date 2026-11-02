@@ -348,6 +348,7 @@ impl EditorView {
         self.media.account(zoom_bytes)
     }
 
+    #[cfg(any(test, feature = "bench-support"))]
     pub(crate) fn bench_open_first_mermaid(&mut self, cx: &mut Context<'_, Self>) {
         let block = {
             let doc = &self.state.doc.document;

@@ -7,6 +7,8 @@ use md_core::document::Command;
 
 const SEED: u64 = 0x5eed_0f17;
 
+type ProjectionProbe = (&'static str, fn(&str) -> usize);
+
 fn config() -> Criterion {
     Criterion::default()
         .warm_up_time(Duration::from_millis(1000))
@@ -113,7 +115,7 @@ fn inline_projection(c: &mut Criterion) {
     let bare = "the quick brown fox jumps over the lazy dog and keeps on running".to_string();
     let mixed =
         "the `quick` **brown** fox *jumps* over [the](https://example.com) lazy dog".to_string();
-    let probes: [(&str, fn(&str) -> usize); 2] = [
+    let probes: [ProjectionProbe; 2] = [
         ("full", md_core::document::bench_probe::probe_project),
         ("fast", md_core::document::bench_probe::probe_fast),
     ];

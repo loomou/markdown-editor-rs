@@ -17,20 +17,30 @@ mod windows_impl {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
-    use windows_sys::Win32::Foundation::{CloseHandle, HWND, LPARAM};
+    use windows_sys::Win32::Foundation::{CloseHandle, HWND, LPARAM, POINT, RECT};
+    use windows_sys::Win32::Graphics::Gdi::{
+        BI_RGB, BITMAPINFO, BITMAPINFOHEADER, ClientToScreen, CreateCompatibleDC, CreateDIBSection,
+        DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC, ReleaseDC, SelectObject,
+    };
+    use windows_sys::Win32::Storage::Xps::PrintWindow;
     use windows_sys::Win32::System::ProcessStatus::{
         GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS_EX,
     };
     use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    use windows_sys::Win32::UI::HiDpi::{
+        DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForWindow, SetProcessDpiAwarenessContext,
+    };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, GetWindowRect, GetWindowThreadProcessId, IsWindowVisible, PostMessageW,
-        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, SetWindowPos, WM_CLOSE, WM_MOUSEWHEEL,
+        EnumWindows, GetClientRect, GetWindowRect, GetWindowThreadProcessId, IsWindowVisible,
+        PW_RENDERFULLCONTENT, PostMessageW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, SetWindowPos,
+        WM_CLOSE, WM_MOUSEWHEEL,
     };
 
     const WHEEL_DELTA: i32 = 120;
     const NOTCH_SLEEP: Duration = Duration::from_millis(16);
     const SETTLE: Duration = Duration::from_millis(1500);
     const RESIZE_SETTLE: Duration = Duration::from_millis(600);
+    const SHOT_DELAY: Duration = Duration::from_millis(1500);
     const SAMPLE_EVERY: usize = 4;
     const WINDOW_WAIT: Duration = Duration::from_secs(30);
     const CLOSE_WAIT: Duration = Duration::from_secs(10);
@@ -44,6 +54,7 @@ mod windows_impl {
         width: i32,
         height: i32,
         keep_open: bool,
+        shot: Option<PathBuf>,
     }
 
     fn parse_args() -> Args {
@@ -55,6 +66,7 @@ mod windows_impl {
         let mut width = 900;
         let mut height = 700;
         let mut keep_open = false;
+        let mut shot = None;
         let raw: Vec<String> = std::env::args().skip(1).collect();
         let mut index = 0;
         while index < raw.len() {
@@ -71,6 +83,7 @@ mod windows_impl {
                 "--notches" => notches = next().parse().unwrap_or(notches),
                 "--width" => width = next().parse().unwrap_or(width),
                 "--height" => height = next().parse().unwrap_or(height),
+                "--shot" => shot = Some(PathBuf::from(next())),
                 "--keep-open" => keep_open = true,
                 other => {
                     eprintln!("unknown argument {other}");
@@ -98,6 +111,7 @@ mod windows_impl {
             width,
             height,
             keep_open,
+            shot,
         }
     }
 
@@ -169,6 +183,86 @@ mod windows_impl {
         format!("{:.1}", bytes as f64 / (1024.0 * 1024.0))
     }
 
+    fn capture(hwnd: HWND, path: &std::path::Path) -> Option<(u32, u32, i32)> {
+        // SAFETY: hwnd belongs to the child and stays alive across the call; every GDI
+        // handle created here is released before returning.
+        unsafe {
+            let mut window = RECT::default();
+            if GetWindowRect(hwnd, &mut window) == 0 {
+                return None;
+            }
+            let mut client = RECT::default();
+            if GetClientRect(hwnd, &mut client) == 0 {
+                return None;
+            }
+            let mut origin = POINT { x: 0, y: 0 };
+            if ClientToScreen(hwnd, &mut origin) == 0 {
+                return None;
+            }
+            let width = window.right - window.left;
+            let height = window.bottom - window.top;
+            if width <= 0 || height <= 0 {
+                return None;
+            }
+
+            let screen = GetDC(std::ptr::null_mut());
+            let memory = CreateCompatibleDC(screen);
+            let info = BITMAPINFO {
+                bmiHeader: BITMAPINFOHEADER {
+                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                    biWidth: width,
+                    biHeight: -height,
+                    biPlanes: 1,
+                    biBitCount: 32,
+                    biCompression: BI_RGB,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
+            let bitmap = CreateDIBSection(
+                memory,
+                &info,
+                DIB_RGB_COLORS,
+                &mut bits,
+                std::ptr::null_mut(),
+                0,
+            );
+            if bitmap.is_null() || bits.is_null() {
+                DeleteDC(memory);
+                ReleaseDC(std::ptr::null_mut(), screen);
+                return None;
+            }
+            let previous = SelectObject(memory, bitmap);
+            let printed = PrintWindow(hwnd, memory, PW_RENDERFULLCONTENT);
+            SelectObject(memory, previous);
+
+            let stride = width as usize * 4;
+            let raw = std::slice::from_raw_parts(bits as *const u8, stride * height as usize);
+            let left = (origin.x - window.left).clamp(0, width);
+            let top = (origin.y - window.top).clamp(0, height);
+            let crop_w = (client.right - client.left).clamp(0, width - left) as u32;
+            let crop_h = (client.bottom - client.top).clamp(0, height - top) as u32;
+            let mut rgba = Vec::with_capacity(crop_w as usize * crop_h as usize * 4);
+            for y in 0..crop_h as usize {
+                let row = (top as usize + y) * stride + left as usize * 4;
+                for x in 0..crop_w as usize {
+                    let px = &raw[row + x * 4..row + x * 4 + 4];
+                    rgba.extend_from_slice(&[px[2], px[1], px[0], 255]);
+                }
+            }
+
+            DeleteObject(bitmap);
+            DeleteDC(memory);
+            ReleaseDC(std::ptr::null_mut(), screen);
+
+            image::RgbaImage::from_raw(crop_w, crop_h, rgba)?
+                .save(path)
+                .ok()?;
+            Some((crop_w, crop_h, printed))
+        }
+    }
+
     #[derive(Default)]
     struct Collected {
         frames: Vec<(f64, f64)>,
@@ -218,6 +312,8 @@ mod windows_impl {
     }
 
     pub fn main() {
+        // SAFETY: the call only sets this process's DPI awareness before any window work.
+        unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
         let args = parse_args();
         if !args.exe.exists() {
             eprintln!(
@@ -247,19 +343,56 @@ mod windows_impl {
         };
         std::thread::sleep(SETTLE);
 
-        // SAFETY: hwnd is a live window owned by the child process.
-        unsafe {
-            SetWindowPos(
-                hwnd,
-                std::ptr::null_mut(),
-                0,
-                0,
-                args.width,
-                args.height,
-                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
-            )
-        };
-        std::thread::sleep(RESIZE_SETTLE);
+        if args.width > 0 && args.height > 0 {
+            // SAFETY: hwnd is a live window owned by the child process and the call only
+            // reads its DPI.
+            let scale = unsafe { GetDpiForWindow(hwnd) } as f64 / 96.0;
+            let width = (f64::from(args.width) * scale).round() as i32;
+            let height = (f64::from(args.height) * scale).round() as i32;
+            // SAFETY: hwnd is a live window owned by the child process and the call only
+            // resizes it.
+            unsafe {
+                SetWindowPos(
+                    hwnd,
+                    std::ptr::null_mut(),
+                    0,
+                    0,
+                    width,
+                    height,
+                    SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+                )
+            };
+            std::thread::sleep(RESIZE_SETTLE);
+        }
+
+        if let Some(shot) = args.shot.clone() {
+            std::thread::sleep(SHOT_DELAY);
+            match capture(hwnd, &shot) {
+                Some((width, height, printed)) => {
+                    // SAFETY: hwnd is live; the call only reads its DPI.
+                    let dpi = unsafe { GetDpiForWindow(hwnd) };
+                    eprintln!(
+                        "[app-measure {}] shot {} {width}x{height} dpi={dpi} printwindow={printed}",
+                        args.label,
+                        shot.display()
+                    )
+                }
+                None => eprintln!("[app-measure {}] shot failed", args.label),
+            }
+            // SAFETY: hwnd is live and the message carries no payload.
+            unsafe { PostMessageW(hwnd, WM_CLOSE, 0, 0) };
+            let deadline = Instant::now() + CLOSE_WAIT;
+            while Instant::now() < deadline {
+                match child.try_wait() {
+                    Ok(Some(_)) => break,
+                    Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+                    Err(_) => break,
+                }
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+            return;
+        }
 
         // SAFETY: pid names the child this process started, and the handle is closed below.
         let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
