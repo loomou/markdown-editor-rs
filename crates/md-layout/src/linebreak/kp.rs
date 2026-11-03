@@ -45,6 +45,13 @@ pub(crate) fn badness(ratio: f64) -> f64 {
     (100.0 * magnitude * magnitude * magnitude).min(10000.0)
 }
 
+const BALANCED_RATIO_CAP: f64 = 1.0e4;
+
+pub(crate) fn balanced_badness(ratio: f64) -> f64 {
+    let magnitude = ratio.abs().min(BALANCED_RATIO_CAP);
+    100.0 * magnitude * magnitude * magnitude
+}
+
 pub(crate) fn ratio_of(natural: f64, stretch: f64, shrink: f64, width: f64) -> f64 {
     if natural < width {
         if stretch > 0.0 {
@@ -79,10 +86,18 @@ pub(crate) struct LineCalc<'a> {
     text: &'a str,
     items: &'a [Placed],
     prefix: Vec<[f64; 3]>,
+    emergency_prefix: Vec<u32>,
     mode: Mode,
     params: &'a Params,
     width: f64,
+    em: f64,
     line_stretch: f64,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Score {
+    pub ratio: f64,
+    pub badness: f64,
 }
 
 impl<'a> LineCalc<'a> {
@@ -95,8 +110,11 @@ impl<'a> LineCalc<'a> {
         params: &'a Params,
     ) -> Self {
         let mut prefix = Vec::with_capacity(items.len() + 1);
+        let mut emergency_prefix = Vec::with_capacity(items.len() + 1);
         let mut acc = [0.0f64; 3];
+        let mut crossings = 0u32;
         prefix.push(acc);
+        emergency_prefix.push(crossings);
         for placed in items {
             match placed.item {
                 Item::Box { width } => acc[0] += f64::from(width),
@@ -109,21 +127,28 @@ impl<'a> LineCalc<'a> {
                     acc[1] += f64::from(stretch);
                     acc[2] += f64::from(shrink);
                 }
-                Item::Penalty { .. } => {}
+                Item::Penalty { emergency, .. } => {
+                    if emergency {
+                        crossings += 1;
+                    }
+                }
             }
             prefix.push(acc);
+            emergency_prefix.push(crossings);
         }
         let line_stretch = match mode {
             Mode::Justify => 0.0,
-            Mode::Ragged | Mode::Balanced => f64::from(params.ragged_stretch_em * em),
+            Mode::Ragged | Mode::Balanced | Mode::Fill => f64::from(params.ragged_stretch_em * em),
         };
         Self {
             text,
             items,
             prefix,
+            emergency_prefix,
             mode,
             params,
             width: effective_width(width),
+            em: f64::from(em),
             line_stretch,
         }
     }
@@ -186,8 +211,52 @@ impl<'a> LineCalc<'a> {
     }
 
     pub(crate) fn ratio_at(&self, start_item: u32, break_index: u32, final_break: bool) -> f64 {
+        self.score_at(start_item, break_index, final_break).ratio
+    }
+
+    pub(crate) fn score_at(&self, start_item: u32, break_index: u32, final_break: bool) -> Score {
         let [natural, stretch, shrink] = self.natural_at(start_item, break_index, final_break);
-        ratio_of(natural, stretch, shrink, self.width)
+        if natural < self.width
+            && stretch <= 0.0
+            && self.contains_emergency(start_item, break_index)
+        {
+            let unit = if self.em > 0.0 { self.em } else { self.width };
+            let ratio = (self.width - natural) / unit;
+            return Score {
+                ratio,
+                badness: 100.0 * ratio * ratio * ratio,
+            };
+        }
+        let ratio = ratio_of(natural, stretch, shrink, self.width);
+        Score {
+            ratio,
+            badness: self.badness_for(ratio),
+        }
+    }
+
+    fn badness_for(&self, ratio: f64) -> f64 {
+        match self.mode {
+            Mode::Balanced => balanced_badness(ratio),
+            Mode::Ragged | Mode::Justify | Mode::Fill => badness(ratio),
+        }
+    }
+
+    fn contains_emergency(&self, start_item: u32, break_index: u32) -> bool {
+        let from = (start_item as usize).min(self.emergency_prefix.len());
+        let to = (break_index as usize + 1).min(self.emergency_prefix.len());
+        to > from && self.emergency_prefix[to] > self.emergency_prefix[from]
+    }
+
+    pub(crate) fn emergency_break(&self, break_index: u32) -> bool {
+        matches!(
+            self.items
+                .get(break_index as usize)
+                .map(|placed| placed.item),
+            Some(Item::Penalty {
+                emergency: true,
+                ..
+            })
+        )
     }
 
     pub(crate) fn runt_at(&self, start_byte: u32, end_byte: u32) -> bool {
@@ -206,7 +275,7 @@ impl<'a> LineCalc<'a> {
         &self,
         prev_fit: u8,
         prev_hyphen: bool,
-        ratio: f64,
+        score: Score,
         break_index: u32,
         runt: bool,
     ) -> f64 {
@@ -215,7 +284,7 @@ impl<'a> LineCalc<'a> {
             _ => (0.0, false),
         };
         let params = self.params;
-        let mut demerits = (f64::from(params.line_penalty) + badness(ratio)).powi(2);
+        let mut demerits = (f64::from(params.line_penalty) + score.badness).powi(2);
         demerits += if cost >= 0.0 {
             cost * cost
         } else if cost > f64::NEG_INFINITY {
@@ -226,7 +295,7 @@ impl<'a> LineCalc<'a> {
         if prev_hyphen && flagged {
             demerits += f64::from(params.flagged_demerits);
         }
-        if self.mode == Mode::Justify && prev_fit.abs_diff(fitness(ratio)) > 1 {
+        if self.mode == Mode::Justify && prev_fit.abs_diff(fitness(score.ratio)) > 1 {
             demerits += f64::from(params.fitness_demerits);
         }
         if runt {
@@ -276,6 +345,16 @@ struct Candidate {
     ratio: f64,
 }
 
+fn beats(candidate: Candidate, current: Candidate) -> bool {
+    candidate.total < current.total
+        || (candidate.total == current.total && candidate.ratio < current.ratio)
+}
+
+fn beats_overfull(candidate: Candidate, current: Candidate) -> bool {
+    candidate.total < current.total
+        || (candidate.total == current.total && candidate.ratio > current.ratio)
+}
+
 pub fn break_lines(
     text: &str,
     items: &[Placed],
@@ -298,9 +377,12 @@ pub fn break_lines(
             fallback: true,
         };
     };
+    if mode == Mode::Fill {
+        return greedy(&calc, &breaks, last_break, false);
+    }
     if items.len() > params.max_items as usize {
         crate::hot_path::add_kp_max_items();
-        return greedy(&calc, &breaks, last_break);
+        return greedy(&calc, &breaks, last_break, true);
     }
 
     let blank = PlannedLine {
@@ -336,10 +418,13 @@ pub fn break_lines(
             #[cfg(test)]
             visits::bump();
             let node = nodes[index as usize];
-            let ratio = calc.ratio_at(node.pos, break_item, final_break);
-            let runt = final_break && calc.runt_at(calc.byte_at(node.pos), calc.byte_at(end_item));
+            let score = calc.score_at(node.pos, break_item, final_break);
+            let ratio = score.ratio;
+            let runt = final_break
+                && !calc.emergency_break(node.line.break_item)
+                && calc.runt_at(calc.byte_at(node.pos), calc.byte_at(end_item));
             let total =
-                node.total + calc.demerits_at(node.fit, node.line.hyphen, ratio, break_item, runt);
+                node.total + calc.demerits_at(node.fit, node.line.hyphen, score, break_item, runt);
             let candidate = Candidate {
                 total,
                 prev: index,
@@ -347,17 +432,17 @@ pub fn break_lines(
             };
             if ratio >= -1.0 {
                 let fit = fitness(ratio) as usize;
-                if best[fit].is_none_or(|current| total < current.total) {
+                if best[fit].is_none_or(|current| beats(candidate, current)) {
                     best[fit] = Some(candidate);
                 }
                 alive.push(index);
-            } else if worst.is_none_or(|current| total < current.total) {
+            } else if worst.is_none_or(|current| beats_overfull(candidate, current)) {
                 worst = Some(candidate);
             }
         }
 
         let mut pushed: Vec<u32> = Vec::new();
-        let mut chosen: Option<(f64, u32)> = None;
+        let mut chosen: Option<(Candidate, u32)> = None;
         for (fit, candidate) in best.into_iter().enumerate() {
             let Some(candidate) = candidate else {
                 continue;
@@ -366,8 +451,8 @@ pub fn break_lines(
                 &mut nodes, &calc, candidate, fit as u8, last_break, break_item, false,
             );
             pushed.push(index);
-            if chosen.is_none_or(|(total, _)| candidate.total < total) {
-                chosen = Some((candidate.total, index));
+            if chosen.is_none_or(|(current, _)| beats(candidate, current)) {
+                chosen = Some((candidate, index));
             }
         }
         if pushed.is_empty() {
@@ -383,7 +468,7 @@ pub fn break_lines(
                 &mut nodes, &calc, candidate, DECENT, last_break, break_item, true,
             );
             pushed.push(index);
-            chosen = Some((candidate.total, index));
+            chosen = Some((candidate, index));
         }
         if is_forced(calc.item(break_item)) {
             active = pushed;
@@ -441,7 +526,7 @@ fn push_node(
     nodes.len() as u32 - 1
 }
 
-fn greedy(calc: &LineCalc<'_>, breaks: &[u32], last_break: u32) -> Plan {
+fn greedy(calc: &LineCalc<'_>, breaks: &[u32], last_break: u32, fallback: bool) -> Plan {
     let mut lines = Vec::new();
     let mut start = 0u32;
     let mut best: Option<u32> = None;
@@ -479,10 +564,7 @@ fn greedy(calc: &LineCalc<'_>, breaks: &[u32], last_break: u32) -> Plan {
         let ratio = calc.ratio_at(start, previous, previous == last_break);
         lines.push(calc.line_of(start, previous, last_break, ratio, false));
     }
-    Plan {
-        lines,
-        fallback: true,
-    }
+    Plan { lines, fallback }
 }
 
 #[cfg(test)]
@@ -508,13 +590,17 @@ pub(crate) fn plan_demerits(
     let mut total = 0.0;
     let mut fit = DECENT;
     let mut hyphen = false;
+    let mut previous_break: Option<u32> = None;
     for line in &plan.lines {
         let final_break = line.break_item == last_break;
-        let ratio = calc.ratio_at(line.item_start, line.break_item, final_break);
-        let runt = final_break && calc.runt_at(line.start, line.end);
-        total += calc.demerits_at(fit, hyphen, ratio, line.break_item, runt);
-        fit = fitness(ratio);
+        let score = calc.score_at(line.item_start, line.break_item, final_break);
+        let runt = final_break
+            && !previous_break.is_some_and(|at| calc.emergency_break(at))
+            && calc.runt_at(line.start, line.end);
+        total += calc.demerits_at(fit, hyphen, score, line.break_item, runt);
+        fit = fitness(score.ratio);
         hyphen = line.hyphen;
+        previous_break = Some(line.break_item);
     }
     total
 }

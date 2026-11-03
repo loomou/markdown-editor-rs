@@ -71,6 +71,7 @@ pub fn build_items(
                     width: 0.0,
                     cost: f32::NEG_INFINITY,
                     flagged: false,
+                    emergency: false,
                 },
                 content_end,
             )),
@@ -101,6 +102,7 @@ pub fn build_items(
                 width: 0.0,
                 cost: f32::INFINITY,
                 flagged: false,
+                emergency: false,
             },
             content_end,
         ));
@@ -118,6 +120,7 @@ pub fn build_items(
             width: 0.0,
             cost: f32::NEG_INFINITY,
             flagged: false,
+            emergency: false,
         },
         content_end,
     ));
@@ -146,6 +149,7 @@ fn push_chunk(
                 width: 0.0,
                 cost: f32::INFINITY,
                 flagged: false,
+                emergency: false,
             },
             at,
         ));
@@ -211,6 +215,7 @@ fn push_box(
                     width: 0.0,
                     cost: ctx.params.emergency_penalty,
                     flagged: false,
+                    emergency: true,
                 },
                 cut,
             ));
@@ -230,6 +235,7 @@ fn break_item(text: &str, position: u32, ctx: &ItemCtx<'_>) -> Item {
             width: 0.0,
             cost: ctx.params.code_break_penalty,
             flagged: false,
+            emergency: false,
         };
     }
     let prev = text[..at].chars().next_back();
@@ -239,6 +245,7 @@ fn break_item(text: &str, position: u32, ctx: &ItemCtx<'_>) -> Item {
             width: 0.0,
             cost: ctx.params.hyphen_penalty,
             flagged: true,
+            emergency: false,
         };
     }
     if prev.is_some_and(is_cjk) || next.is_some_and(is_cjk) {
@@ -248,10 +255,11 @@ fn break_item(text: &str, position: u32, ctx: &ItemCtx<'_>) -> Item {
                 stretch: ctx.params.cjk_stretch_em * ctx.em,
                 shrink: 0.0,
             },
-            Mode::Ragged | Mode::Balanced => Item::Penalty {
+            Mode::Ragged | Mode::Balanced | Mode::Fill => Item::Penalty {
                 width: 0.0,
                 cost: 0.0,
                 flagged: false,
+                emergency: false,
             },
         };
     }
@@ -259,6 +267,7 @@ fn break_item(text: &str, position: u32, ctx: &ItemCtx<'_>) -> Item {
         width: 0.0,
         cost: 0.0,
         flagged: false,
+        emergency: false,
     }
 }
 

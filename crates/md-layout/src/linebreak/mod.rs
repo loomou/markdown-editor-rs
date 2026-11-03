@@ -26,6 +26,7 @@ pub enum Item {
         width: f32,
         cost: f32,
         flagged: bool,
+        emergency: bool,
     },
 }
 
@@ -48,6 +49,7 @@ pub enum Mode {
     Ragged,
     Justify,
     Balanced,
+    Fill,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

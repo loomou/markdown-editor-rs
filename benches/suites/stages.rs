@@ -55,6 +55,7 @@ fn mode_name(mode: Mode) -> &'static str {
         Mode::Ragged => "ragged",
         Mode::Justify => "justify",
         Mode::Balanced => "balanced",
+        Mode::Fill => "fill",
     }
 }
 

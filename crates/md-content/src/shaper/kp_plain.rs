@@ -229,7 +229,7 @@ fn expanded(range: Range<u32>, tab_source: Option<&str>) -> Range<u32> {
 
 pub(super) fn mode_for(kind: BlockKind, setting: LineBreakMode) -> Mode {
     match kind {
-        BlockKind::Heading(_) => Mode::Balanced,
+        BlockKind::Heading(_) => Mode::Fill,
         BlockKind::TableCell | BlockKind::CodeBlock | BlockKind::MetadataBlock => Mode::Ragged,
         BlockKind::Paragraph
         | BlockKind::ListItem
@@ -239,5 +239,56 @@ pub(super) fn mode_for(kind: BlockKind, setting: LineBreakMode) -> Mode {
             LineBreakMode::Greedy | LineBreakMode::Optimal => Mode::Ragged,
         },
         _ => Mode::Ragged,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SETTINGS: [LineBreakMode; 3] = [
+        LineBreakMode::Greedy,
+        LineBreakMode::Optimal,
+        LineBreakMode::Justify,
+    ];
+
+    #[test]
+    fn every_heading_level_fills_whatever_the_setting_says() {
+        for setting in SETTINGS {
+            for level in 1..=6 {
+                assert_eq!(
+                    mode_for(BlockKind::Heading(level), setting),
+                    Mode::Fill,
+                    "heading {level} under {setting:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn body_text_keeps_the_mode_the_setting_asks_for() {
+        for kind in [
+            BlockKind::Paragraph,
+            BlockKind::ListItem,
+            BlockKind::BlockQuote,
+            BlockKind::FootnoteDefinition,
+        ] {
+            assert_eq!(mode_for(kind, LineBreakMode::Optimal), Mode::Ragged);
+            assert_eq!(mode_for(kind, LineBreakMode::Greedy), Mode::Ragged);
+            assert_eq!(mode_for(kind, LineBreakMode::Justify), Mode::Justify);
+        }
+    }
+
+    #[test]
+    fn tables_and_code_never_join_or_balance() {
+        for kind in [
+            BlockKind::TableCell,
+            BlockKind::CodeBlock,
+            BlockKind::MetadataBlock,
+        ] {
+            for setting in SETTINGS {
+                assert_eq!(mode_for(kind, setting), Mode::Ragged, "{kind:?}");
+            }
+        }
     }
 }

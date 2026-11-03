@@ -1,4 +1,4 @@
-use super::kp::{DECENT, LineCalc, fitness, plan_demerits};
+use super::kp::{DECENT, LineCalc, badness, fitness, plan_demerits};
 use super::*;
 
 const EM: f32 = 10.0;
@@ -139,6 +139,7 @@ fn brute_force(
         let mut fit = DECENT;
         let mut hyphen = false;
         let mut start = 0u32;
+        let mut previous_break: Option<u32> = None;
         let mut feasible = true;
         for &break_item in &chosen {
             if start > break_item {
@@ -146,16 +147,19 @@ fn brute_force(
                 break;
             }
             let final_break = break_item == last;
-            let ratio = calc.ratio_at(start, break_item, final_break);
-            if ratio.is_nan() || ratio < -1.0 {
+            let score = calc.score_at(start, break_item, final_break);
+            if score.ratio.is_nan() || score.ratio < -1.0 {
                 feasible = false;
                 break;
             }
             let end_item = calc.content_end(break_item, final_break);
-            let runt = final_break && calc.runt_at(calc.byte_at(start), calc.byte_at(end_item));
-            total += calc.demerits_at(fit, hyphen, ratio, break_item, runt);
-            fit = fitness(ratio);
+            let runt = final_break
+                && !previous_break.is_some_and(|at| calc.emergency_break(at))
+                && calc.runt_at(calc.byte_at(start), calc.byte_at(end_item));
+            total += calc.demerits_at(fit, hyphen, score, break_item, runt);
+            fit = fitness(score.ratio);
             hyphen = matches!(calc.item(break_item), Item::Penalty { flagged: true, .. });
+            previous_break = Some(break_item);
             start = calc.next_item(break_item);
         }
         if feasible {
@@ -837,6 +841,297 @@ fn no_line_starts_or_ends_with_forbidden_punctuation() {
                     );
                 }
             }
+        }
+    }
+}
+
+fn uniform_clusters(text: &str, advance: f32) -> Clusters {
+    let mut bytes = Vec::new();
+    let mut xs = Vec::new();
+    let mut x = 0.0f32;
+    for (i, _) in text.char_indices() {
+        bytes.push(i as u32);
+        xs.push(x);
+        x += advance;
+    }
+    bytes.push(text.len() as u32);
+    xs.push(x);
+    Clusters::from_pairs(bytes.into_iter().zip(xs)).expect("monotone bytes")
+}
+
+#[test]
+fn balanced_badness_keeps_growing_past_the_ragged_cap() {
+    assert_eq!(badness(20.0), badness(40.0));
+    assert!(super::kp::balanced_badness(20.0) < super::kp::balanced_badness(40.0));
+    assert!(super::kp::balanced_badness(40.0).is_finite());
+    assert!(super::kp::balanced_badness(f64::INFINITY).is_finite());
+}
+
+fn mixed_clusters(text: &str) -> Clusters {
+    let mut bytes = Vec::new();
+    let mut xs = Vec::new();
+    let mut x = 0.0f32;
+    for (i, c) in text.char_indices() {
+        bytes.push(i as u32);
+        xs.push(x);
+        x += if c == ' ' {
+            9.0
+        } else if is_cjk(c) {
+            36.0
+        } else {
+            19.5
+        };
+    }
+    bytes.push(text.len() as u32);
+    xs.push(x);
+    Clusters::from_pairs(bytes.into_iter().zip(xs)).expect("monotone bytes")
+}
+
+fn grapheme_clusters(text: &str, advance: f32) -> Clusters {
+    use unicode_segmentation::UnicodeSegmentation;
+    let mut bytes = Vec::new();
+    let mut xs = Vec::new();
+    let mut x = 0.0f32;
+    for (i, _) in text.grapheme_indices(true) {
+        bytes.push(i as u32);
+        xs.push(x);
+        x += advance;
+    }
+    bytes.push(text.len() as u32);
+    xs.push(x);
+    Clusters::from_pairs(bytes.into_iter().zip(xs)).expect("monotone bytes")
+}
+
+fn layout_in(
+    text: &str,
+    clusters: &Clusters,
+    width: f32,
+    em: f32,
+    mode: Mode,
+) -> (Vec<Placed>, Plan) {
+    let params = Params::default();
+    let code_ranges = no_ranges();
+    let opps = opportunities(text, &OppCtx { glue_before: &[] });
+    let items = build_items(
+        text,
+        clusters,
+        &opps,
+        &ItemCtx {
+            mode,
+            em,
+            width,
+            params: &params,
+            code_ranges: &code_ranges,
+            tab_ranges: &[],
+        },
+    );
+    let plan = break_lines(text, &items, width, em, mode, &params);
+    (items, plan)
+}
+
+#[test]
+fn fill_packs_every_line_until_the_next_chunk_overflows() {
+    let text = "从源码到屏幕：markdown-editor-rs 全链路走查";
+    let clusters = mixed_clusters(text);
+    let params = Params::default();
+    for step in 0..40 {
+        let width = 300.0 + step as f32 * 12.0;
+        let (items, plan) = layout_in(text, &clusters, width, 36.0, Mode::Fill);
+        assert!(
+            !plan.fallback,
+            "fill is the intended strategy, not a fallback"
+        );
+        assert_eq!(
+            plan.lines.last().unwrap().next,
+            text.len() as u32,
+            "@ {width}: the plan does not cover the text"
+        );
+        let calc = LineCalc::new(text, &items, width, 36.0, Mode::Fill, &params);
+        let breaks = calc.breakpoints();
+        let last = *breaks.last().unwrap();
+        for line in &plan.lines {
+            let Some(&next) = breaks.iter().find(|&&at| at > line.break_item) else {
+                continue;
+            };
+            let grown = calc.natural_at(line.item_start, next, next == last)[0];
+            assert!(
+                grown > f64::from(width),
+                "@ {width}: {:?} could still have taken the next break up to {grown}",
+                &text[line.start as usize..line.end as usize]
+            );
+        }
+    }
+}
+
+#[test]
+fn fill_leaves_the_last_line_short_instead_of_balancing() {
+    let text = "从源码到屏幕：markdown-editor-rs 全链路走查";
+    let clusters = mixed_clusters(text);
+    let width = 740.0;
+    let (items, plan) = layout_in(text, &clusters, width, 36.0, Mode::Fill);
+    assert_eq!(plan.lines.len(), 2, "{plan:?}");
+    let params = Params::default();
+    let calc = LineCalc::new(text, &items, width, 36.0, Mode::Fill, &params);
+    let first = calc.natural_at(plan.lines[0].item_start, plan.lines[0].break_item, false)[0];
+    let last = calc.natural_at(plan.lines[1].item_start, plan.lines[1].break_item, true)[0];
+    assert!(
+        first > f64::from(width) * 0.9,
+        "the first line stopped at {first} of {width}"
+    );
+    assert!(
+        last < f64::from(width) * 0.25,
+        "the last line holds {last} of {width}, so the plan is balancing again"
+    );
+}
+
+fn run_of_a(count: usize, mode: Mode) -> Vec<usize> {
+    let text = "a".repeat(count);
+    let clusters = uniform_clusters(&text, 8.0);
+    let (_, plan) = layout_in(&text, &clusters, 804.0, 16.0, mode);
+    plan.lines
+        .iter()
+        .map(|line| text[line.start as usize..line.end as usize].chars().count())
+        .collect()
+}
+
+fn a_run_cases() -> [(usize, Vec<usize>); 6] {
+    [
+        (100, vec![100]),
+        (101, vec![100, 1]),
+        (102, vec![100, 2]),
+        (200, vec![100, 100]),
+        (201, vec![100, 100, 1]),
+        (202, vec![100, 100, 2]),
+    ]
+}
+
+#[test]
+fn a_long_word_never_pulls_a_character_onto_the_previous_line() {
+    for (count, want) in a_run_cases() {
+        assert_eq!(
+            run_of_a(count, Mode::Ragged),
+            want,
+            "optimal body text, {count} a's"
+        );
+    }
+}
+
+#[test]
+fn a_justified_long_word_fills_the_first_line() {
+    for (count, want) in a_run_cases() {
+        assert_eq!(
+            run_of_a(count, Mode::Justify),
+            want,
+            "justified body text, {count} a's"
+        );
+    }
+}
+
+#[test]
+fn every_prefix_of_a_long_word_lays_out_without_gaps() {
+    for count in 1..=260 {
+        let text = "a".repeat(count);
+        let clusters = uniform_clusters(&text, 8.0);
+        for mode in [Mode::Ragged, Mode::Justify, Mode::Fill] {
+            let (_, plan) = layout_in(&text, &clusters, 804.0, 16.0, mode);
+            let mut cursor = 0u32;
+            for line in &plan.lines {
+                assert!(line.end > line.start, "{count} a's in {mode:?}: empty line");
+                assert_eq!(line.start, cursor, "{count} a's in {mode:?}: a gap");
+                assert!(!line.overfull, "{count} a's in {mode:?}: needless overflow");
+                cursor = line.next;
+            }
+            assert_eq!(cursor, text.len() as u32, "{count} a's in {mode:?}: short");
+        }
+    }
+}
+
+#[test]
+fn only_emergency_splits_mark_their_breaks() {
+    let params = Params::default();
+    let text = "ab cd";
+    let clusters = uniform_clusters(text, 8.0);
+    let (items, _) = layout_in(text, &clusters, 200.0, 16.0, Mode::Ragged);
+    let calc = LineCalc::new(text, &items, 200.0, 16.0, Mode::Ragged, &params);
+    assert!(!calc.breakpoints().is_empty());
+    for at in calc.breakpoints() {
+        assert!(
+            !calc.emergency_break(at),
+            "a space break was marked emergency"
+        );
+    }
+
+    let text = "a".repeat(101);
+    let clusters = uniform_clusters(&text, 8.0);
+    let (items, _) = layout_in(&text, &clusters, 804.0, 16.0, Mode::Ragged);
+    let calc = LineCalc::new(&text, &items, 804.0, 16.0, Mode::Ragged, &params);
+    let marked = calc
+        .breakpoints()
+        .into_iter()
+        .filter(|&at| calc.emergency_break(at))
+        .count();
+    assert_eq!(
+        marked, 100,
+        "every split inside the word carries its own mark"
+    );
+    for at in calc.breakpoints() {
+        assert!(
+            !matches!(calc.item(at), Item::Penalty { flagged: true, .. }),
+            "an emergency break reused the hyphen flag"
+        );
+    }
+
+    let text = "alpha-beta gamma";
+    let clusters = uniform_clusters(text, 8.0);
+    let (items, _) = layout_in(text, &clusters, 400.0, 16.0, Mode::Ragged);
+    let calc = LineCalc::new(text, &items, 400.0, 16.0, Mode::Ragged, &params);
+    let hyphen = calc
+        .breakpoints()
+        .into_iter()
+        .find(|&at| matches!(calc.item(at), Item::Penalty { flagged: true, .. }))
+        .expect("the hyphen offers a flagged break");
+    assert!(!calc.emergency_break(hyphen));
+}
+
+#[test]
+fn emergency_breaks_never_split_a_grapheme() {
+    for unit in ["👨‍👩‍👧‍👦", "e\u{301}", "🇨🇳"] {
+        let text = unit.repeat(40);
+        let clusters = grapheme_clusters(&text, 24.0);
+        for mode in [Mode::Ragged, Mode::Justify, Mode::Fill] {
+            let (_, plan) = layout_in(&text, &clusters, 200.0, 16.0, mode);
+            assert!(plan.lines.len() > 1, "{unit:?} {mode:?}: premise");
+            for line in &plan.lines {
+                let body = &text[line.start as usize..line.end as usize];
+                assert!(
+                    body.len().is_multiple_of(unit.len()),
+                    "{unit:?} {mode:?}: split a cluster at {body:?}"
+                );
+                assert!(body.starts_with(unit), "{unit:?} {mode:?}: {body:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn fill_keeps_cjk_punctuation_off_the_line_edges() {
+    let text = "从源码到屏幕：标点「引号」、括号（以及）都要正确地避头尾！";
+    let clusters = mixed_clusters(text);
+    for step in 0..20 {
+        let width = 200.0 + step as f32 * 20.0;
+        let (_, plan) = layout_in(text, &clusters, width, 36.0, Mode::Fill);
+        for line in &plan.lines {
+            let body = &text[line.start as usize..line.end as usize];
+            let first = body.chars().next().expect("a row is never empty");
+            let last = body.chars().next_back().expect("a row is never empty");
+            assert!(
+                !"，。、；：？！）」』】》".contains(first),
+                "@ {width}: {body:?} starts with {first}"
+            );
+            assert!(
+                !"（「『【《“".contains(last),
+                "@ {width}: {body:?} ends with {last}"
+            );
         }
     }
 }

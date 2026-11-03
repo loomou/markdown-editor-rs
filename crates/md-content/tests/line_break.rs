@@ -886,3 +886,80 @@ fn greedy_bands_still_split_at_every_atom(cx: &mut TestAppContext) {
         assert_eq!(part_end(&greedy.bands[0].parts[3]), text.len());
     });
 }
+
+const REPORTED_HEADING: &str = "从源码到屏幕：markdown-editor-rs 全链路走查";
+const CJK_HEADING: &str = "从源码到屏幕全链路走查每个环节都值得单独拿出来仔细讲一遍再讲一遍";
+
+#[gpui::test]
+fn a_heading_fills_every_row_before_the_last(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        let mut wrapped = 0usize;
+        for width in [240.0, 300.0, 360.0, 440.0, 520.0, 600.0, 680.0, 740.0] {
+            for mode in [LineBreakMode::Optimal, LineBreakMode::Justify] {
+                let art = plan(window, app, mode, CJK_HEADING, BlockKind::Heading(1), width);
+                let rows = rows(&art);
+                assert_eq!(rows.concat(), CJK_HEADING, "@ {width}px the rows lose text");
+                for row in &rows {
+                    assert!(!row.is_empty(), "@ {width}px an empty row appeared");
+                }
+                if rows.len() < 2 {
+                    continue;
+                }
+                wrapped += 1;
+                for line in &art.lines {
+                    let all = glyphs(line);
+                    let bounds = row_bounds(line);
+                    for (row, pair) in bounds.windows(2).enumerate() {
+                        let (next_start, _) = pair[1];
+                        let after = all
+                            .get(next_start + 1)
+                            .map_or(f32::from(line.unwrapped_layout.width), |&(_, x)| x);
+                        assert!(
+                            after > width as f32,
+                            "@ {width}px row {row} stopped early: the next character ends at {after}px"
+                        );
+                    }
+                }
+            }
+        }
+        assert!(wrapped >= 6, "premise: the heading wrapped at {wrapped} widths");
+    });
+}
+
+#[gpui::test]
+fn the_reported_heading_wraps_without_losing_text(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, app| {
+        for width in [600.0, 660.0, 700.0, 740.0, 780.0, 820.0, 900.0] {
+            for mode in [LineBreakMode::Optimal, LineBreakMode::Justify] {
+                let art = plan(
+                    window,
+                    app,
+                    mode,
+                    REPORTED_HEADING,
+                    BlockKind::Heading(1),
+                    width,
+                );
+                let rows = rows(&art);
+                assert_eq!(
+                    rows.concat(),
+                    REPORTED_HEADING,
+                    "@ {width}px the rows lose text"
+                );
+                for row in &rows {
+                    assert!(!row.is_empty(), "@ {width}px an empty row appeared");
+                }
+                for line in &art.lines {
+                    let bounds = row_bounds(line);
+                    for (row, &(start, end)) in bounds.iter().enumerate() {
+                        assert!(
+                            row_ink(line, row) > 0.0,
+                            "@ {width}px row {row} of {start}..{end} is blank"
+                        );
+                    }
+                }
+            }
+        }
+    });
+}
