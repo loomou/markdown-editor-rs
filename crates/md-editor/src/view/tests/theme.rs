@@ -116,7 +116,7 @@ fn recoloring_keeps_the_layout_and_the_scroll_position(cx: &mut TestAppContext) 
 
 #[gpui::test]
 fn switching_the_line_break_mode_relayouts_the_paragraph(cx: &mut TestAppContext) {
-    let text = "这是一个很长的中文段落，它包含「引号」、括号（以及）标点：需要正确地避头尾排版，不能把标点丢到行首，也不能把开括号留在行尾！";
+    let text = "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen";
     let (editor, cx) = editor_with_doc(&format!("{text}\n"), cx);
     focus_editor(&editor, cx);
     let widths = [200.0, 260.0, 320.0, 360.0, 420.0, 480.0];

@@ -16,4 +16,4 @@ fn empty_window(cx: &mut BenchAppContext<'_, '_>) {
 }
 
 gpui::bench_group!(benches, empty_window);
-gpui::bench_main!(benches);
+gpui::bench_main!(allocator = none; benches);

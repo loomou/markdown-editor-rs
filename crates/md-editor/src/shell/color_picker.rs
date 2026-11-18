@@ -170,14 +170,6 @@ impl Element for Placed {
     }
 }
 
-impl IntoElement for Placed {
-    type Element = Self;
-
-    fn into_element(self) -> Self {
-        self
-    }
-}
-
 fn paint_field(window: &mut Window, bounds: Bounds<Pixels>, hue: f32) {
     let (x0, y0) = (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
     let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));

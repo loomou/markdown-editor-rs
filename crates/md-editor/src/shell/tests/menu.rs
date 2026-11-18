@@ -271,7 +271,7 @@ fn click_at(cx: &mut gpui::VisualTestContext, at: gpui::Point<gpui::Pixels>) {
 }
 
 fn scroll_at(cx: &mut gpui::VisualTestContext, at: gpui::Point<gpui::Pixels>) {
-    cx.simulate_event(gpui::ScrollWheelEvent {
+    cx.simulate_event(gpui::ScrollEvent {
         position: at,
         delta: gpui::ScrollDelta::Lines(point(0.0, -3.0)),
         ..Default::default()

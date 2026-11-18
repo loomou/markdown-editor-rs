@@ -135,4 +135,4 @@ fn frame(case: &ModeCase, cx: &mut BenchAppContext<'_, '_>) {
 }
 
 gpui::bench_group!(benches, artifact, frame);
-gpui::bench_main!(benches);
+gpui::bench_main!(allocator = none; benches);

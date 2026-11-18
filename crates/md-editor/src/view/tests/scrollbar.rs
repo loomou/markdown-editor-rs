@@ -7,7 +7,7 @@ use crate::view::scrollbar::{
 use crate::view::{EditorElement, EditorView, ScrollbarGeom, WellBar, WellHit, WellScroll};
 use gpui::TestAppContext;
 use gpui::VisualTestContext;
-use gpui::{Modifiers, ScrollWheelEvent, point, px, size};
+use gpui::{Modifiers, ScrollEvent, point, px, size};
 use md_core::Px;
 use md_core::block::BlockKind;
 use md_render::snapshot::TextPiece;
@@ -430,7 +430,7 @@ fn wheel_over_the_well_head_feeds_the_well_not_the_document(cx: &mut TestAppCont
         piece.view_height
     );
     let head_h = cx.update(|_, app| editor.read(app).state.theme.decoration.well_head_h);
-    cx.simulate_event(ScrollWheelEvent {
+    cx.simulate_event(ScrollEvent {
         position: point(
             px((card.0 + card.2 * 0.5) as f32),
             px((card.1 + head_h * 0.5) as f32),
@@ -464,7 +464,7 @@ fn wheel_over_the_well_head_chains_to_the_document_when_the_well_fits(cx: &mut T
         piece.view_height
     );
     let head_h = cx.update(|_, app| editor.read(app).state.theme.decoration.well_head_h);
-    cx.simulate_event(ScrollWheelEvent {
+    cx.simulate_event(ScrollEvent {
         position: point(
             px((card.0 + card.2 * 0.5) as f32),
             px((card.1 + head_h * 0.5) as f32),
@@ -549,7 +549,7 @@ fn mermaid_source_well_keeps_its_scroll_across_doc_scroll(cx: &mut TestAppContex
             px((src.content_origin_device.0 + src.content_width * 0.5) as f32),
             px(((top + bottom) * 0.5 - doc) as f32),
         );
-        cx.simulate_event(ScrollWheelEvent {
+        cx.simulate_event(ScrollEvent {
             position: at,
             delta: gpui::ScrollDelta::Lines(point(0.0, dy)),
             ..Default::default()

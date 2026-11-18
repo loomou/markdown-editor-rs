@@ -2,6 +2,24 @@ use gpui::{Keystroke, Modifiers, SharedString};
 use md_core::document::TableOp;
 use md_i18n::Key;
 
+pub fn host_operating_system() -> gpui::OperatingSystem {
+    if cfg!(target_os = "macos") {
+        gpui::OperatingSystem::Mac
+    } else if cfg!(target_os = "windows") {
+        gpui::OperatingSystem::Windows
+    } else if cfg!(target_os = "linux") {
+        gpui::OperatingSystem::Linux
+    } else if cfg!(target_os = "freebsd") {
+        gpui::OperatingSystem::FreeBsd
+    } else if cfg!(target_os = "ios") {
+        gpui::OperatingSystem::Ios
+    } else if cfg!(target_os = "android") {
+        gpui::OperatingSystem::Android
+    } else {
+        gpui::OperatingSystem::Unknown
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Mods {
     pub ctrl: bool,
@@ -157,7 +175,7 @@ impl Chord {
     }
 
     pub fn parse(text: &str) -> Option<Self> {
-        Self::from_keystroke(&Keystroke::parse(text).ok()?)
+        Self::from_keystroke(&Keystroke::parse_with_os(text, host_operating_system()).ok()?)
     }
 
     pub fn matches(&self, k: &Keystroke) -> bool {
@@ -458,11 +476,11 @@ pub fn table_op_chord_cmd(op: TableOp) -> Option<Cmd> {
 #[cfg(test)]
 mod tests {
     use super::Cmd;
-    use super::{Chord, Keymap, Mods, RESERVED, Refusal, is_printable};
+    use super::{Chord, Keymap, Mods, RESERVED, Refusal, host_operating_system, is_printable};
     use gpui::{Keystroke, Modifiers};
 
     fn keystroke(text: &str) -> Keystroke {
-        Keystroke::parse(text).expect("test keystrokes must parse")
+        Keystroke::parse_with_os(text, host_operating_system()).expect("test keystrokes must parse")
     }
 
     #[test]
@@ -472,7 +490,7 @@ mod tests {
                 continue;
             };
             let text = chord.unparse();
-            let k = Keystroke::parse(&text).unwrap_or_else(|e| {
+            let k = Keystroke::parse_with_os(&text, host_operating_system()).unwrap_or_else(|e| {
                 panic!(
                     "{} wrote `{text}`, but gpui does not accept it: {e}",
                     cmd.key()

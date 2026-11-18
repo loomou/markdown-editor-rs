@@ -128,4 +128,4 @@ fn kp_limit(case: &KpCase, cx: &mut BenchAppContext<'_, '_>) {
 }
 
 gpui::bench_group!(benches, kp_limit);
-gpui::bench_main!(benches);
+gpui::bench_main!(allocator = none; benches);

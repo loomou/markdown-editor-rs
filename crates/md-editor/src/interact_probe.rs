@@ -7,13 +7,14 @@ use std::time::{Duration, Instant};
 
 use gpui::{
     App, AsyncWindowContext, Keystroke, Modifiers, MouseMoveEvent, Pixels, PlatformInput, Point,
-    ScrollDelta, ScrollWheelEvent, TouchPhase, WeakEntity, Window, px,
+    ScrollDelta, ScrollEvent, TouchPhase, WeakEntity, Window, px,
 };
 
 use md_core::doc::Doc;
 use md_core::document::{editor_options, load_markdown};
 
 use crate::Shell;
+use crate::keymap::host_operating_system;
 
 const ENV: &str = "MARKDOWN_EDITOR_RS_INTERACT_ONCE";
 const REPS_ENV: &str = "MARKDOWN_EDITOR_RS_INTERACT_REPS";
@@ -366,12 +367,13 @@ fn stamp(shell: &WeakEntity<Shell>, cx: &App) -> Option<Stamp> {
     })
 }
 
-fn wheel(position: Point<Pixels>) -> ScrollWheelEvent {
-    ScrollWheelEvent {
+fn wheel(position: Point<Pixels>) -> ScrollEvent {
+    ScrollEvent {
         position,
         delta: ScrollDelta::Lines(Point { x: 0.0, y: -3.0 }),
         modifiers: Modifiers::none(),
         touch_phase: TouchPhase::Moved,
+        source: gpui::ScrollSource::Pointer,
     }
 }
 
@@ -408,7 +410,7 @@ async fn next_frame(wcx: &mut AsyncWindowContext) {
 fn dispatch_keys(wcx: &mut AsyncWindowContext, keys: &[&str]) {
     let _ = wcx.update(|window, cx| {
         for source in keys {
-            if let Ok(keystroke) = Keystroke::parse(source) {
+            if let Ok(keystroke) = Keystroke::parse_with_os(source, host_operating_system()) {
                 window.dispatch_keystroke(keystroke, cx);
             }
         }
@@ -509,12 +511,14 @@ async fn run(
                     Op::Idle => {}
                     Op::ScrollNotch | Op::ScrollBurst => {
                         for _ in 0..op.notches() {
-                            window.dispatch_event(PlatformInput::ScrollWheel(wheel(centre)), cx);
+                            window.dispatch_event(PlatformInput::Scroll(wheel(centre)), cx);
                         }
                     }
                     _ => {
                         for source in op.keys() {
-                            if let Ok(keystroke) = Keystroke::parse(source) {
+                            if let Ok(keystroke) =
+                                Keystroke::parse_with_os(source, host_operating_system())
+                            {
                                 window.dispatch_keystroke(keystroke, cx);
                             }
                         }

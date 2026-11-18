@@ -367,4 +367,4 @@ gpui::bench_group!(
     render_settle_full,
     render_settle_wide_window
 );
-gpui::bench_main!(benches);
+gpui::bench_main!(allocator = none; benches);

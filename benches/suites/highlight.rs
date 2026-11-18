@@ -191,4 +191,4 @@ fn highlight_lang(case: &HighlightCase, cx: &mut BenchAppContext<'_, '_>) {
 }
 
 gpui::bench_group!(benches, highlight, highlight_lang);
-gpui::bench_main!(benches);
+gpui::bench_main!(allocator = none; benches);

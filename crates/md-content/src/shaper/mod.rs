@@ -3,7 +3,6 @@ use md_theme::{DecorationTokens, InlineTokens, LineBreakTokens, SyntaxTokens};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
-use std::sync::Arc;
 
 use crate::math::MathMetrics;
 
@@ -37,7 +36,7 @@ const SUPER_RISE: f32 = 0.4;
 const SUB_DROP: f32 = 0.2;
 
 pub struct GpuiShaper {
-    text_system: Arc<WindowTextSystem>,
+    text_system: Rc<WindowTextSystem>,
     roles: ResolvedTypes,
     cache: Rc<ShapeCache>,
     stats: RefCell<Stats>,

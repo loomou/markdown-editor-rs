@@ -41,8 +41,8 @@ md-render = { path = "crates/md-render" }
 md-editor-ui = { path = "crates/md-editor-ui" }
 md-editor = { path = "crates/md-editor" }
 
-gpui = { git = "https://github.com/zed-industries/zed.git", rev = "8eebe1ce1cd0190d44d9fac25f1bd71a4fc89a65" }
-gpui_platform = { git = "https://github.com/zed-industries/zed.git", rev = "8eebe1ce1cd0190d44d9fac25f1bd71a4fc89a65" }
+gpui = { package = "gpui-fast", version = "0.1.17" }
+gpui_platform = { package = "gpui-fast-platform", version = "0.1.17" }
 pulldown-cmark = { path = "third_party/pulldown-cmark", features = ["tree", "editor-mode"] }
 merman = { version = "=0.8.0-alpha.5", default-features = false, features = [
     "svg",
@@ -64,6 +64,7 @@ reqwest = { version = "0.12", default-features = false, features = [
 ] }
 tokio = { version = "1", features = ["rt-multi-thread", "time", "net"] }
 base64 = "0.22"
+anyhow = "1"
 percent-encoding = "2.3"
 futures = "0.3"
 smallvec = "1"

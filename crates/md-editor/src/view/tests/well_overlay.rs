@@ -3,7 +3,7 @@ use crate::view::paint::{collect_well_hits, overlay_in_well};
 use crate::view::{CursorMotion, Direction, EditorElement, EditorView, PendingPage, WellScroll};
 use gpui::TestAppContext;
 use gpui::VisualTestContext;
-use gpui::{Modifiers, ScrollWheelEvent, point, px, size};
+use gpui::{Modifiers, ScrollEvent, point, px, size};
 use md_core::Px;
 use md_core::block::BlockKind;
 use md_core::doc::Cursor;
@@ -47,7 +47,7 @@ fn code_piece(snap: &md_render::snapshot::LayoutSnapshot) -> TextPiece {
 
 fn wheel_over_well(piece: &TextPiece, cx: &mut VisualTestContext) {
     let (ox, oy) = piece.content_origin_device;
-    cx.simulate_event(ScrollWheelEvent {
+    cx.simulate_event(ScrollEvent {
         position: point(
             px((ox + piece.content_width * 0.5) as f32),
             px((oy + piece.view_height * 0.5) as f32),

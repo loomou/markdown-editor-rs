@@ -6,6 +6,8 @@ use gpui::{MouseButton, MouseDownEvent, px};
 use md_i18n::Key;
 use md_theme::{ColorSlot, Density, ThemeColor, ThemeVariant};
 
+static LANGUAGE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[gpui::test]
 fn settings_load_at_boot_and_write_back_on_change(cx: &mut TestAppContext) {
     let path = temp_settings_path("roundtrip");
@@ -270,6 +272,9 @@ fn every_settings_row_still_fits_in_the_other_language(cx: &mut TestAppContext) 
 
 #[gpui::test]
 fn the_settings_page_paints_the_words_that_the_key_table_holds(cx: &mut TestAppContext) {
+    let _language = LANGUAGE_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     use md_i18n::{Lang, current, t_in};
     let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(test_doc(), cx));
     stop_blink(&shell, cx);
@@ -326,6 +331,9 @@ fn the_settings_page_paints_the_words_that_the_key_table_holds(cx: &mut TestAppC
 
 #[gpui::test]
 fn picking_a_language_switches_this_run_and_writes_it_down(cx: &mut TestAppContext) {
+    let _language = LANGUAGE_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     use crate::store::settings::LanguageChoice;
     use md_i18n::Lang;
 

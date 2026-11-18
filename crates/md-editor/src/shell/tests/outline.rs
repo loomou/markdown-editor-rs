@@ -53,11 +53,12 @@ fn outline_scrolls_when_headings_overflow_the_panel(cx: &mut TestAppContext) {
     );
 
     let pos = scroll.viewport_bounds().center();
-    cx.simulate_event(gpui::ScrollWheelEvent {
+    cx.simulate_event(gpui::ScrollEvent {
         position: pos,
         delta: gpui::ScrollDelta::Pixels(point(px(0.0), px(-240.0))),
         modifiers: gpui::Modifiers::default(),
         touch_phase: gpui::TouchPhase::Moved,
+        source: gpui::ScrollSource::Pointer,
     });
     cx.run_until_parked();
     let scrolled = cx.update(|_, app| {
@@ -157,11 +158,12 @@ fn outline_wraps_a_wide_heading_instead_of_scrolling_sideways(cx: &mut TestAppCo
         "the outline must not grow a horizontal scrollbar"
     );
 
-    cx.simulate_event(gpui::ScrollWheelEvent {
+    cx.simulate_event(gpui::ScrollEvent {
         position: viewport.center(),
         delta: gpui::ScrollDelta::Pixels(point(px(-160.0), px(0.0))),
         modifiers: gpui::Modifiers::default(),
         touch_phase: gpui::TouchPhase::Moved,
+        source: gpui::ScrollSource::Pointer,
     });
     cx.run_until_parked();
     let after = cx.update(|_, app| {
@@ -566,11 +568,12 @@ fn outline_panel_keeps_the_current_row_visible(cx: &mut TestAppContext) {
     );
 
     let pos = shell.read_with(cx, |s, _| s.outline_scroll.viewport_bounds().center());
-    cx.simulate_event(gpui::ScrollWheelEvent {
+    cx.simulate_event(gpui::ScrollEvent {
         position: pos,
         delta: gpui::ScrollDelta::Pixels(point(px(0.0), px(96.0))),
         modifiers: gpui::Modifiers::default(),
         touch_phase: gpui::TouchPhase::Moved,
+        source: gpui::ScrollSource::Pointer,
     });
     cx.run_until_parked();
     let after_user = shell.read_with(cx, |s, _| {

@@ -1,4 +1,5 @@
 use super::{HTTP_TIMEOUT_SECS, MAX_FETCH};
+use anyhow::{Result, anyhow};
 use gpui::http_client::{self, AsyncBody, HttpClient, Request, Response};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::pin::Pin;
@@ -35,11 +36,11 @@ impl HttpClient for CappedHttpClient {
     fn send(
         &self,
         req: Request<AsyncBody>,
-    ) -> Pin<Box<dyn Future<Output = http_client::Result<Response<AsyncBody>>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Response<AsyncBody>>> + Send>> {
         let task = self.runtime.spawn(fetch_capped(req));
         Box::pin(async move {
             task.await
-                .map_err(|err| http_client::anyhow!("image request task failed: {err}"))?
+                .map_err(|err| anyhow!("image request task failed: {err}"))?
         })
     }
 
@@ -48,43 +49,41 @@ impl HttpClient for CappedHttpClient {
     }
 }
 
-async fn fetch_capped(req: Request<AsyncBody>) -> http_client::Result<Response<AsyncBody>> {
+async fn fetch_capped(req: Request<AsyncBody>) -> Result<Response<AsyncBody>> {
     if req.method() != http_client::http::Method::GET {
-        return Err(http_client::anyhow!("blocked method"));
+        return Err(anyhow!("blocked method"));
     }
     let mut url = reqwest::Url::parse(&req.uri().to_string())?;
     for redirects in 0..=MAX_REDIRECTS {
         let response = send_public(&url).await?;
         if response.status().is_redirection() {
             if redirects == MAX_REDIRECTS {
-                return Err(http_client::anyhow!("too many redirects"));
+                return Err(anyhow!("too many redirects"));
             }
             let location = response
                 .headers()
                 .get(reqwest::header::LOCATION)
-                .ok_or_else(|| http_client::anyhow!("redirect without location"))?
+                .ok_or_else(|| anyhow!("redirect without location"))?
                 .to_str()?;
             url = url.join(location)?;
             continue;
         }
         return response_to_gpui(response).await;
     }
-    Err(http_client::anyhow!("too many redirects"))
+    Err(anyhow!("too many redirects"))
 }
 
-async fn send_public(url: &reqwest::Url) -> http_client::Result<reqwest::Response> {
+async fn send_public(url: &reqwest::Url) -> Result<reqwest::Response> {
     if !matches!(url.scheme(), "http" | "https") {
-        return Err(http_client::anyhow!("blocked scheme"));
+        return Err(anyhow!("blocked scheme"));
     }
-    let host = url
-        .host_str()
-        .ok_or_else(|| http_client::anyhow!("missing host"))?;
+    let host = url.host_str().ok_or_else(|| anyhow!("missing host"))?;
     if blocked_hostname(host) {
-        return Err(http_client::anyhow!("blocked host"));
+        return Err(anyhow!("blocked host"));
     }
     let port = url
         .port_or_known_default()
-        .ok_or_else(|| http_client::anyhow!("missing port"))?;
+        .ok_or_else(|| anyhow!("missing port"))?;
     let addrs = public_addresses(host, port).await?;
     let mut builder = reqwest::Client::builder()
         .timeout(Duration::from_secs(HTTP_TIMEOUT_SECS))
@@ -101,10 +100,10 @@ async fn send_public(url: &reqwest::Url) -> http_client::Result<reqwest::Respons
         .map_err(Into::into)
 }
 
-async fn public_addresses(host: &str, port: u16) -> http_client::Result<Vec<SocketAddr>> {
+async fn public_addresses(host: &str, port: u16) -> Result<Vec<SocketAddr>> {
     if let Ok(ip) = host.parse::<IpAddr>() {
         if !is_public_ip(ip) {
-            return Err(http_client::anyhow!("blocked address"));
+            return Err(anyhow!("blocked address"));
         }
         return Ok(vec![SocketAddr::new(ip, port)]);
     }
@@ -112,24 +111,22 @@ async fn public_addresses(host: &str, port: u16) -> http_client::Result<Vec<Sock
     addrs.sort_unstable();
     addrs.dedup();
     if addrs.is_empty() || addrs.iter().any(|addr| !is_public_ip(addr.ip())) {
-        return Err(http_client::anyhow!("blocked address"));
+        return Err(anyhow!("blocked address"));
     }
     Ok(addrs)
 }
 
-async fn response_to_gpui(
-    mut response: reqwest::Response,
-) -> http_client::Result<Response<AsyncBody>> {
+async fn response_to_gpui(mut response: reqwest::Response) -> Result<Response<AsyncBody>> {
     let status = response.status().as_u16();
     if let Some(len) = response.content_length()
         && len > MAX_FETCH as u64
     {
-        return Err(http_client::anyhow!("too large"));
+        return Err(anyhow!("too large"));
     }
     let mut bytes = Vec::new();
     while let Some(chunk) = response.chunk().await? {
         if bytes.len().saturating_add(chunk.len()) > MAX_FETCH {
-            return Err(http_client::anyhow!("too large"));
+            return Err(anyhow!("too large"));
         }
         bytes.extend_from_slice(&chunk);
     }

@@ -156,4 +156,4 @@ fn scroll_mem(case: &FrameCase, cx: &mut BenchAppContext<'_, '_>) {
 }
 
 gpui::bench_group!(benches, scroll_mem);
-gpui::bench_main!(benches);
+gpui::bench_main!(allocator = none; benches);

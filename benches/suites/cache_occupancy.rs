@@ -203,4 +203,4 @@ fn scroll_session(case: &FrameCase, cx: &mut BenchAppContext<'_, '_>) {
 }
 
 gpui::bench_group!(benches, frame_width, scroll_session);
-gpui::bench_main!(benches);
+gpui::bench_main!(allocator = none; benches);

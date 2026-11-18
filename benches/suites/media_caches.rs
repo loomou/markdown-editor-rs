@@ -250,4 +250,4 @@ fn image_cache(case: &MediaCase, cx: &mut BenchAppContext<'_, '_>) {
 }
 
 gpui::bench_group!(benches, math_cache, mermaid_cache, image_cache);
-gpui::bench_main!(benches);
+gpui::bench_main!(allocator = none; benches);

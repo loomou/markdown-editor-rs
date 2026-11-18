@@ -15,7 +15,7 @@ md-content = { path = "../crates/md-content", features = ["bench-support"] }
 md-render = { path = "../crates/md-render" }
 md-editor = { path = "../crates/md-editor", features = ["bench-support", "hot_path"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
-gpui = { git = "https://github.com/zed-industries/zed.git", rev = "8eebe1ce1cd0190d44d9fac25f1bd71a4fc89a65", features = [
+gpui = { package = "gpui-fast", version = "0.1.17", features = [
     "bench-support",
 ] }
 
@@ -33,8 +33,8 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
-criterion = "0.5"
-gpui_platform = { git = "https://github.com/zed-industries/zed.git", rev = "8eebe1ce1cd0190d44d9fac25f1bd71a4fc89a65", features = [
+criterion = "0.8"
+gpui_platform = { package = "gpui-fast-platform", version = "0.1.17", features = [
     "bench-support",
 ] }
 

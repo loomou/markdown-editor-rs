@@ -1,15 +1,8 @@
 use super::{EditorElement, PrepaintState};
 use gpui::{
-    App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, IntoElement, LayoutId,
-    Pixels, Style, Window,
+    App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, LayoutId, Pixels, Style,
+    Window,
 };
-
-impl IntoElement for EditorElement {
-    type Element = Self;
-    fn into_element(self) -> Self::Element {
-        self
-    }
-}
 
 impl Element for EditorElement {
     type RequestLayoutState = ();

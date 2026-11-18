@@ -335,4 +335,4 @@ gpui::bench_group!(
     frame_split_tree,
     frame_split_assemble
 );
-gpui::bench_main!(benches);
+gpui::bench_main!(allocator = none; benches);

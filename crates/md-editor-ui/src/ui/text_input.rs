@@ -2,9 +2,8 @@ use crate::ui::blink::Blink;
 use gpui::ClipboardItem;
 use gpui::{
     App, Bounds, Context, Element, ElementId, ElementInputHandler, Entity, EntityInputHandler,
-    FocusHandle, Font, GlobalElementId, Hsla, InspectorElementId, IntoElement, LayoutId, Modifiers,
-    PaintQuad, Pixels, Point, ShapedLine, SharedString, TextAlign, TextRun, Window, fill, point,
-    px, size,
+    FocusHandle, Font, GlobalElementId, Hsla, InspectorElementId, LayoutId, Modifiers, PaintQuad,
+    Pixels, Point, ShapedLine, SharedString, TextAlign, TextRun, Window, fill, point, px, size,
 };
 use md_core::Px;
 use md_core::doc::floor_char_boundary;
@@ -606,13 +605,6 @@ pub struct TextInputElement<V: TextInputHost> {
 impl<V: TextInputHost> TextInputElement<V> {
     pub fn new(host: Entity<V>, style: InputStyle) -> Self {
         Self { host, style }
-    }
-}
-
-impl<V: TextInputHost> IntoElement for TextInputElement<V> {
-    type Element = Self;
-    fn into_element(self) -> Self::Element {
-        self
     }
 }
 

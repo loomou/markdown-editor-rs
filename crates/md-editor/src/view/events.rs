@@ -3,7 +3,7 @@ use super::{
     CursorMotion, EditorView, PendingClick, ScrollbarGeom, WellBar, WellHeadHit, WellHit,
     WellLangHit,
 };
-use gpui::{MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ScrollWheelEvent, Window};
+use gpui::{MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ScrollEvent, Window};
 use md_core::Px;
 use md_core::block::BlockKind;
 use md_core::doc::Cursor;
@@ -264,7 +264,7 @@ pub(super) fn on_mouse_down(f: &InputFrame, window: &mut Window) {
                 x: local.0,
                 y: local.1,
                 motion: CursorMotion::from_shift(shift),
-                follow_link: ev.modifiers.secondary(),
+                follow_link: ev.modifiers.secondary(cx),
                 select_word: ev.click_count == 2 && !shift,
             };
             if !v.place_caret_at_hit(&slot_snap, slot_rev, click, win, cx) {
@@ -444,7 +444,7 @@ pub(super) fn on_scroll_wheel(f: &InputFrame, window: &mut Window) {
     let ent2 = f.state.clone();
     let wells_w = Rc::clone(&f.wells);
     let scale_w = f.scale;
-    window.on_mouse_event(move |ev: &ScrollWheelEvent, phase, win, cx| {
+    window.on_mouse_event(move |ev: &ScrollEvent, phase, win, cx| {
         if !phase.bubble() {
             return;
         }

@@ -177,4 +177,4 @@ fn noop(case: &FrameCase, cx: &mut BenchAppContext<'_, '_>) {
 }
 
 gpui::bench_group!(benches, cold_open, keystroke, scroll, noop);
-gpui::bench_main!(benches);
+gpui::bench_main!(allocator = none; benches);

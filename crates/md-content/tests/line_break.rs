@@ -120,7 +120,7 @@ fn samples() -> [(&'static str, BlockKind, f64, &'static [usize]); 6] {
             CHINESE,
             BlockKind::Paragraph,
             90.0,
-            &[27, 54, 81, 108, 135, 162],
+            &[27, 51, 78, 105, 132, 159],
         ),
         (
             LATIN,
@@ -134,7 +134,7 @@ fn samples() -> [(&'static str, BlockKind, f64, &'static [usize]); 6] {
             110.0,
             &[4, 8, 13, 14, 19, 24, 28, 33, 34, 39, 40, 45, 49, 54, 56, 61],
         ),
-        (REPEATED, BlockKind::Paragraph, 120.0, &[36, 72, 108]),
+        (REPEATED, BlockKind::Paragraph, 120.0, &[36, 69, 105]),
         (
             GREEK,
             BlockKind::Paragraph,

@@ -120,4 +120,4 @@ fn media_scroll(case: &FrameCase, cx: &mut BenchAppContext<'_, '_>) {
 }
 
 gpui::bench_group!(benches, media_scroll);
-gpui::bench_main!(benches);
+gpui::bench_main!(allocator = none; benches);

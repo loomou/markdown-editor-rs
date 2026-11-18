@@ -16,6 +16,7 @@ image = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true }
 base64 = { workspace = true }
+anyhow = { workspace = true }
 percent-encoding = { workspace = true }
 futures = { workspace = true }
 smallvec = { workspace = true }

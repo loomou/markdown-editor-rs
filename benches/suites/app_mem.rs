@@ -166,4 +166,4 @@ fn app_mem(case: &AppCase, cx: &mut BenchAppContext<'_, '_>) {
 }
 
 gpui::bench_group!(benches, app_mem);
-gpui::bench_main!(benches);
+gpui::bench_main!(allocator = none; benches);

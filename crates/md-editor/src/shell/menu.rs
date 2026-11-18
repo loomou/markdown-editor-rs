@@ -5,7 +5,7 @@ use crate::view::table_commands::{TABLE_MENU, TableMenuEntry};
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, Bounds, ClickEvent, Context, Div, Entity, InteractiveElement, IntoElement, MouseButton,
-    MouseDownEvent, MouseMoveEvent, ParentElement, Pixels, Point, ScrollWheelEvent, Size, Stateful,
+    MouseDownEvent, MouseMoveEvent, ParentElement, Pixels, Point, ScrollEvent, Size, Stateful,
     StatefulInteractiveElement, Styled, Window, canvas, div, point, px,
 };
 use md_core::document::TableOp;
@@ -413,7 +413,7 @@ impl Shell {
             canvas(
                 |_, _, _| (),
                 move |_, _, window, _| {
-                    window.on_mouse_event(move |_: &ScrollWheelEvent, phase, _, cx| {
+                    window.on_mouse_event(move |_: &ScrollEvent, phase, _, cx| {
                         if !phase.bubble() {
                             return;
                         }
