@@ -2,14 +2,32 @@ use super::raster::target_for;
 use super::svg::{MAX_RASTER_PIXELS, first_viewbox, pad_svg_viewbox, strip_init};
 use super::{
     FAIL_LABEL_CAP, MAX_ENTRIES, MAX_FITTED_ENTRIES, MAX_IN_FLIGHT, MermaidCache, MermaidKey,
-    RasterSpec, WARM_EXTRA_ENTRIES, fail_label, fit_rect,
+    RasterSpec, VIEWBOX_PAD, WARM_EXTRA_ENTRIES, fail_label, fit_rect,
 };
 use crate::mermaid::raster::raster;
 use crate::mermaid::theme::{spec_from_theme, theme_fingerprint};
 use crate::pixels::{GPUI_MAX_EDGE, from_bgra};
 use gpui::SvgRenderer;
 use image::RgbaImage;
+use merman::svg::{RootBackgroundPostprocessor, SvgPipeline};
+use merman::{OperationControl, RenderOutput, RenderRequest, Renderer, SvgRequest};
 use std::sync::Arc;
+
+fn native_viewbox(src: &str, spec: &RasterSpec) -> (f32, f32, f32, f32) {
+    let theme = super::theme::compile(spec).expect("theme");
+    let pipeline = SvgPipeline::resvg_safe()
+        .with_postprocessor(RootBackgroundPostprocessor::new("transparent"));
+    let request = SvgRequest {
+        pipeline: Some(pipeline),
+        ..Default::default()
+    };
+    let request = RenderRequest::document(src, OperationControl::new(), request).with_theme(theme);
+    let output = Renderer::new().render(request).expect("native svg");
+    let RenderOutput::Document(Some(document)) = output else {
+        panic!("native render produced no document");
+    };
+    first_viewbox(document.svg()).expect("native root viewBox")
+}
 
 fn renderer() -> SvgRenderer {
     SvgRenderer::new(Arc::new(()))
@@ -291,10 +309,17 @@ fn paint_rect_contains_a_stale_large_bitmap() {
 fn mixed_flowchart_css_size_stays_near_native() {
     let spec = spec_fit(804, 420);
     let src = "flowchart TD\n  A0-->B0\n  B0-->C0\n";
+    let (_, _, native_w, native_h) = native_viewbox(src, &spec);
     let ready = raster(src, &spec, &renderer()).expect("raster");
     let (cw, ch) = ready.css_size();
-    assert!(ch > 240.0 && ch < 320.0, "css_h={ch}");
-    assert!(cw > 80.0 && cw < 160.0, "css_w={cw}");
+    assert!(
+        (cw - (native_w + VIEWBOX_PAD * 2.0)).abs() < 0.5,
+        "css_w={cw} native_w={native_w}"
+    );
+    assert!(
+        (ch - (native_h + VIEWBOX_PAD * 2.0)).abs() < 0.5,
+        "css_h={ch} native_h={native_h}"
+    );
     assert!(
         (ready.dpr - spec.dpr).abs() < 0.01,
         "the raster must carry the density it is shown at: dpr={} spec={}",
@@ -320,6 +345,31 @@ fn raster_leaves_the_diagram_background_transparent() {
             bytes[(y * w + x) * 4 + 3],
             0,
             "corner pixel ({x},{y}) is opaque"
+        );
+    }
+}
+
+#[test]
+fn the_canvas_stays_transparent_in_the_svg() {
+    for theme in [
+        md_theme::DocumentTheme::one_dark(),
+        md_theme::DocumentTheme::one_light(),
+    ] {
+        let spec = spec_for(theme, 804, 420);
+        let svg =
+            super::raster::render_svg("flowchart LR\n  qavwyyx --> preen\n", &spec).expect("svg");
+        assert!(
+            !svg.contains(&format!("fill=\"{}\"", spec.canvas)),
+            "the canvas color must not be painted as a background"
+        );
+        assert!(
+            !svg.contains("merman-theme-canvas-base"),
+            "the SVG must not carry a canvas base shape"
+        );
+        let root = &svg[..svg.find('>').expect("root tag") + 1];
+        assert!(
+            root.contains("background-color:transparent"),
+            "the root must stay transparent: {root}"
         );
     }
 }
@@ -624,14 +674,20 @@ fn byte_pressure_still_spares_the_warm_window() {
 #[test]
 fn render_svg_pads_the_root_viewbox() {
     let spec = spec_for(md_theme::DocumentTheme::one_dark(), 804, 420);
-    let svg = super::raster::render_svg("flowchart TD\n  A0-->B0\n", &spec).expect("svg");
+    let src = "flowchart TD\n  A0-->B0\n";
+    let (native_x, native_y, native_w, native_h) = native_viewbox(src, &spec);
+    let svg = super::raster::render_svg(src, &spec).expect("svg");
     let (x, y, w, h) = first_viewbox(&svg).expect("root viewBox");
     assert_eq!(
         (x, y),
-        (-super::VIEWBOX_PAD, -super::VIEWBOX_PAD),
-        "a flowchart natively starts at (0,0), so the origin is the evidence the pad took effect: {x} {y}"
+        (native_x - VIEWBOX_PAD, native_y - VIEWBOX_PAD),
+        "the padded origin must move out by the pad from the native origin: {x} {y}"
     );
-    assert!(w > 0.0 && h > 0.0);
+    assert_eq!(
+        (w, h),
+        (native_w + VIEWBOX_PAD * 2.0, native_h + VIEWBOX_PAD * 2.0),
+        "the padded size must grow by the pad on both sides"
+    );
 }
 
 #[test]

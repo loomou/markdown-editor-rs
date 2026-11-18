@@ -39,8 +39,6 @@ tree-sitter-css = { workspace = true }
 tree-sitter-yaml = { workspace = true }
 
 merman = { workspace = true }
-merman-core = { workspace = true }
-merman-render = { workspace = true }
 ratex-parser = { workspace = true }
 ratex-layout = { workspace = true }
 ratex-render = { workspace = true, optional = true }
