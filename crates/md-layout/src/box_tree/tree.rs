@@ -184,10 +184,7 @@ impl BoxTree {
             if self.get(cur).kind == BlockKind::Table {
                 return Some(cur);
             }
-            match self.get(cur).parent {
-                Some(p) => cur = p,
-                None => return None,
-            }
+            cur = self.get(cur).parent?;
         }
     }
 }

@@ -98,7 +98,7 @@ impl Animation {
 pub fn image_from_frames(frames: Vec<image::Frame>) -> Arc<RenderImage> {
     let mut frames = frames;
     for frame in &mut frames {
-        for pixel in frame.buffer_mut().chunks_exact_mut(4) {
+        for pixel in frame.buffer_mut().as_chunks_mut::<4>().0 {
             pixel.swap(0, 2);
         }
     }

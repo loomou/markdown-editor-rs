@@ -12,7 +12,7 @@ impl Chunk {
         for i in 0..len {
             let index = i + 1;
             tree[index] += height(i);
-            let parent = index + (index & index.wrapping_neg());
+            let parent = index + (index.isolate_lowest_one());
             if parent < tree.len() {
                 tree[parent] += tree[index];
             }
@@ -28,7 +28,7 @@ impl Chunk {
         index += 1;
         while index < self.tree.len() {
             self.tree[index] += delta;
-            index += index & index.wrapping_neg();
+            index += index.isolate_lowest_one();
         }
     }
 
@@ -36,7 +36,7 @@ impl Chunk {
         let mut sum = 0.0;
         while count > 0 {
             sum += self.tree[count];
-            count -= count & count.wrapping_neg();
+            count -= count.isolate_lowest_one();
         }
         sum
     }
@@ -87,7 +87,7 @@ impl Fenwick {
         for i in 0..self.chunks.len() {
             let index = i + 1;
             self.totals[index] += self.chunks[i].total();
-            let parent = index + (index & index.wrapping_neg());
+            let parent = index + (index.isolate_lowest_one());
             if parent < self.totals.len() {
                 self.totals[parent] += self.totals[index];
             }
@@ -98,7 +98,7 @@ impl Fenwick {
         index += 1;
         while index < self.totals.len() {
             self.totals[index] += delta;
-            index += index & index.wrapping_neg();
+            index += index.isolate_lowest_one();
         }
     }
 
@@ -106,7 +106,7 @@ impl Fenwick {
         let mut sum = 0.0;
         while count > 0 {
             sum += self.totals[count];
-            count -= count & count.wrapping_neg();
+            count -= count.isolate_lowest_one();
         }
         sum
     }

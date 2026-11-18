@@ -157,7 +157,7 @@ impl GpuiShaper {
             .shape_text(shaped.into(), font_size, &runs, wrap, None)
             .expect("shape_text")
             .into_iter()
-            .last()
+            .next_back()
             .unwrap_or_default()
     }
 
@@ -177,7 +177,7 @@ impl GpuiShaper {
                 .shape_text(" ".to_string().into(), font_size, &[], wrap, None)
                 .expect("shape_text")
                 .into_iter()
-                .last()
+                .next_back()
                 .unwrap_or_default();
         }
         let local_runs = slice_runs(runs, range.start as u32, range.end as u32);
@@ -187,7 +187,7 @@ impl GpuiShaper {
             .shape_text(shaped.into(), font_size, &styled, wrap, None)
             .expect("shape_text")
             .into_iter()
-            .last()
+            .next_back()
             .unwrap_or_default()
     }
 

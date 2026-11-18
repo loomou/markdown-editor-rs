@@ -96,7 +96,7 @@ fn the_raster_leaves_the_background_transparent() {
     assert_eq!(bytes.len(), 96 * 48 * 4);
     assert_eq!(bytes[3], 0, "the corner must stay transparent");
     assert!(
-        bytes.chunks_exact(4).any(|px| px[3] > 0),
+        bytes.as_chunks::<4>().0.iter().any(|px| px[3] > 0),
         "the formula must paint something"
     );
 }
